@@ -2176,7 +2176,9 @@ const form = reactive<SettingsForm>({
   allow_ungrouped_key_scheduling: false,
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
-  enable_metadata_passthrough: false
+  enable_metadata_passthrough: false,
+  default_upstream_user_agent: '',
+  force_unified_upstream_user_agent: false
 })
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
@@ -2485,7 +2487,9 @@ async function saveSettings() {
       max_claude_code_version: form.max_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
-      enable_metadata_passthrough: form.enable_metadata_passthrough
+      enable_metadata_passthrough: form.enable_metadata_passthrough,
+      default_upstream_user_agent: form.default_upstream_user_agent,
+      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent
     }
     const updated = await adminAPI.settings.updateSettings(payload)
     Object.assign(form, updated)
