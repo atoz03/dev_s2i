@@ -541,13 +541,15 @@ func TestAPIContracts(t *testing.T) {
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
 					"allow_ungrouped_key_scheduling": false,
-					"backend_mode_enabled": false,
-					"enable_fingerprint_unification": true,
-					"enable_metadata_passthrough": false,
-					"custom_menu_items": [],
-					"custom_endpoints": []
-				}
-			}`,
+						"backend_mode_enabled": false,
+						"enable_fingerprint_unification": true,
+						"enable_metadata_passthrough": false,
+						"default_upstream_user_agent": "",
+						"force_unified_upstream_user_agent": false,
+						"custom_menu_items": [],
+						"custom_endpoints": []
+					}
+				}`,
 		},
 		{
 			name:   "POST /api/v1/admin/accounts/bulk-update",
