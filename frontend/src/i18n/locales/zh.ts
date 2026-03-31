@@ -4352,6 +4352,11 @@ export default {
         fingerprintUnificationHint: '统一共享同一 OAuth 账号的用户的 X-Stainless-* 请求头。关闭后透传客户端原始请求头。',
         metadataPassthrough: 'Metadata 透传',
         metadataPassthroughHint: '透传客户端原始 metadata.user_id，不进行重写。可能提高上游缓存命中率。',
+        defaultUpstreamUserAgent: '默认上游 User-Agent',
+        defaultUpstreamUserAgentPlaceholder: '例如：Mozilla/5.0 ...',
+        defaultUpstreamUserAgentHint: '当客户端未显式提供 User-Agent 时，使用此值转发到上游。',
+        forceUnifiedUpstreamUserAgent: '强制统一上游 User-Agent',
+        forceUnifiedUpstreamUserAgentHint: '开启后，无论客户端传什么 User-Agent，都会被统一替换为上面的默认值。',
       },
       site: {
         title: '站点设置',

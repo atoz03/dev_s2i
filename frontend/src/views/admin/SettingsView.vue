@@ -1277,6 +1277,33 @@
 
             <div>
               <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.gatewayForwarding.defaultUpstreamUserAgent') }}
+              </label>
+              <input
+                v-model="form.default_upstream_user_agent"
+                type="text"
+                class="input"
+                :placeholder="t('admin.settings.gatewayForwarding.defaultUpstreamUserAgentPlaceholder')"
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.gatewayForwarding.defaultUpstreamUserAgentHint') }}
+              </p>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.gatewayForwarding.forceUnifiedUpstreamUserAgent') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.gatewayForwarding.forceUnifiedUpstreamUserAgentHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.force_unified_upstream_user_agent" />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 更新检查仓库
               </label>
               <input

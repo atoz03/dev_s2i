@@ -4189,6 +4189,11 @@ export default {
         fingerprintUnificationHint: 'Unify X-Stainless-* headers across users sharing the same OAuth account. Disabling passes through each client\'s original headers.',
         metadataPassthrough: 'Metadata Passthrough',
         metadataPassthroughHint: 'Pass through client\'s original metadata.user_id without rewriting. May improve upstream cache hit rates.',
+        defaultUpstreamUserAgent: 'Default Upstream User-Agent',
+        defaultUpstreamUserAgentPlaceholder: 'e.g. Mozilla/5.0 ...',
+        defaultUpstreamUserAgentHint: 'Used when client request does not explicitly provide User-Agent.',
+        forceUnifiedUpstreamUserAgent: 'Force Unified Upstream User-Agent',
+        forceUnifiedUpstreamUserAgentHint: 'When enabled, all upstream requests use the default User-Agent above, regardless of client headers.',
       },
       site: {
         title: 'Site Settings',
