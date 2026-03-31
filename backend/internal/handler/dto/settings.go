@@ -96,8 +96,10 @@ type SystemSettings struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification bool `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough    bool `json:"enable_metadata_passthrough"`
+	EnableFingerprintUnification  bool   `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough     bool   `json:"enable_metadata_passthrough"`
+	DefaultUpstreamUserAgent      string `json:"default_upstream_user_agent"`
+	ForceUnifiedUpstreamUserAgent bool   `json:"force_unified_upstream_user_agent"`
 }
 
 type DefaultSubscriptionSetting struct {

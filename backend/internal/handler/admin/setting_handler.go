@@ -131,6 +131,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BackendModeEnabled:                   settings.BackendModeEnabled,
 		EnableFingerprintUnification:         settings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            settings.EnableMetadataPassthrough,
+		DefaultUpstreamUserAgent:             settings.DefaultUpstreamUserAgent,
+		ForceUnifiedUpstreamUserAgent:        settings.ForceUnifiedUpstreamUserAgent,
 	})
 }
 
@@ -213,8 +215,10 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification *bool `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough    *bool `json:"enable_metadata_passthrough"`
+	EnableFingerprintUnification  *bool   `json:"enable_fingerprint_unification"`
+	EnableMetadataPassthrough     *bool   `json:"enable_metadata_passthrough"`
+	DefaultUpstreamUserAgent      *string `json:"default_upstream_user_agent"`
+	ForceUnifiedUpstreamUserAgent *bool   `json:"force_unified_upstream_user_agent"`
 }
 
 // UpdateSettings 更新系统设置
@@ -619,6 +623,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableMetadataPassthrough
 		}(),
+		DefaultUpstreamUserAgent: func() string {
+			if req.DefaultUpstreamUserAgent != nil {
+				return strings.TrimSpace(*req.DefaultUpstreamUserAgent)
+			}
+			return previousSettings.DefaultUpstreamUserAgent
+		}(),
+		ForceUnifiedUpstreamUserAgent: func() bool {
+			if req.ForceUnifiedUpstreamUserAgent != nil {
+				return *req.ForceUnifiedUpstreamUserAgent
+			}
+			return previousSettings.ForceUnifiedUpstreamUserAgent
+		}(),
 	}
 
 	if err := h.settingService.UpdateSettings(c.Request.Context(), settings); err != nil {
@@ -699,6 +715,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		BackendModeEnabled:                   updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:         updatedSettings.EnableFingerprintUnification,
 		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
+		DefaultUpstreamUserAgent:             updatedSettings.DefaultUpstreamUserAgent,
+		ForceUnifiedUpstreamUserAgent:        updatedSettings.ForceUnifiedUpstreamUserAgent,
 	})
 }
 
@@ -876,6 +894,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
+	}
+	if before.DefaultUpstreamUserAgent != after.DefaultUpstreamUserAgent {
+		changed = append(changed, "default_upstream_user_agent")
+	}
+	if before.ForceUnifiedUpstreamUserAgent != after.ForceUnifiedUpstreamUserAgent {
+		changed = append(changed, "force_unified_upstream_user_agent")
 	}
 	return changed
 }

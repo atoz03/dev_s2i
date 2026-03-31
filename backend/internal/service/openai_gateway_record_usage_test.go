@@ -143,6 +143,7 @@ func newOpenAIRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo U
 		nil,
 		&BillingCacheService{},
 		nil,
+		nil,
 		&DeferredService{},
 		nil,
 	)

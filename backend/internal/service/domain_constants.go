@@ -241,6 +241,10 @@ const (
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
 	// SettingKeyEnableMetadataPassthrough 是否透传客户端原始 metadata.user_id（默认 false）
 	SettingKeyEnableMetadataPassthrough = "enable_metadata_passthrough"
+	// SettingKeyDefaultUpstreamUserAgent 统一上游默认 User-Agent（空值表示不覆盖）
+	SettingKeyDefaultUpstreamUserAgent = "default_upstream_user_agent"
+	// SettingKeyForceUnifiedUpstreamUserAgent 是否强制统一上游 User-Agent（默认 false）
+	SettingKeyForceUnifiedUpstreamUserAgent = "force_unified_upstream_user_agent"
 )
 
 // AdminAPIKeyPrefix is the prefix for admin API keys (distinct from user "sk-" keys).

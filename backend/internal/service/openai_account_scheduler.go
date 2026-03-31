@@ -702,6 +702,44 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	}
 	rankedCandidates := selectTopKOpenAICandidates(candidates, topK)
 	selectionOrder := buildOpenAIWeightedSelectionOrder(rankedCandidates, req)
+	if s.service != nil && s.service.schedulingConfig().StrictPriorityMode {
+		minPriority := candidates[0].account.Priority
+		for _, candidate := range candidates[1:] {
+			if candidate.account.Priority < minPriority {
+				minPriority = candidate.account.Priority
+			}
+		}
+		strictCandidates := make([]openAIAccountCandidateScore, 0, len(candidates))
+		for _, candidate := range candidates {
+			if candidate.account.Priority == minPriority {
+				strictCandidates = append(strictCandidates, candidate)
+			}
+		}
+		sort.SliceStable(strictCandidates, func(i, j int) bool {
+			a, b := strictCandidates[i], strictCandidates[j]
+			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+				return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+			}
+			if a.loadInfo.WaitingCount != b.loadInfo.WaitingCount {
+				return a.loadInfo.WaitingCount < b.loadInfo.WaitingCount
+			}
+			switch {
+			case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
+				return true
+			case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
+				return false
+			case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
+				return a.account.ID < b.account.ID
+			default:
+				if !a.account.LastUsedAt.Equal(*b.account.LastUsedAt) {
+					return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
+				}
+				return a.account.ID < b.account.ID
+			}
+		})
+		topK = len(strictCandidates)
+		selectionOrder = strictCandidates
+	}
 
 	for i := 0; i < len(selectionOrder); i++ {
 		candidate := selectionOrder[i]

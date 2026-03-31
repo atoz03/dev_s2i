@@ -316,6 +316,7 @@ type OpenAIGatewayService struct {
 	billingService        *BillingService
 	rateLimitService      *RateLimitService
 	billingCacheService   *BillingCacheService
+	settingService        *SettingService
 	userGroupRateResolver *userGroupRateResolver
 	httpUpstream          HTTPUpstream
 	deferredService       *DeferredService
@@ -354,6 +355,7 @@ func NewOpenAIGatewayService(
 	billingService *BillingService,
 	rateLimitService *RateLimitService,
 	billingCacheService *BillingCacheService,
+	settingService *SettingService,
 	httpUpstream HTTPUpstream,
 	deferredService *DeferredService,
 	openAITokenProvider *OpenAITokenProvider,
@@ -372,6 +374,7 @@ func NewOpenAIGatewayService(
 		billingService:      billingService,
 		rateLimitService:    rateLimitService,
 		billingCacheService: billingCacheService,
+		settingService:      settingService,
 		userGroupRateResolver: newUserGroupRateResolver(
 			userGroupRateRepo,
 			nil,
@@ -1428,7 +1431,27 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
 		ordered := append([]*Account(nil), candidates...)
-		sortAccountsByPriorityAndLastUsed(ordered, false)
+		if s.strictPriorityModeEnabled() {
+			ordered = filterAccountsByMinPriority(ordered)
+			sort.SliceStable(ordered, func(i, j int) bool {
+				a, b := ordered[i], ordered[j]
+				switch {
+				case a.LastUsedAt == nil && b.LastUsedAt != nil:
+					return true
+				case a.LastUsedAt != nil && b.LastUsedAt == nil:
+					return false
+				case a.LastUsedAt == nil && b.LastUsedAt == nil:
+					return a.ID < b.ID
+				default:
+					if !a.LastUsedAt.Equal(*b.LastUsedAt) {
+						return a.LastUsedAt.Before(*b.LastUsedAt)
+					}
+					return a.ID < b.ID
+				}
+			})
+		} else {
+			sortAccountsByPriorityAndLastUsed(ordered, false)
+		}
 		for _, acc := range ordered {
 			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel)
 			if fresh == nil {
@@ -1462,6 +1485,9 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 		}
 
 		if len(available) > 0 {
+			if s.strictPriorityModeEnabled() {
+				available = filterByMinPriority(available)
+			}
 			sort.SliceStable(available, func(i, j int) bool {
 				a, b := available[i], available[j]
 				if a.account.Priority != b.account.Priority {
@@ -1481,7 +1507,9 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 					return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
 				}
 			})
-			shuffleWithinSortGroups(available)
+			if !s.strictPriorityModeEnabled() {
+				shuffleWithinSortGroups(available)
+			}
 
 			for _, item := range available {
 				fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, item.account, requestedModel)
@@ -1504,7 +1532,27 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	// ============ Layer 3: Fallback wait ============
-	sortAccountsByPriorityAndLastUsed(candidates, false)
+	if s.strictPriorityModeEnabled() {
+		candidates = filterAccountsByMinPriority(candidates)
+		sort.SliceStable(candidates, func(i, j int) bool {
+			a, b := candidates[i], candidates[j]
+			switch {
+			case a.LastUsedAt == nil && b.LastUsedAt != nil:
+				return true
+			case a.LastUsedAt != nil && b.LastUsedAt == nil:
+				return false
+			case a.LastUsedAt == nil && b.LastUsedAt == nil:
+				return a.ID < b.ID
+			default:
+				if !a.LastUsedAt.Equal(*b.LastUsedAt) {
+					return a.LastUsedAt.Before(*b.LastUsedAt)
+				}
+				return a.ID < b.ID
+			}
+		})
+	} else {
+		sortAccountsByPriorityAndLastUsed(candidates, false)
+	}
 	for _, acc := range candidates {
 		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, requestedModel)
 		if fresh == nil {
@@ -1618,6 +1666,7 @@ func (s *OpenAIGatewayService) schedulingConfig() config.GatewaySchedulingConfig
 		return s.cfg.Gateway.Scheduling
 	}
 	return config.GatewaySchedulingConfig{
+		StrictPriorityMode:       true,
 		StickySessionMaxWaiting:  3,
 		StickySessionWaitTimeout: 45 * time.Second,
 		FallbackWaitTimeout:      30 * time.Second,
@@ -1625,6 +1674,40 @@ func (s *OpenAIGatewayService) schedulingConfig() config.GatewaySchedulingConfig
 		LoadBatchEnabled:         true,
 		SlotCleanupInterval:      30 * time.Second,
 	}
+}
+
+func (s *OpenAIGatewayService) strictPriorityModeEnabled() bool {
+	return s.schedulingConfig().StrictPriorityMode
+}
+
+func (s *OpenAIGatewayService) applyUpstreamUserAgent(ctx context.Context, req *http.Request, account *Account) {
+	if req == nil {
+		return
+	}
+	if ua := s.resolveUpstreamUserAgent(ctx, account); ua != "" {
+		req.Header.Set("user-agent", ua)
+	}
+}
+
+func (s *OpenAIGatewayService) resolveUpstreamUserAgent(ctx context.Context, account *Account) string {
+	accountUA := ""
+	if account != nil {
+		accountUA = strings.TrimSpace(account.GetOpenAIUserAgent())
+	}
+	if s == nil || s.settingService == nil {
+		return accountUA
+	}
+	defaultUA, forceUnified := s.settingService.GetUpstreamUserAgentSettings(ctx)
+	defaultUA = strings.TrimSpace(defaultUA)
+	switch {
+	case forceUnified && defaultUA != "":
+		return defaultUA
+	case accountUA != "":
+		return accountUA
+	case defaultUA != "":
+		return defaultUA
+	}
+	return ""
 }
 
 // GetAccessToken gets the access token for an OpenAI account
@@ -2593,11 +2676,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		}
 	}
 
-	// 透传模式也支持账户自定义 User-Agent 与 ForceCodexCLI 兜底。
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		req.Header.Set("user-agent", customUA)
-	}
+	// 透传模式支持统一上游 User-Agent（系统级）与账户级 User-Agent。
+	s.applyUpstreamUserAgent(ctx, req, account)
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
@@ -2982,11 +3062,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 	}
 
-	// Apply custom User-Agent if configured
-	customUA := account.GetOpenAIUserAgent()
-	if customUA != "" {
-		req.Header.Set("user-agent", customUA)
-	}
+	// 优先应用统一上游 User-Agent（系统级），其次账户级 User-Agent。
+	s.applyUpstreamUserAgent(ctx, req, account)
 
 	// 若开启 ForceCodexCLI，则强制将上游 User-Agent 伪装为 Codex CLI。
 	// 用于网关未透传/改写 User-Agent 时，仍能命中 Codex 侧识别逻辑。

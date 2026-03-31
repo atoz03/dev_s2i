@@ -1539,7 +1539,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
 					}
 				})
-				shuffleWithinSortGroups(routingAvailable)
+				if s.strictPriorityModeEnabled() {
+					routingAvailable = filterByMinPriority(routingAvailable)
+				} else {
+					shuffleWithinSortGroups(routingAvailable)
+				}
 
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
@@ -1700,7 +1704,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
-		if result, ok := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); ok {
+		if s.strictPriorityModeEnabled() {
+			if result, ok := s.tryAcquireByStrictOrder(ctx, candidates, groupID, sessionHash, preferOAuth); ok {
+				return result, nil
+			}
+		} else if result, ok := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); ok {
 			return result, nil
 		}
 	} else {
@@ -1716,6 +1724,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					loadInfo: loadInfo,
 				})
 			}
+		}
+		if s.strictPriorityModeEnabled() {
+			available = filterByMinPriority(available)
 		}
 
 		// 分层过滤选择：优先级 → 负载率 → LRU
@@ -1760,6 +1771,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	// ============ Layer 3: 兜底排队 ============
+	if s.strictPriorityModeEnabled() {
+		candidates = filterAccountsByMinPriority(candidates)
+	}
 	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
 	for _, acc := range candidates {
 		// 会话数量限制检查（等待计划也需要占用会话配额）
@@ -1805,17 +1819,91 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 	return nil, false
 }
 
+func (s *GatewayService) tryAcquireByStrictOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool) {
+	ordered := append([]*Account(nil), candidates...)
+	ordered = filterAccountsByMinPriority(ordered)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		a, b := ordered[i], ordered[j]
+		switch {
+		case a.LastUsedAt == nil && b.LastUsedAt != nil:
+			return true
+		case a.LastUsedAt != nil && b.LastUsedAt == nil:
+			return false
+		case a.LastUsedAt == nil && b.LastUsedAt == nil:
+			if preferOAuth && a.Type != b.Type {
+				return a.Type == AccountTypeOAuth
+			}
+			return a.ID < b.ID
+		default:
+			if !a.LastUsedAt.Equal(*b.LastUsedAt) {
+				return a.LastUsedAt.Before(*b.LastUsedAt)
+			}
+			if preferOAuth && a.Type != b.Type {
+				return a.Type == AccountTypeOAuth
+			}
+			return a.ID < b.ID
+		}
+	})
+
+	for _, acc := range ordered {
+		result, err := s.tryAcquireAccountSlot(ctx, acc.ID, acc.Concurrency)
+		if err == nil && result.Acquired {
+			if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
+				result.ReleaseFunc()
+				continue
+			}
+			if sessionHash != "" && s.cache != nil {
+				_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, acc.ID, stickySessionTTL)
+			}
+			return &AccountSelectionResult{
+				Account:     acc,
+				Acquired:    true,
+				ReleaseFunc: result.ReleaseFunc,
+			}, true
+		}
+	}
+	return nil, false
+}
+
 func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
 	if s.cfg != nil {
 		return s.cfg.Gateway.Scheduling
 	}
 	return config.GatewaySchedulingConfig{
+		StrictPriorityMode:       true,
 		StickySessionMaxWaiting:  3,
 		StickySessionWaitTimeout: 45 * time.Second,
 		FallbackWaitTimeout:      30 * time.Second,
 		FallbackMaxWaiting:       100,
 		LoadBatchEnabled:         true,
 		SlotCleanupInterval:      30 * time.Second,
+	}
+}
+
+func (s *GatewayService) strictPriorityModeEnabled() bool {
+	return s.schedulingConfig().StrictPriorityMode
+}
+
+func (s *GatewayService) applyUnifiedUpstreamUserAgent(ctx context.Context, req *http.Request, accountUserAgent string) {
+	if req == nil {
+		return
+	}
+	accountUserAgent = strings.TrimSpace(accountUserAgent)
+	if s == nil || s.settingService == nil {
+		if accountUserAgent != "" {
+			setHeaderRaw(req.Header, "user-agent", accountUserAgent)
+		}
+		return
+	}
+	defaultUA, forceUnified := s.settingService.GetUpstreamUserAgentSettings(ctx)
+	defaultUA = strings.TrimSpace(defaultUA)
+	switch {
+	case forceUnified && defaultUA != "":
+		setHeaderRaw(req.Header, "user-agent", defaultUA)
+	case accountUserAgent != "":
+		setHeaderRaw(req.Header, "user-agent", accountUserAgent)
+	case defaultUA != "":
+		setHeaderRaw(req.Header, "user-agent", defaultUA)
 	}
 }
 
@@ -2516,6 +2604,25 @@ func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	return result
 }
 
+func filterAccountsByMinPriority(accounts []*Account) []*Account {
+	if len(accounts) == 0 {
+		return accounts
+	}
+	minPriority := accounts[0].Priority
+	for _, acc := range accounts[1:] {
+		if acc.Priority < minPriority {
+			minPriority = acc.Priority
+		}
+	}
+	result := make([]*Account, 0, len(accounts))
+	for _, acc := range accounts {
+		if acc.Priority == minPriority {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
 // filterByMinLoadRate 过滤出负载率最低的账号集合
 func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
@@ -2719,6 +2826,34 @@ func sameLastUsedAt(a, b *time.Time) bool {
 // sortCandidatesForFallback 根据配置选择排序策略
 // mode: "last_used"(按最后使用时间) 或 "random"(随机)
 func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOAuth bool, mode string) {
+	if s.strictPriorityModeEnabled() {
+		sort.SliceStable(accounts, func(i, j int) bool {
+			a, b := accounts[i], accounts[j]
+			if a.Priority != b.Priority {
+				return a.Priority < b.Priority
+			}
+			switch {
+			case a.LastUsedAt == nil && b.LastUsedAt != nil:
+				return true
+			case a.LastUsedAt != nil && b.LastUsedAt == nil:
+				return false
+			case a.LastUsedAt == nil && b.LastUsedAt == nil:
+				if preferOAuth && a.Type != b.Type {
+					return a.Type == AccountTypeOAuth
+				}
+				return a.ID < b.ID
+			default:
+				if !a.LastUsedAt.Equal(*b.LastUsedAt) {
+					return a.LastUsedAt.Before(*b.LastUsedAt)
+				}
+				if preferOAuth && a.Type != b.Type {
+					return a.Type == AccountTypeOAuth
+				}
+				return a.ID < b.ID
+			}
+		})
+		return
+	}
 	if mode == "random" {
 		// 先按优先级排序，然后在同优先级内随机打乱
 		sortAccountsByPriorityOnly(accounts, preferOAuth)
@@ -4971,6 +5106,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
+	s.applyUnifiedUpstreamUserAgent(ctx, req, "")
 
 	return req, nil
 }
@@ -5614,6 +5750,7 @@ func (s *GatewayService) buildUpstreamRequestBedrock(
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	s.applyUnifiedUpstreamUserAgent(ctx, req, "")
 
 	// SigV4 签名
 	if err := signer.SignRequest(ctx, req, body); err != nil {
@@ -5642,6 +5779,7 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	s.applyUnifiedUpstreamUserAgent(ctx, req, "")
 
 	return req, nil
 }
@@ -5779,6 +5917,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if getHeaderRaw(req.Header, "anthropic-version") == "" {
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
+	s.applyUnifiedUpstreamUserAgent(ctx, req, "")
 	if tokenType == "oauth" {
 		applyClaudeOAuthHeaderDefaults(req)
 	}

@@ -81,9 +81,11 @@ const backendModeDBTimeout = 5 * time.Second
 
 // cachedGatewayForwardingSettings 缓存网关转发行为设置（进程内缓存，60s TTL）
 type cachedGatewayForwardingSettings struct {
-	fingerprintUnification bool
-	metadataPassthrough    bool
-	expiresAt              int64 // unix nano
+	fingerprintUnification        bool
+	metadataPassthrough           bool
+	defaultUpstreamUserAgent      string
+	forceUnifiedUpstreamUserAgent bool
+	expiresAt                     int64 // unix nano
 }
 
 var gatewayForwardingCache atomic.Value // *cachedGatewayForwardingSettings
@@ -527,6 +529,8 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
+	updates[SettingKeyDefaultUpstreamUserAgent] = strings.TrimSpace(settings.DefaultUpstreamUserAgent)
+	updates[SettingKeyForceUnifiedUpstreamUserAgent] = strconv.FormatBool(settings.ForceUnifiedUpstreamUserAgent)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -544,9 +548,11 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 		})
 		gatewayForwardingSF.Forget("gateway_forwarding")
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-			fingerprintUnification: settings.EnableFingerprintUnification,
-			metadataPassthrough:    settings.EnableMetadataPassthrough,
-			expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+			fingerprintUnification:        settings.EnableFingerprintUnification,
+			metadataPassthrough:           settings.EnableMetadataPassthrough,
+			defaultUpstreamUserAgent:      strings.TrimSpace(settings.DefaultUpstreamUserAgent),
+			forceUnifiedUpstreamUserAgent: settings.ForceUnifiedUpstreamUserAgent,
+			expiresAt:                     time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		if s.onUpdate != nil {
 			s.onUpdate() // Invalidate cache after settings update
@@ -673,13 +679,17 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
 			SettingKeyEnableFingerprintUnification,
 			SettingKeyEnableMetadataPassthrough,
+			SettingKeyDefaultUpstreamUserAgent,
+			SettingKeyForceUnifiedUpstreamUserAgent,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
 			gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-				fingerprintUnification: true,
-				metadataPassthrough:    false,
-				expiresAt:              time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
+				fingerprintUnification:        true,
+				metadataPassthrough:           false,
+				defaultUpstreamUserAgent:      "",
+				forceUnifiedUpstreamUserAgent: false,
+				expiresAt:                     time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
 			return gwfResult{true, false}, nil
 		}
@@ -688,10 +698,14 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 			fp = v == "true"
 		}
 		mp := values[SettingKeyEnableMetadataPassthrough] == "true"
+		ua := strings.TrimSpace(values[SettingKeyDefaultUpstreamUserAgent])
+		forceUA := values[SettingKeyForceUnifiedUpstreamUserAgent] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-			fingerprintUnification: fp,
-			metadataPassthrough:    mp,
-			expiresAt:              time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+			fingerprintUnification:        fp,
+			metadataPassthrough:           mp,
+			defaultUpstreamUserAgent:      ua,
+			forceUnifiedUpstreamUserAgent: forceUA,
+			expiresAt:                     time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gwfResult{fp, mp}, nil
 	})
@@ -699,6 +713,22 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 		return r.fp, r.mp
 	}
 	return true, false // fail-open defaults
+}
+
+// GetUpstreamUserAgentSettings returns cached upstream User-Agent settings.
+// Returns (defaultUpstreamUserAgent, forceUnifiedUpstreamUserAgent).
+func (s *SettingService) GetUpstreamUserAgentSettings(ctx context.Context) (string, bool) {
+	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.defaultUpstreamUserAgent, cached.forceUnifiedUpstreamUserAgent
+		}
+	}
+	// 触发一次共享加载并复用同一缓存结构
+	_, _ = s.GetGatewayForwardingSettings(ctx)
+	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
+		return cached.defaultUpstreamUserAgent, cached.forceUnifiedUpstreamUserAgent
+	}
+	return "", false
 }
 
 // IsEmailVerifyEnabled 检查是否开启邮件验证
@@ -859,7 +889,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyMaxClaudeCodeVersion: "",
 
 		// 分组隔离（默认不允许未分组 Key 调度）
-		SettingKeyAllowUngroupedKeyScheduling: "false",
+		SettingKeyAllowUngroupedKeyScheduling:   "false",
+		SettingKeyDefaultUpstreamUserAgent:      "",
+		SettingKeyForceUnifiedUpstreamUserAgent: "false",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -1005,6 +1037,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.EnableFingerprintUnification = true // default: enabled (current behavior)
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
+	result.DefaultUpstreamUserAgent = strings.TrimSpace(settings[SettingKeyDefaultUpstreamUserAgent])
+	result.ForceUnifiedUpstreamUserAgent = settings[SettingKeyForceUnifiedUpstreamUserAgent] == "true"
 
 	return result
 }

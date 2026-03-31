@@ -90,6 +90,8 @@ export interface SystemSettings {
   // Gateway forwarding behavior
   enable_fingerprint_unification: boolean
   enable_metadata_passthrough: boolean
+  default_upstream_user_agent: string
+  force_unified_upstream_user_agent: boolean
 }
 
 export interface UpdateSettingsRequest {
@@ -148,6 +150,8 @@ export interface UpdateSettingsRequest {
   allow_ungrouped_key_scheduling?: boolean
   enable_fingerprint_unification?: boolean
   enable_metadata_passthrough?: boolean
+  default_upstream_user_agent?: string
+  force_unified_upstream_user_agent?: boolean
 }
 
 /**
