@@ -53,9 +53,11 @@ var ProviderSet = wire.NewSet(
 	NewAPIKeyRepository,
 	NewGroupRepository,
 	NewAccountRepository,
-	NewSoraAccountRepository,         // Sora 账号扩展表仓储
-	NewScheduledTestPlanRepository,   // 定时测试计划仓储
-	NewScheduledTestResultRepository, // 定时测试结果仓储
+	NewSoraAccountRepository,          // Sora 账号扩展表仓储
+	NewScheduledTestPlanRepository,    // 定时测试计划仓储
+	NewScheduledTestResultRepository,  // 定时测试结果仓储
+	NewEndpointProbePlanRepository,    // 端点测速计划仓储
+	NewEndpointProbeHistoryRepository, // 端点测速历史仓储
 	NewProxyRepository,
 	NewRedeemCodeRepository,
 	NewPromoCodeRepository,

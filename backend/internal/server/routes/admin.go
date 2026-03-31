@@ -401,6 +401,14 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
+		adminSettings.POST("/test-endpoint", h.Admin.Setting.TestEndpoint)
+		adminSettings.POST("/test-endpoint-batch", h.Admin.Setting.TestEndpointBatch)
+		adminSettings.GET("/endpoint-probe/plans", h.Admin.Setting.ListEndpointProbePlans)
+		adminSettings.POST("/endpoint-probe/plans", h.Admin.Setting.CreateEndpointProbePlan)
+		adminSettings.PUT("/endpoint-probe/plans/:id", h.Admin.Setting.UpdateEndpointProbePlan)
+		adminSettings.DELETE("/endpoint-probe/plans/:id", h.Admin.Setting.DeleteEndpointProbePlan)
+		adminSettings.POST("/endpoint-probe/plans/:id/run", h.Admin.Setting.RunEndpointProbePlanNow)
+		adminSettings.GET("/endpoint-probe/plans/:id/results", h.Admin.Setting.ListEndpointProbePlanResults)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		// Admin API Key 管理

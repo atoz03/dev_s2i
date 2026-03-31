@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,21 +38,33 @@ func generateMenuItemID() (string, error) {
 
 // SettingHandler 系统设置处理器
 type SettingHandler struct {
-	settingService   *service.SettingService
-	emailService     *service.EmailService
-	turnstileService *service.TurnstileService
-	opsService       *service.OpsService
-	soraS3Storage    *service.SoraS3Storage
+	settingService           *service.SettingService
+	emailService             *service.EmailService
+	turnstileService         *service.TurnstileService
+	opsService               *service.OpsService
+	soraS3Storage            *service.SoraS3Storage
+	endpointProbeService     *service.EndpointProbeService
+	endpointProbePlanService *service.EndpointProbePlanService
 }
 
 // NewSettingHandler 创建系统设置处理器
-func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService, soraS3Storage *service.SoraS3Storage) *SettingHandler {
+func NewSettingHandler(
+	settingService *service.SettingService,
+	emailService *service.EmailService,
+	turnstileService *service.TurnstileService,
+	opsService *service.OpsService,
+	soraS3Storage *service.SoraS3Storage,
+	endpointProbeService *service.EndpointProbeService,
+	endpointProbePlanService *service.EndpointProbePlanService,
+) *SettingHandler {
 	return &SettingHandler{
-		settingService:   settingService,
-		emailService:     emailService,
-		turnstileService: turnstileService,
-		opsService:       opsService,
-		soraS3Storage:    soraS3Storage,
+		settingService:           settingService,
+		emailService:             emailService,
+		turnstileService:         turnstileService,
+		opsService:               opsService,
+		soraS3Storage:            soraS3Storage,
+		endpointProbeService:     endpointProbeService,
+		endpointProbePlanService: endpointProbePlanService,
 	}
 }
 
@@ -952,6 +965,246 @@ type TestSMTPRequest struct {
 	SMTPUsername string `json:"smtp_username"`
 	SMTPPassword string `json:"smtp_password"`
 	SMTPUseTLS   bool   `json:"smtp_use_tls"`
+}
+
+// TestEndpointRequest 上游端点测速请求
+type TestEndpointRequest struct {
+	TargetURL string            `json:"target_url" binding:"required"`
+	Mode      string            `json:"mode"` // tcp/head/get
+	TimeoutMs int               `json:"timeout_ms"`
+	Headers   map[string]string `json:"headers"`
+}
+
+// TestEndpointBatchRequest 批量测速请求
+type TestEndpointBatchRequest struct {
+	Targets        []string          `json:"targets" binding:"required"`
+	Mode           string            `json:"mode"` // tcp/head/get
+	TimeoutMs      int               `json:"timeout_ms"`
+	Headers        map[string]string `json:"headers"`
+	MaxConcurrency int               `json:"max_concurrency"`
+}
+
+type EndpointProbePlanRequest struct {
+	Name            string            `json:"name" binding:"required"`
+	Enabled         *bool             `json:"enabled"`
+	Mode            string            `json:"mode"`
+	Targets         []string          `json:"targets" binding:"required"`
+	Headers         map[string]string `json:"headers"`
+	TimeoutMs       int               `json:"timeout_ms"`
+	IntervalSeconds int               `json:"interval_seconds"`
+	MaxConcurrency  int               `json:"max_concurrency"`
+}
+
+// TestEndpoint 测试上游端点连通性与延迟
+// POST /api/v1/admin/settings/test-endpoint
+func (h *SettingHandler) TestEndpoint(c *gin.Context) {
+	if h.endpointProbeService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	var req TestEndpointRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	result, err := h.endpointProbeService.Probe(c.Request.Context(), service.EndpointProbeRequest{
+		TargetURL: strings.TrimSpace(req.TargetURL),
+		Mode:      strings.TrimSpace(req.Mode),
+		TimeoutMs: req.TimeoutMs,
+		Headers:   req.Headers,
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, result)
+}
+
+// TestEndpointBatch 批量测试上游端点连通性与延迟（结果按健康度+延迟排序）
+// POST /api/v1/admin/settings/test-endpoint-batch
+func (h *SettingHandler) TestEndpointBatch(c *gin.Context) {
+	if h.endpointProbeService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	var req TestEndpointBatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	results, err := h.endpointProbeService.ProbeBatch(c.Request.Context(), service.EndpointBatchProbeRequest{
+		Targets:        req.Targets,
+		Mode:           strings.TrimSpace(req.Mode),
+		TimeoutMs:      req.TimeoutMs,
+		Headers:        req.Headers,
+		MaxConcurrency: req.MaxConcurrency,
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, gin.H{
+		"items": results,
+		"best": func() *service.EndpointProbeResult {
+			if len(results) == 0 {
+				return nil
+			}
+			return results[0]
+		}(),
+	})
+}
+
+// ListEndpointProbePlans 获取端点测速计划
+// GET /api/v1/admin/settings/endpoint-probe/plans
+func (h *SettingHandler) ListEndpointProbePlans(c *gin.Context) {
+	if h.endpointProbePlanService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	plans, err := h.endpointProbePlanService.ListPlans(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, plans)
+}
+
+// CreateEndpointProbePlan 创建端点测速计划
+// POST /api/v1/admin/settings/endpoint-probe/plans
+func (h *SettingHandler) CreateEndpointProbePlan(c *gin.Context) {
+	if h.endpointProbePlanService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	var req EndpointProbePlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	plan, err := h.endpointProbePlanService.CreatePlan(c.Request.Context(), &service.EndpointProbePlan{
+		Name:            strings.TrimSpace(req.Name),
+		Enabled:         enabled,
+		Mode:            strings.TrimSpace(req.Mode),
+		Targets:         req.Targets,
+		Headers:         req.Headers,
+		TimeoutMs:       req.TimeoutMs,
+		IntervalSeconds: req.IntervalSeconds,
+		MaxConcurrency:  req.MaxConcurrency,
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, plan)
+}
+
+// UpdateEndpointProbePlan 更新端点测速计划
+// PUT /api/v1/admin/settings/endpoint-probe/plans/:id
+func (h *SettingHandler) UpdateEndpointProbePlan(c *gin.Context) {
+	if h.endpointProbePlanService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || planID <= 0 {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	existing, err := h.endpointProbePlanService.GetPlan(c.Request.Context(), planID)
+	if err != nil {
+		response.NotFound(c, "plan not found")
+		return
+	}
+	var req EndpointProbePlanRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	existing.Name = strings.TrimSpace(req.Name)
+	existing.Mode = strings.TrimSpace(req.Mode)
+	existing.Targets = req.Targets
+	existing.Headers = req.Headers
+	existing.TimeoutMs = req.TimeoutMs
+	existing.IntervalSeconds = req.IntervalSeconds
+	existing.MaxConcurrency = req.MaxConcurrency
+	if req.Enabled != nil {
+		existing.Enabled = *req.Enabled
+	}
+	updated, err := h.endpointProbePlanService.UpdatePlan(c.Request.Context(), existing)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.Success(c, updated)
+}
+
+// DeleteEndpointProbePlan 删除端点测速计划
+// DELETE /api/v1/admin/settings/endpoint-probe/plans/:id
+func (h *SettingHandler) DeleteEndpointProbePlan(c *gin.Context) {
+	if h.endpointProbePlanService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || planID <= 0 {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	if err = h.endpointProbePlanService.DeletePlan(c.Request.Context(), planID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "deleted"})
+}
+
+// RunEndpointProbePlanNow 立即执行端点测速计划
+// POST /api/v1/admin/settings/endpoint-probe/plans/:id/run
+func (h *SettingHandler) RunEndpointProbePlanNow(c *gin.Context) {
+	if h.endpointProbePlanService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || planID <= 0 {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	results, err := h.endpointProbePlanService.RunNow(c.Request.Context(), planID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": results})
+}
+
+// ListEndpointProbePlanResults 获取测速历史
+// GET /api/v1/admin/settings/endpoint-probe/plans/:id/results
+func (h *SettingHandler) ListEndpointProbePlanResults(c *gin.Context) {
+	if h.endpointProbePlanService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "endpoint probe service is not available")
+		return
+	}
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || planID <= 0 {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if v, parseErr := strconv.Atoi(raw); parseErr == nil && v > 0 {
+			limit = v
+		}
+	}
+	items, err := h.endpointProbePlanService.ListResults(c.Request.Context(), planID, limit)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, items)
 }
 
 // TestSMTPConnection 测试SMTP连接

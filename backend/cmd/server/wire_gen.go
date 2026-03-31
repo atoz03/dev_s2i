@@ -183,10 +183,14 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	opsService := service.NewOpsService(opsRepository, settingRepository, configConfig, accountRepository, userRepository, concurrencyService, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, opsSystemLogSink)
 	soraS3Storage := service.NewSoraS3Storage(settingService)
 	settingService.SetOnS3UpdateCallback(soraS3Storage.RefreshClient)
+	endpointProbeService := service.NewEndpointProbeService(settingService)
+	endpointProbePlanRepository := repository.NewEndpointProbePlanRepository(db)
+	endpointProbeHistoryRepository := repository.NewEndpointProbeHistoryRepository(db)
+	endpointProbePlanService := service.NewEndpointProbePlanService(endpointProbePlanRepository, endpointProbeHistoryRepository, endpointProbeService)
 	soraGenerationRepository := repository.NewSoraGenerationRepository(db)
 	soraQuotaService := service.NewSoraQuotaService(userRepository, groupRepository, settingService)
 	soraGenerationService := service.NewSoraGenerationService(soraGenerationRepository, soraS3Storage, soraQuotaService)
-	settingHandler := admin.NewSettingHandler(settingService, emailService, turnstileService, opsService, soraS3Storage)
+	settingHandler := admin.NewSettingHandler(settingService, emailService, turnstileService, opsService, soraS3Storage, endpointProbeService, endpointProbePlanService)
 	opsHandler := admin.NewOpsHandler(opsService)
 	updateCache := repository.NewUpdateCache(redisClient)
 	gitHubReleaseClient := repository.ProvideGitHubReleaseClient(configConfig)
@@ -244,7 +248,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountExpiryService := service.ProvideAccountExpiryService(accountRepository)
 	subscriptionExpiryService := service.ProvideSubscriptionExpiryService(userSubscriptionRepository)
 	scheduledTestRunnerService := service.ProvideScheduledTestRunnerService(scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, configConfig)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, soraMediaCleanupService, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService)
+	endpointProbeRunnerService := service.ProvideEndpointProbeRunnerService(endpointProbePlanService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, soraMediaCleanupService, schedulerSnapshotService, tokenRefreshService, accountExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, openAIGatewayService, scheduledTestRunnerService, endpointProbeRunnerService, backupService)
 	application := &Application{
 		Server:  httpServer,
 		Cleanup: v,
@@ -297,6 +302,7 @@ func provideCleanup(
 	antigravityOAuth *service.AntigravityOAuthService,
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
+	endpointProbeRunner *service.EndpointProbeRunnerService,
 	backupSvc *service.BackupService,
 ) func() {
 	return func() {
@@ -430,6 +436,12 @@ func provideCleanup(
 			{"ScheduledTestRunnerService", func() error {
 				if scheduledTestRunner != nil {
 					scheduledTestRunner.Stop()
+				}
+				return nil
+			}},
+			{"EndpointProbeRunnerService", func() error {
+				if endpointProbeRunner != nil {
+					endpointProbeRunner.Stop()
 				}
 				return nil
 			}},

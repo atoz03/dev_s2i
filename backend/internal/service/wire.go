@@ -365,6 +365,12 @@ func ProvideScheduledTestRunnerService(
 	return svc
 }
 
+func ProvideEndpointProbeRunnerService(planService *EndpointProbePlanService) *EndpointProbeRunnerService {
+	svc := NewEndpointProbeRunnerService(planService)
+	svc.Start()
+	return svc
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -487,6 +493,9 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,
 	ProvideIdempotencyCleanupService,
+	NewEndpointProbeService,
+	NewEndpointProbePlanService,
+	ProvideEndpointProbeRunnerService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupCapacityService,

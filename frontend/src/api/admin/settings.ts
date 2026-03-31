@@ -184,6 +184,79 @@ export interface TestSmtpRequest {
   smtp_use_tls: boolean
 }
 
+export interface TestEndpointRequest {
+  target_url: string
+  mode?: 'tcp' | 'head' | 'get' | string
+  timeout_ms?: number
+  headers?: Record<string, string>
+}
+
+export interface TestEndpointResult {
+  target_url: string
+  mode: string
+  success: boolean
+  status_code?: number
+  latency_ms: number
+  resolved_user_agent?: string
+  response_len?: number
+  message?: string
+  headers?: Record<string, string>
+}
+
+export interface TestEndpointBatchRequest {
+  targets: string[]
+  mode?: 'tcp' | 'head' | 'get' | string
+  timeout_ms?: number
+  headers?: Record<string, string>
+  max_concurrency?: number
+}
+
+export interface TestEndpointBatchResponse {
+  items: TestEndpointResult[]
+  best?: TestEndpointResult
+}
+
+export interface EndpointProbePlan {
+  id: number
+  name: string
+  enabled: boolean
+  mode: string
+  targets: string[]
+  headers: Record<string, string>
+  timeout_ms: number
+  interval_seconds: number
+  max_concurrency: number
+  last_run_at?: string
+  next_run_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface EndpointProbePlanRequest {
+  name: string
+  enabled?: boolean
+  mode?: 'tcp' | 'head' | 'get' | string
+  targets: string[]
+  headers?: Record<string, string>
+  timeout_ms?: number
+  interval_seconds?: number
+  max_concurrency?: number
+}
+
+export interface EndpointProbeHistory {
+  id: number
+  plan_id: number
+  target_url: string
+  mode: string
+  success: boolean
+  status_code?: number
+  latency_ms: number
+  message?: string
+  resolved_user_agent?: string
+  probed_at: string
+  created_at: string
+}
+
 /**
  * Test SMTP connection with provided config
  * @param config - SMTP configuration to test
@@ -191,6 +264,62 @@ export interface TestSmtpRequest {
  */
 export async function testSmtpConnection(config: TestSmtpRequest): Promise<{ message: string }> {
   const { data } = await apiClient.post<{ message: string }>('/admin/settings/test-smtp', config)
+  return data
+}
+
+export async function testEndpointProbe(request: TestEndpointRequest): Promise<TestEndpointResult> {
+  const { data } = await apiClient.post<TestEndpointResult>('/admin/settings/test-endpoint', request)
+  return data
+}
+
+export async function testEndpointProbeBatch(
+  request: TestEndpointBatchRequest
+): Promise<TestEndpointBatchResponse> {
+  const { data } = await apiClient.post<TestEndpointBatchResponse>(
+    '/admin/settings/test-endpoint-batch',
+    request
+  )
+  return data
+}
+
+export async function listEndpointProbePlans(): Promise<EndpointProbePlan[]> {
+  const { data } = await apiClient.get<EndpointProbePlan[]>('/admin/settings/endpoint-probe/plans')
+  return data
+}
+
+export async function createEndpointProbePlan(
+  request: EndpointProbePlanRequest
+): Promise<EndpointProbePlan> {
+  const { data } = await apiClient.post<EndpointProbePlan>('/admin/settings/endpoint-probe/plans', request)
+  return data
+}
+
+export async function updateEndpointProbePlan(
+  id: number,
+  request: EndpointProbePlanRequest
+): Promise<EndpointProbePlan> {
+  const { data } = await apiClient.put<EndpointProbePlan>(`/admin/settings/endpoint-probe/plans/${id}`, request)
+  return data
+}
+
+export async function deleteEndpointProbePlan(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/admin/settings/endpoint-probe/plans/${id}`)
+  return data
+}
+
+export async function runEndpointProbePlanNow(id: number): Promise<{ items: TestEndpointResult[] }> {
+  const { data } = await apiClient.post<{ items: TestEndpointResult[] }>(`/admin/settings/endpoint-probe/plans/${id}/run`)
+  return data
+}
+
+export async function listEndpointProbePlanResults(
+  id: number,
+  limit = 100
+): Promise<EndpointProbeHistory[]> {
+  const { data } = await apiClient.get<EndpointProbeHistory[]>(
+    `/admin/settings/endpoint-probe/plans/${id}/results`,
+    { params: { limit } }
+  )
   return data
 }
 
