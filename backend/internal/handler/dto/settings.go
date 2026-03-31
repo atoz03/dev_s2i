@@ -100,6 +100,7 @@ type SystemSettings struct {
 	EnableMetadataPassthrough     bool   `json:"enable_metadata_passthrough"`
 	DefaultUpstreamUserAgent      string `json:"default_upstream_user_agent"`
 	ForceUnifiedUpstreamUserAgent bool   `json:"force_unified_upstream_user_agent"`
+	UpdateGitHubRepo              string `json:"update_github_repo"`
 }
 
 type DefaultSubscriptionSetting struct {

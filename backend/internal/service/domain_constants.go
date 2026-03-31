@@ -245,6 +245,8 @@ const (
 	SettingKeyDefaultUpstreamUserAgent = "default_upstream_user_agent"
 	// SettingKeyForceUnifiedUpstreamUserAgent 是否强制统一上游 User-Agent（默认 false）
 	SettingKeyForceUnifiedUpstreamUserAgent = "force_unified_upstream_user_agent"
+	// SettingKeyUpdateGitHubRepo 系统更新检查仓库（格式：owner/repo）
+	SettingKeyUpdateGitHubRepo = "update_github_repo"
 )
 
 // AdminAPIKeyPrefix is the prefix for admin API keys (distinct from user "sk-" keys).

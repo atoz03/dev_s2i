@@ -92,6 +92,7 @@ export interface SystemSettings {
   enable_metadata_passthrough: boolean
   default_upstream_user_agent: string
   force_unified_upstream_user_agent: boolean
+  update_github_repo: string
 }
 
 export interface UpdateSettingsRequest {
@@ -152,6 +153,7 @@ export interface UpdateSettingsRequest {
   enable_metadata_passthrough?: boolean
   default_upstream_user_agent?: string
   force_unified_upstream_user_agent?: boolean
+  update_github_repo?: string
 }
 
 /**

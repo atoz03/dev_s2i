@@ -81,6 +81,7 @@ type SystemSettings struct {
 	EnableMetadataPassthrough     bool // 是否透传客户端原始 metadata（默认 false）
 	DefaultUpstreamUserAgent      string
 	ForceUnifiedUpstreamUserAgent bool
+	UpdateGitHubRepo              string
 }
 
 type DefaultSubscriptionSetting struct {

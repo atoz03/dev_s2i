@@ -1274,6 +1274,21 @@
               </div>
               <Toggle v-model="form.enable_metadata_passthrough" />
             </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                更新检查仓库
+              </label>
+              <input
+                v-model="form.update_github_repo"
+                type="text"
+                class="input max-w-md font-mono text-sm"
+                placeholder="owner/repo（例如 atoz03/sub2api）"
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                前端“检查更新/刷新”按钮会按此仓库读取 latest release。
+              </p>
+            </div>
           </div>
         </div>
         </div><!-- /Tab: Gateway — Claude Code, Scheduling -->
@@ -2178,7 +2193,8 @@ const form = reactive<SettingsForm>({
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   default_upstream_user_agent: '',
-  force_unified_upstream_user_agent: false
+  force_unified_upstream_user_agent: false,
+  update_github_repo: 'atoz03/sub2api'
 })
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
@@ -2489,7 +2505,8 @@ async function saveSettings() {
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       default_upstream_user_agent: form.default_upstream_user_agent,
-      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent
+      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent,
+      update_github_repo: form.update_github_repo
     }
     const updated = await adminAPI.settings.updateSettings(payload)
     Object.assign(form, updated)

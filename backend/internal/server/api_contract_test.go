@@ -546,6 +546,7 @@ func TestAPIContracts(t *testing.T) {
 						"enable_metadata_passthrough": false,
 						"default_upstream_user_agent": "",
 						"force_unified_upstream_user_agent": false,
+						"update_github_repo": "atoz03/sub2api",
 						"custom_menu_items": [],
 						"custom_endpoints": []
 					}

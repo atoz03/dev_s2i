@@ -531,6 +531,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
 	updates[SettingKeyDefaultUpstreamUserAgent] = strings.TrimSpace(settings.DefaultUpstreamUserAgent)
 	updates[SettingKeyForceUnifiedUpstreamUserAgent] = strconv.FormatBool(settings.ForceUnifiedUpstreamUserAgent)
+	updates[SettingKeyUpdateGitHubRepo] = normalizeGitHubRepo(settings.UpdateGitHubRepo)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -892,6 +893,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAllowUngroupedKeyScheduling:   "false",
 		SettingKeyDefaultUpstreamUserAgent:      "",
 		SettingKeyForceUnifiedUpstreamUserAgent: "false",
+		SettingKeyUpdateGitHubRepo:              DefaultUpdateGitHubRepo,
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -1039,6 +1041,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
 	result.DefaultUpstreamUserAgent = strings.TrimSpace(settings[SettingKeyDefaultUpstreamUserAgent])
 	result.ForceUnifiedUpstreamUserAgent = settings[SettingKeyForceUnifiedUpstreamUserAgent] == "true"
+	result.UpdateGitHubRepo = normalizeGitHubRepo(settings[SettingKeyUpdateGitHubRepo])
 
 	return result
 }

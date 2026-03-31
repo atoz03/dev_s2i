@@ -146,6 +146,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EnableMetadataPassthrough:            settings.EnableMetadataPassthrough,
 		DefaultUpstreamUserAgent:             settings.DefaultUpstreamUserAgent,
 		ForceUnifiedUpstreamUserAgent:        settings.ForceUnifiedUpstreamUserAgent,
+		UpdateGitHubRepo:                     settings.UpdateGitHubRepo,
 	})
 }
 
@@ -232,6 +233,7 @@ type UpdateSettingsRequest struct {
 	EnableMetadataPassthrough     *bool   `json:"enable_metadata_passthrough"`
 	DefaultUpstreamUserAgent      *string `json:"default_upstream_user_agent"`
 	ForceUnifiedUpstreamUserAgent *bool   `json:"force_unified_upstream_user_agent"`
+	UpdateGitHubRepo              *string `json:"update_github_repo"`
 }
 
 // UpdateSettings 更新系统设置
@@ -648,6 +650,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ForceUnifiedUpstreamUserAgent
 		}(),
+		UpdateGitHubRepo: func() string {
+			if req.UpdateGitHubRepo != nil {
+				return strings.TrimSpace(*req.UpdateGitHubRepo)
+			}
+			return previousSettings.UpdateGitHubRepo
+		}(),
 	}
 
 	if err := h.settingService.UpdateSettings(c.Request.Context(), settings); err != nil {
@@ -730,6 +738,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EnableMetadataPassthrough:            updatedSettings.EnableMetadataPassthrough,
 		DefaultUpstreamUserAgent:             updatedSettings.DefaultUpstreamUserAgent,
 		ForceUnifiedUpstreamUserAgent:        updatedSettings.ForceUnifiedUpstreamUserAgent,
+		UpdateGitHubRepo:                     updatedSettings.UpdateGitHubRepo,
 	})
 }
 
@@ -913,6 +922,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.ForceUnifiedUpstreamUserAgent != after.ForceUnifiedUpstreamUserAgent {
 		changed = append(changed, "force_unified_upstream_user_agent")
+	}
+	if before.UpdateGitHubRepo != after.UpdateGitHubRepo {
+		changed = append(changed, "update_github_repo")
 	}
 	return changed
 }
