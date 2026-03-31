@@ -2,8 +2,8 @@ name: GHCR Image
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -40,6 +40,7 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
+            type=ref,event=tag
             type=raw,value=latest
             type=sha,prefix=sha-
 
