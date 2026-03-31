@@ -398,6 +398,7 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
+const GROUP_FILTER_STORAGE_KEY = 'account-selected-group-filter'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -540,6 +541,33 @@ const saveAutoRefreshToStorage = () => {
   }
 }
 
+const loadSavedGroupFilter = () => {
+  try {
+    const saved = localStorage.getItem(GROUP_FILTER_STORAGE_KEY)
+    if (!saved) return
+    const normalized = String(saved).trim()
+    if (!normalized) return
+    if (!params.group) {
+      params.group = normalized
+    }
+  } catch (e) {
+    console.error('Failed to load saved group filter:', e)
+  }
+}
+
+const saveGroupFilterToStorage = () => {
+  try {
+    const group = String(params.group || '').trim()
+    if (!group) {
+      localStorage.removeItem(GROUP_FILTER_STORAGE_KEY)
+      return
+    }
+    localStorage.setItem(GROUP_FILTER_STORAGE_KEY, group)
+  } catch (e) {
+    console.error('Failed to save group filter:', e)
+  }
+}
+
 if (typeof window !== 'undefined') {
   loadSavedColumns()
   loadSavedAutoRefresh()
@@ -596,6 +624,10 @@ const {
   fetchFn: adminAPI.accounts.list,
   initialParams: { platform: '', type: '', status: '', privacy_mode: '', group: '', search: '' }
 })
+
+if (typeof window !== 'undefined') {
+  loadSavedGroupFilter()
+}
 
 const {
   selectedIds: selIds,
@@ -679,6 +711,14 @@ watch(loading, (isLoading, wasLoading) => {
     })
   }
 })
+
+watch(
+  () => params.group,
+  () => {
+    if (typeof window === 'undefined') return
+    saveGroupFilterToStorage()
+  }
+)
 
 const isAnyModalOpen = computed(() => {
   return (

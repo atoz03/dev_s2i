@@ -34,23 +34,12 @@ func RegisterAdminRoutes(
 
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)
-		// Sora OAuth（实现复用 OpenAI OAuth 服务，入口独立）
-		registerSoraOAuthRoutes(admin, h)
-
-		// Gemini OAuth
-		registerGeminiOAuthRoutes(admin, h)
-
-		// Antigravity OAuth
-		registerAntigravityOAuthRoutes(admin, h)
 
 		// 代理管理
 		registerProxyRoutes(admin, h)
 
 		// 卡密管理
 		registerRedeemCodeRoutes(admin, h)
-
-		// 优惠码管理
-		registerPromoCodeRoutes(admin, h)
 
 		// 系统设置
 		registerSettingsRoutes(admin, h)
@@ -282,8 +271,6 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.POST("/batch-clear-error", h.Admin.Account.BatchClearError)
 		accounts.POST("/batch-refresh", h.Admin.Account.BatchRefresh)
 
-		// Antigravity 默认模型映射
-		accounts.GET("/antigravity/default-model-mapping", h.Admin.Account.GetAntigravityDefaultModelMapping)
 
 		// Claude OAuth routes
 		accounts.POST("/generate-auth-url", h.Admin.OAuth.GenerateAuthURL)
@@ -315,37 +302,6 @@ func registerOpenAIOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		openai.POST("/refresh-token", h.Admin.OpenAIOAuth.RefreshToken)
 		openai.POST("/accounts/:id/refresh", h.Admin.OpenAIOAuth.RefreshAccountToken)
 		openai.POST("/create-from-oauth", h.Admin.OpenAIOAuth.CreateAccountFromOAuth)
-	}
-}
-
-func registerSoraOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	sora := admin.Group("/sora")
-	{
-		sora.POST("/generate-auth-url", h.Admin.OpenAIOAuth.GenerateAuthURL)
-		sora.POST("/exchange-code", h.Admin.OpenAIOAuth.ExchangeCode)
-		sora.POST("/refresh-token", h.Admin.OpenAIOAuth.RefreshToken)
-		sora.POST("/st2at", h.Admin.OpenAIOAuth.ExchangeSoraSessionToken)
-		sora.POST("/rt2at", h.Admin.OpenAIOAuth.RefreshToken)
-		sora.POST("/accounts/:id/refresh", h.Admin.OpenAIOAuth.RefreshAccountToken)
-		sora.POST("/create-from-oauth", h.Admin.OpenAIOAuth.CreateAccountFromOAuth)
-	}
-}
-
-func registerGeminiOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	gemini := admin.Group("/gemini")
-	{
-		gemini.POST("/oauth/auth-url", h.Admin.GeminiOAuth.GenerateAuthURL)
-		gemini.POST("/oauth/exchange-code", h.Admin.GeminiOAuth.ExchangeCode)
-		gemini.GET("/oauth/capabilities", h.Admin.GeminiOAuth.GetCapabilities)
-	}
-}
-
-func registerAntigravityOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	antigravity := admin.Group("/antigravity")
-	{
-		antigravity.POST("/oauth/auth-url", h.Admin.AntigravityOAuth.GenerateAuthURL)
-		antigravity.POST("/oauth/exchange-code", h.Admin.AntigravityOAuth.ExchangeCode)
-		antigravity.POST("/oauth/refresh-token", h.Admin.AntigravityOAuth.RefreshToken)
 	}
 }
 
@@ -384,18 +340,6 @@ func registerRedeemCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerPromoCodeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
-	promoCodes := admin.Group("/promo-codes")
-	{
-		promoCodes.GET("", h.Admin.Promo.List)
-		promoCodes.GET("/:id", h.Admin.Promo.GetByID)
-		promoCodes.POST("", h.Admin.Promo.Create)
-		promoCodes.PUT("/:id", h.Admin.Promo.Update)
-		promoCodes.DELETE("/:id", h.Admin.Promo.Delete)
-		promoCodes.GET("/:id/usages", h.Admin.Promo.GetUsages)
-	}
-}
-
 func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	adminSettings := admin.Group("/settings")
 	{
@@ -427,15 +371,6 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// Beta 策略配置
 		adminSettings.GET("/beta-policy", h.Admin.Setting.GetBetaPolicySettings)
 		adminSettings.PUT("/beta-policy", h.Admin.Setting.UpdateBetaPolicySettings)
-		// Sora S3 存储配置
-		adminSettings.GET("/sora-s3", h.Admin.Setting.GetSoraS3Settings)
-		adminSettings.PUT("/sora-s3", h.Admin.Setting.UpdateSoraS3Settings)
-		adminSettings.POST("/sora-s3/test", h.Admin.Setting.TestSoraS3Connection)
-		adminSettings.GET("/sora-s3/profiles", h.Admin.Setting.ListSoraS3Profiles)
-		adminSettings.POST("/sora-s3/profiles", h.Admin.Setting.CreateSoraS3Profile)
-		adminSettings.PUT("/sora-s3/profiles/:profile_id", h.Admin.Setting.UpdateSoraS3Profile)
-		adminSettings.DELETE("/sora-s3/profiles/:profile_id", h.Admin.Setting.DeleteSoraS3Profile)
-		adminSettings.POST("/sora-s3/profiles/:profile_id/activate", h.Admin.Setting.SetActiveSoraS3Profile)
 	}
 }
 

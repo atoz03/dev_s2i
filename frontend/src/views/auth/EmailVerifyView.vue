@@ -401,7 +401,6 @@ async function handleVerify(): Promise<void> {
       password: password.value,
       verify_code: verifyCode.value.trim(),
       turnstile_token: initialTurnstileToken.value || undefined,
-      promo_code: promoCode.value || undefined,
       invitation_code: invitationCode.value || undefined
     })
 

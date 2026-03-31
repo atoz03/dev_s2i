@@ -760,21 +760,6 @@
               </p>
             </div>
 
-            <!-- Promo Code -->
-            <div
-              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
-            >
-              <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
-                  t('admin.settings.registration.promoCode')
-                }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.registration.promoCodeHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.promo_code_enabled" />
-            </div>
-
             <!-- Invitation Code -->
             <div
               class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
@@ -1230,10 +1215,7 @@
                   {{ t('admin.settings.scheduling.allowUngroupedKeyHint') }}
                 </p>
               </div>
-              <label class="toggle">
-                <input v-model="form.allow_ungrouped_key_scheduling" type="checkbox" />
-                <span class="toggle-slider"></span>
-              </label>
+              <Toggle v-model="form.allow_ungrouped_key_scheduling" />
             </div>
           </div>
         </div>
@@ -1615,31 +1597,6 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.purchase.integrationDocHint') }}
               </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sora Client Toggle -->
-        <div class="card">
-          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('admin.settings.soraClient.title') }}
-            </h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {{ t('admin.settings.soraClient.description') }}
-            </p>
-          </div>
-          <div class="space-y-6 p-6">
-            <div class="flex items-center justify-between">
-              <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
-                  t('admin.settings.soraClient.enabled')
-                }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.soraClient.enabledHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.sora_client_enabled" />
             </div>
           </div>
         </div>
@@ -2155,7 +2112,6 @@ const form = reactive<SettingsForm>({
   registration_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
-  promo_code_enabled: true,
   invitation_code_enabled: false,
   password_reset_enabled: false,
   totp_enabled: false,
@@ -2174,7 +2130,6 @@ const form = reactive<SettingsForm>({
   hide_ccs_import_button: false,
   purchase_subscription_enabled: false,
   purchase_subscription_url: '',
-  sora_client_enabled: false,
   custom_menu_items: [] as Array<{id: string; label: string; icon_svg: string; url: string; visibility: 'user' | 'admin'; sort_order: number}>,
   custom_endpoints: [] as Array<{name: string; endpoint: string; description: string}>,
   frontend_url: '',
@@ -2201,8 +2156,6 @@ const form = reactive<SettingsForm>({
   enable_model_fallback: false,
   fallback_model_anthropic: 'claude-3-5-sonnet-20241022',
   fallback_model_openai: 'gpt-4o',
-  fallback_model_gemini: 'gemini-2.5-pro',
-  fallback_model_antigravity: 'gemini-2.5-pro',
   // Identity patch (Claude -> Gemini)
   enable_identity_patch: true,
   identity_patch_prompt: '',
@@ -2483,7 +2436,6 @@ async function saveSettings() {
       registration_email_suffix_whitelist: registrationEmailSuffixWhitelistTags.value.map(
         (suffix) => `@${suffix}`
       ),
-      promo_code_enabled: form.promo_code_enabled,
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
       totp_enabled: form.totp_enabled,
@@ -2501,7 +2453,6 @@ async function saveSettings() {
       hide_ccs_import_button: form.hide_ccs_import_button,
       purchase_subscription_enabled: form.purchase_subscription_enabled,
       purchase_subscription_url: form.purchase_subscription_url,
-      sora_client_enabled: form.sora_client_enabled,
       custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
@@ -2522,8 +2473,6 @@ async function saveSettings() {
       enable_model_fallback: form.enable_model_fallback,
       fallback_model_anthropic: form.fallback_model_anthropic,
       fallback_model_openai: form.fallback_model_openai,
-      fallback_model_gemini: form.fallback_model_gemini,
-      fallback_model_antigravity: form.fallback_model_antigravity,
       enable_identity_patch: form.enable_identity_patch,
       identity_patch_prompt: form.identity_patch_prompt,
       min_claude_code_version: form.min_claude_code_version,

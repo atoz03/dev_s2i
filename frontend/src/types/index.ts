@@ -39,15 +39,13 @@ export interface User {
 }
 
 export interface AdminUser extends User {
+  sora_storage_quota_bytes?: number
   // 管理员备注（普通用户接口不返回）
   notes: string
   // 用户专属分组倍率配置 (group_id -> rate_multiplier)
   group_rates?: Record<number, number>
   // 当前并发数（仅管理员列表接口返回）
   current_concurrency?: number
-  // Sora 存储配额（字节）
-  sora_storage_quota_bytes: number
-  sora_storage_used_bytes: number
 }
 
 export interface LoginRequest {
@@ -61,7 +59,6 @@ export interface RegisterRequest {
   password: string
   verify_code?: string
   turnstile_token?: string
-  promo_code?: string
   invitation_code?: string
 }
 
@@ -94,7 +91,6 @@ export interface PublicSettings {
   registration_enabled: boolean
   email_verify_enabled: boolean
   registration_email_suffix_whitelist: string[]
-  promo_code_enabled: boolean
   password_reset_enabled: boolean
   invitation_code_enabled: boolean
   turnstile_enabled: boolean
@@ -112,7 +108,6 @@ export interface PublicSettings {
   custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
   linuxdo_oauth_enabled: boolean
-  sora_client_enabled: boolean
   backend_mode_enabled: boolean
   version: string
 }
@@ -382,17 +377,6 @@ export interface Group {
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
   monthly_limit_usd: number | null
-  // 图片生成计费配置（仅 antigravity 平台使用）
-  image_price_1k: number | null
-  image_price_2k: number | null
-  image_price_4k: number | null
-  // Sora 按次计费配置
-  sora_image_price_360: number | null
-  sora_image_price_540: number | null
-  sora_video_price_per_request: number | null
-  sora_video_price_per_request_hd: number | null
-  // Sora 存储配额（字节）
-  sora_storage_quota_bytes: number
   // Claude Code 客户端限制
   claude_code_only: boolean
   fallback_group_id: number | null
@@ -406,24 +390,28 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  image_price_1k?: number | null
+  image_price_2k?: number | null
+  image_price_4k?: number | null
+  sora_image_price_360?: number | null
+  sora_image_price_540?: number | null
+  sora_video_price_per_request?: number | null
+  sora_video_price_per_request_hd?: number | null
+  sora_storage_quota_bytes?: number | null
+  supported_model_scopes?: string[]
+  mcp_xml_inject?: boolean
   // 模型路由配置（仅管理员可见，内部信息）
   model_routing: Record<string, number[]> | null
   model_routing_enabled: boolean
 
-  // MCP XML 协议注入（仅 antigravity 平台使用）
-  mcp_xml_inject: boolean
-  // Claude usage 模拟开关（仅 anthropic 平台使用）
+  // Claude usage 模拟开关
   simulate_claude_max_enabled: boolean
-
-  // 支持的模型系列（仅 antigravity 平台使用）
-  supported_model_scopes?: string[]
 
   // 分组下账号数量（仅管理员可见）
   account_count?: number
   active_account_count?: number
   rate_limited_account_count?: number
 
-  // OpenAI Messages 调度配置（仅 openai 平台使用）
   default_mapped_model?: string
 
   // 分组排序
@@ -498,14 +486,6 @@ export interface CreateGroupRequest {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
-  image_price_1k?: number | null
-  image_price_2k?: number | null
-  image_price_4k?: number | null
-  sora_image_price_360?: number | null
-  sora_image_price_540?: number | null
-  sora_video_price_per_request?: number | null
-  sora_video_price_per_request_hd?: number | null
-  sora_storage_quota_bytes?: number
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
@@ -529,14 +509,6 @@ export interface UpdateGroupRequest {
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
-  image_price_1k?: number | null
-  image_price_2k?: number | null
-  image_price_4k?: number | null
-  sora_image_price_360?: number | null
-  sora_image_price_540?: number | null
-  sora_video_price_per_request?: number | null
-  sora_video_price_per_request_hd?: number | null
-  sora_storage_quota_bytes?: number
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
@@ -561,6 +533,19 @@ export interface ClaudeModel {
   type: string
   display_name: string
   created_at: string
+}
+
+export interface GeminiCredentials {
+  access_token?: string
+  refresh_token?: string
+  expires_at?: number
+  email?: string
+  project_id?: string
+  oauth_type?: string
+  tier_id?: string
+  model_mapping?: Record<string, string>
+  allowed_models?: string[]
+  [key: string]: unknown
 }
 
 export interface Proxy {
@@ -624,34 +609,6 @@ export interface ProxyQualityCheckResult {
   items: ProxyQualityCheckItem[]
 }
 
-// Gemini credentials structure for OAuth and API Key authentication
-export interface GeminiCredentials {
-  // API Key authentication
-  api_key?: string
-
-  // OAuth authentication
-  access_token?: string
-  refresh_token?: string
-  oauth_type?: 'code_assist' | 'google_one' | 'ai_studio' | string
-  tier_id?:
-    | 'google_one_free'
-    | 'google_ai_pro'
-    | 'google_ai_ultra'
-    | 'gcp_standard'
-    | 'gcp_enterprise'
-    | 'aistudio_free'
-    | 'aistudio_paid'
-    | 'LEGACY'
-    | 'PRO'
-    | 'ULTRA'
-    | string
-  project_id?: string
-  token_type?: string
-  scope?: string
-  expires_at?: string
-  model_mapping?: Record<string, string>
-}
-
 export interface TempUnschedulableRule {
   error_code: number
   keywords: string[]
@@ -680,7 +637,7 @@ export interface Account {
   platform: AccountPlatform
   type: AccountType
   credentials?: Record<string, unknown>
-  // Extra fields including Codex usage and model-level rate limits (Antigravity smart retry)
+  // Extra fields including Codex usage and model-level rate limits
   extra?: (CodexUsageSnapshot & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
   } & Record<string, unknown>)
@@ -744,7 +701,7 @@ export interface Account {
   custom_base_url_enabled?: boolean | null
   custom_base_url?: string | null
 
-  // 客户端亲和调度（仅 Anthropic/Antigravity 平台有效）
+  // 客户端亲和调度
   // 启用后新会话会优先调度到客户端之前使用过的账号
   client_affinity_enabled?: boolean | null
   affinity_client_count?: number | null
@@ -801,9 +758,6 @@ export interface AntigravityModelQuota {
 export interface AccountUsageInfo {
   source?: 'passive' | 'active'
   updated_at: string | null
-  five_hour: UsageProgress | null
-  seven_day: UsageProgress | null
-  seven_day_sonnet: UsageProgress | null
   gemini_shared_daily?: UsageProgress | null
   gemini_pro_daily?: UsageProgress | null
   gemini_flash_daily?: UsageProgress | null
@@ -811,6 +765,9 @@ export interface AccountUsageInfo {
   gemini_pro_minute?: UsageProgress | null
   gemini_flash_minute?: UsageProgress | null
   antigravity_quota?: Record<string, AntigravityModelQuota> | null
+  five_hour: UsageProgress | null
+  seven_day: UsageProgress | null
+  seven_day_sonnet: UsageProgress | null
   ai_credits?: Array<{
     credit_type?: string
     amount?: number
@@ -1497,47 +1454,6 @@ export interface UpdateUserAttributeRequest {
 
 export interface UserAttributeValuesMap {
   [attributeId: number]: string
-}
-
-// ==================== Promo Code Types ====================
-
-export interface PromoCode {
-  id: number
-  code: string
-  bonus_amount: number
-  max_uses: number
-  used_count: number
-  status: 'active' | 'disabled'
-  expires_at: string | null
-  notes: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface PromoCodeUsage {
-  id: number
-  promo_code_id: number
-  user_id: number
-  bonus_amount: number
-  used_at: string
-  user?: User
-}
-
-export interface CreatePromoCodeRequest {
-  code?: string
-  bonus_amount: number
-  max_uses?: number
-  expires_at?: number | null
-  notes?: string
-}
-
-export interface UpdatePromoCodeRequest {
-  code?: string
-  bonus_amount?: number
-  max_uses?: number
-  status?: 'active' | 'disabled'
-  expires_at?: number | null
-  notes?: string
 }
 
 // ==================== TOTP (2FA) Types ====================

@@ -5,7 +5,7 @@ package ctxkey
 type Key string
 
 const (
-	// ForcePlatform 强制平台（用于 /antigravity 路由），由 middleware.ForcePlatform 设置
+	// ForcePlatform 强制平台，由 middleware.ForcePlatform 设置
 	ForcePlatform Key = "ctx_force_platform"
 
 	// RequestID 为服务端生成/透传的请求 ID。
@@ -32,7 +32,7 @@ const (
 	// IsClaudeCodeClient 标识当前请求是否来自 Claude Code 客户端
 	IsClaudeCodeClient Key = "ctx_is_claude_code_client"
 
-	// ThinkingEnabled 标识当前请求是否开启 thinking（用于 Antigravity 最终模型名推导与模型维度限流）
+	// ThinkingEnabled 标识当前请求是否开启 thinking
 	ThinkingEnabled Key = "ctx_thinking_enabled"
 	// Group 认证后的分组信息，由 API Key 认证中间件设置
 	Group Key = "ctx_group"

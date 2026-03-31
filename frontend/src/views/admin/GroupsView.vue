@@ -1999,19 +1999,13 @@ const exclusiveOptions = computed(() => [
 
 const platformOptions = computed(() => [
   { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' },
-  { value: 'sora', label: 'Sora' }
+  { value: 'openai', label: 'OpenAI' }
 ])
 
 const platformFilterOptions = computed(() => [
   { value: '', label: t('admin.groups.allPlatforms') },
   { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'antigravity', label: 'Antigravity' },
-  { value: 'sora', label: 'Sora' }
+  { value: 'openai', label: 'OpenAI' }
 ])
 
 const editStatusOptions = computed(() => [
@@ -2645,13 +2639,13 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.daily_limit_usd = group.daily_limit_usd
   editForm.weekly_limit_usd = group.weekly_limit_usd
   editForm.monthly_limit_usd = group.monthly_limit_usd
-  editForm.image_price_1k = group.image_price_1k
-  editForm.image_price_2k = group.image_price_2k
-  editForm.image_price_4k = group.image_price_4k
-  editForm.sora_image_price_360 = group.sora_image_price_360
-  editForm.sora_image_price_540 = group.sora_image_price_540
-  editForm.sora_video_price_per_request = group.sora_video_price_per_request
-  editForm.sora_video_price_per_request_hd = group.sora_video_price_per_request_hd
+  editForm.image_price_1k = group.image_price_1k ?? null
+  editForm.image_price_2k = group.image_price_2k ?? null
+  editForm.image_price_4k = group.image_price_4k ?? null
+  editForm.sora_image_price_360 = group.sora_image_price_360 ?? null
+  editForm.sora_image_price_540 = group.sora_image_price_540 ?? null
+  editForm.sora_video_price_per_request = group.sora_video_price_per_request ?? null
+  editForm.sora_video_price_per_request_hd = group.sora_video_price_per_request_hd ?? null
   editForm.sora_storage_quota_gb = group.sora_storage_quota_bytes ? Number((group.sora_storage_quota_bytes / (1024 * 1024 * 1024)).toFixed(2)) : null
   editForm.claude_code_only = group.claude_code_only || false
   editForm.fallback_group_id = group.fallback_group_id
