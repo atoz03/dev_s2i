@@ -32,6 +32,15 @@ const openaiModels = [
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview'
 ]
 
+// OpenAI 账号创建时默认预填的白名单模型
+// 注意：这不是完整可选列表，完整列表仍由 allModels / ModelWhitelistSelector 提供
+const openaiDefaultWhitelistModels = [
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.2',
+  'gpt-5.3-codex'
+]
+
 // Anthropic Claude
 export const claudeModels = [
   'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620',
@@ -403,6 +412,17 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'hunyuan': return hunyuanModels
     case 'perplexity': return perplexityModels
     default: return claudeModels
+  }
+}
+
+// 按平台获取默认白名单模型
+// OpenAI 只预填最常用的 4 个模型，其他模型保留给用户手动添加
+export function getDefaultWhitelistModelsByPlatform(platform: string): string[] {
+  switch (platform) {
+    case 'openai':
+      return openaiDefaultWhitelistModels
+    default:
+      return getModelsByPlatform(platform)
   }
 }
 

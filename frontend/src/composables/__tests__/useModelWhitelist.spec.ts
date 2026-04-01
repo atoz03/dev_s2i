@@ -4,7 +4,11 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform } from '../useModelWhitelist'
+import {
+  buildModelMappingObject,
+  getDefaultWhitelistModelsByPlatform,
+  getModelsByPlatform
+} from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -14,6 +18,15 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.4-mini')
     expect(models).toContain('gpt-5.4-nano')
     expect(models).toContain('gpt-5.4-2026-03-05')
+  })
+
+  it('openai 默认白名单只预填 4 个指定模型', () => {
+    expect(getDefaultWhitelistModelsByPlatform('openai')).toEqual([
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.2',
+      'gpt-5.3-codex'
+    ])
   })
 
   it('antigravity 模型列表包含图片模型兼容项', () => {
