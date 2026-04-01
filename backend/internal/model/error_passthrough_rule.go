@@ -32,8 +32,8 @@ const MatchModeAll = "all"
 
 // 支持的平台常量
 const (
-	PlatformAnthropic   = "anthropic"
-	PlatformOpenAI      = "openai"
+	PlatformAnthropic = "anthropic"
+	PlatformOpenAI    = "openai"
 )
 
 // AllPlatforms 返回所有支持的平台列表
