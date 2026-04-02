@@ -261,6 +261,7 @@ let eventSource: EventSource | null = null
 const isSoraAccount = computed(() => props.account?.platform === 'sora')
 const generatedImages = ref<PreviewImage[]>([])
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
+const isTextProbeMode = computed(() => !isSoraAccount.value && !supportsGeminiImageTest.value)
 const supportsGeminiImageTest = computed(() => {
   if (isSoraAccount.value) return false
   const modelID = selectedModelId.value.toLowerCase()
@@ -379,6 +380,9 @@ const startTest = async () => {
   status.value = 'connecting'
   addLine(t('admin.accounts.startingTestForAccount', { name: props.account.name }), 'text-blue-400')
   addLine(t('admin.accounts.testAccountTypeLabel', { type: props.account.type }), 'text-gray-400')
+  if (isTextProbeMode.value) {
+    addLine(t('admin.accounts.testTemplateSummary'), 'text-gray-400')
+  }
   addLine('', 'text-gray-300')
 
   closeEventSource()
@@ -468,6 +472,9 @@ const handleEvent = (event: {
             : t('admin.accounts.sendingTestMessage'),
         'text-gray-400'
       )
+      if (isTextProbeMode.value) {
+        addLine(t('admin.accounts.testResponseValidation'), 'text-gray-400')
+      }
       addLine('', 'text-gray-300')
       addLine(t('admin.accounts.response'), 'text-yellow-400')
       break

@@ -37,7 +37,9 @@ func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.
 	ctx, recorder := newSoraTestContext()
 
 	resp := newJSONResponse(http.StatusOK, "")
-	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.output_text.delta","delta":"pong"}
+
+data: {"type":"response.completed"}
 
 `))
 	resp.Header.Set("x-codex-primary-used-percent", "88")
@@ -64,6 +66,24 @@ func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.
 	require.Equal(t, 42.0, repo.updatedExtra["codex_5h_used_percent"])
 	require.Equal(t, 88.0, repo.updatedExtra["codex_7d_used_percent"])
 	require.Contains(t, recorder.Body.String(), "test_complete")
+}
+
+func TestAccountTestService_ProcessOpenAIStream_RejectsNonPongResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newSoraTestContext()
+	svc := &AccountTestService{}
+
+	stream := strings.NewReader(`data: {"type":"response.output_text.delta","delta":"hello"}
+
+data: {"type":"response.completed"}
+
+`)
+
+	err := svc.processOpenAIStream(ctx, stream)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "pong")
+	require.Contains(t, recorder.Body.String(), `"type":"error"`)
+	require.NotContains(t, recorder.Body.String(), `"type":"test_complete","success":true`)
 }
 
 func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimit(t *testing.T) {

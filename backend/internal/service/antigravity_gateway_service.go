@@ -1121,15 +1121,15 @@ func testConnectionHandleError(
 	return nil
 }
 
-// buildGeminiTestRequest 构建 Gemini 格式测试请求
-// 使用最小 token 消耗：输入 "." + maxOutputTokens: 1
+// buildGeminiTestRequest 构建 Gemini 格式测试请求。
+// 采用 ping/pong 探活模板，避免仅靠 hi 判断连通性。
 func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model string) ([]byte, error) {
 	payload := map[string]any{
 		"contents": []map[string]any{
 			{
 				"role": "user",
 				"parts": []map[string]any{
-					{"text": "."},
+					{"text": defaultGeminiTextTestPrompt},
 				},
 			},
 		},
@@ -1137,28 +1137,34 @@ func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model stri
 		"systemInstruction": map[string]any{
 			"parts": []map[string]any{
 				{"text": antigravity.GetDefaultIdentityPatch()},
+				{"text": defaultEchoBotInstruction},
 			},
 		},
 		"generationConfig": map[string]any{
-			"maxOutputTokens": 1,
+			"maxOutputTokens": defaultTextTestMaxTokens,
 		},
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	return s.wrapV1InternalRequest(projectID, model, payloadBytes)
 }
 
-// buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式
-// 使用最小 token 消耗：输入 "." + MaxTokens: 1
+// buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式。
+// 采用 ping/pong 探活模板，避免仅靠 hi 判断连通性。
 func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel string) ([]byte, error) {
+	systemBlocks, _ := json.Marshal([]antigravity.SystemBlock{
+		{Type: "text", Text: antigravity.GetDefaultIdentityPatch()},
+		{Type: "text", Text: defaultEchoBotInstruction},
+	})
 	claudeReq := &antigravity.ClaudeRequest{
 		Model: mappedModel,
 		Messages: []antigravity.ClaudeMessage{
 			{
 				Role:    "user",
-				Content: json.RawMessage(`"."`),
+				Content: json.RawMessage(fmt.Sprintf("%q", defaultClaudeTextTestPrompt)),
 			},
 		},
-		MaxTokens: 1,
+		MaxTokens: defaultTextTestMaxTokens,
+		System:    systemBlocks,
 		Stream:    false,
 	}
 	return antigravity.TransformClaudeToGemini(claudeReq, projectID, mappedModel)

@@ -38,6 +38,36 @@ func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	require.Equal(t, "1:1", parsed.GenerationConfig.ImageConfig.AspectRatio)
 }
 
+func TestCreateGeminiTestPayload_DefaultTextUsesPongTemplate(t *testing.T) {
+	t.Parallel()
+
+	payload := createGeminiTestPayload("gemini-2.5-pro", "")
+
+	var parsed struct {
+		Contents []struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+		SystemInstruction struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"systemInstruction"`
+		GenerationConfig struct {
+			MaxOutputTokens int `json:"maxOutputTokens"`
+		} `json:"generationConfig"`
+	}
+
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.Len(t, parsed.Contents, 1)
+	require.Len(t, parsed.Contents[0].Parts, 1)
+	require.Equal(t, defaultGeminiTextTestPrompt, parsed.Contents[0].Parts[0].Text)
+	require.Len(t, parsed.SystemInstruction.Parts, 1)
+	require.Equal(t, defaultEchoBotInstruction, parsed.SystemInstruction.Parts[0].Text)
+	require.Equal(t, defaultTextTestMaxTokens, parsed.GenerationConfig.MaxOutputTokens)
+}
+
 func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -45,14 +75,14 @@ func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {
 	ctx, recorder := newSoraTestContext()
 	svc := &AccountTestService{}
 
-	stream := strings.NewReader("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"ok\"},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"QUJD\"}}]}}]}\n\ndata: [DONE]\n\n")
+	stream := strings.NewReader("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"pong\"},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"QUJD\"}}]}}]}\n\ndata: [DONE]\n\n")
 
 	err := svc.processGeminiStream(ctx, stream)
 	require.NoError(t, err)
 
 	body := recorder.Body.String()
 	require.Contains(t, body, "\"type\":\"content\"")
-	require.Contains(t, body, "\"text\":\"ok\"")
+	require.Contains(t, body, "\"text\":\"pong\"")
 	require.Contains(t, body, "\"type\":\"image\"")
 	require.Contains(t, body, "\"image_url\":\"data:image/png;base64,QUJD\"")
 	require.Contains(t, body, "\"mime_type\":\"image/png\"")

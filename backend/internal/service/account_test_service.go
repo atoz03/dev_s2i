@@ -59,8 +59,13 @@ type TestEvent struct {
 }
 
 const (
-	defaultGeminiTextTestPrompt  = "hi"
+	defaultClaudeTextTestPrompt  = "ping, please reply pong"
+	defaultOpenAITextTestPrompt  = "ping"
+	defaultGeminiTextTestPrompt  = "ping, please reply pong"
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
+	defaultTestResponseKeyword   = "pong"
+	defaultEchoBotInstruction    = "You are a echo bot. Always say pong."
+	defaultTextTestMaxTokens     = 20
 )
 
 // AccountTestService handles account testing operations
@@ -77,6 +82,37 @@ type AccountTestService struct {
 }
 
 const defaultSoraTestCooldown = 10 * time.Second
+
+func truncateTestResponsePreview(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if limit <= 0 || len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "..."
+}
+
+func validateTextTestResponse(text string) error {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return fmt.Errorf("测活响应为空，未命中预期关键词 %q", defaultTestResponseKeyword)
+	}
+	if !strings.Contains(strings.ToLower(trimmed), defaultTestResponseKeyword) {
+		return fmt.Errorf(
+			"测活响应未命中预期关键词 %q，实际响应: %s",
+			defaultTestResponseKeyword,
+			truncateTestResponsePreview(trimmed, 120),
+		)
+	}
+	return nil
+}
+
+func (s *AccountTestService) completeValidatedTextTest(c *gin.Context, text string) error {
+	if err := validateTextTestResponse(text); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
 
 // NewAccountTestService creates a new AccountTestService
 func NewAccountTestService(
@@ -146,7 +182,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": defaultClaudeTextTestPrompt,
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -162,11 +198,18 @@ func createTestPayload(modelID string) (map[string]any, error) {
 					"type": "ephemeral",
 				},
 			},
+			{
+				"type": "text",
+				"text": defaultEchoBotInstruction,
+				"cache_control": map[string]string{
+					"type": "ephemeral",
+				},
+			},
 		},
 		"metadata": map[string]string{
 			"user_id": sessionID,
 		},
-		"max_tokens":  1024,
+		"max_tokens":  defaultTextTestMaxTokens,
 		"temperature": 1,
 		"stream":      true,
 	}, nil
@@ -351,12 +394,12 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": defaultClaudeTextTestPrompt,
 					},
 				},
 			},
 		},
-		"max_tokens":  256,
+		"max_tokens":  defaultTextTestMaxTokens,
 		"temperature": 1,
 	}
 	bedrockBody, _ := json.Marshal(bedrockPayload)
@@ -425,8 +468,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	}
 
 	s.sendEvent(c, TestEvent{Type: "content", Text: text})
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return nil
+	return s.completeValidatedTextTest(c, text)
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
@@ -1369,8 +1411,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 		s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
 	}
 
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return nil
+	return s.completeValidatedTextTest(c, result.Text)
 }
 
 // buildGeminiAPIKeyRequest builds request for Gemini API Key accounts
@@ -1519,8 +1560,11 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 		},
 		"systemInstruction": map[string]any{
 			"parts": []map[string]any{
-				{"text": "You are a helpful AI assistant."},
+				{"text": defaultEchoBotInstruction},
 			},
+		},
+		"generationConfig": map[string]any{
+			"maxOutputTokens": defaultTextTestMaxTokens,
 		},
 	}
 	bytes, _ := json.Marshal(payload)
@@ -1530,13 +1574,18 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 // processGeminiStream processes SSE stream from Gemini API
 func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	var textBuf strings.Builder
+	hasImage := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				if hasImage {
+					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+					return nil
+				}
+				return s.completeValidatedTextTest(c, textBuf.String())
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}
@@ -1548,8 +1597,11 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 
 		jsonStr := strings.TrimPrefix(line, "data: ")
 		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			if hasImage {
+				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+				return nil
+			}
+			return s.completeValidatedTextTest(c, textBuf.String())
 		}
 
 		var data map[string]any
@@ -1571,12 +1623,14 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 						for _, part := range parts {
 							if partMap, ok := part.(map[string]any); ok {
 								if text, ok := partMap["text"].(string); ok && text != "" {
+									textBuf.WriteString(text)
 									s.sendEvent(c, TestEvent{Type: "content", Text: text})
 								}
 								if inlineData, ok := partMap["inlineData"].(map[string]any); ok {
 									mimeType, _ := inlineData["mimeType"].(string)
 									data, _ := inlineData["data"].(string)
 									if strings.HasPrefix(strings.ToLower(mimeType), "image/") && data != "" {
+										hasImage = true
 										s.sendEvent(c, TestEvent{
 											Type:     "image",
 											ImageURL: fmt.Sprintf("data:%s;base64,%s", mimeType, data),
@@ -1591,8 +1645,11 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 
 				// Check for completion after extracting content
 				if finishReason, ok := candidate["finishReason"].(string); ok && finishReason != "" {
-					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-					return nil
+					if hasImage {
+						s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+						return nil
+					}
+					return s.completeValidatedTextTest(c, textBuf.String())
 				}
 			}
 		}
@@ -1618,7 +1675,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": defaultOpenAITextTestPrompt,
 					},
 				},
 			},
@@ -1632,7 +1689,12 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 	}
 
 	// All accounts require instructions for Responses API
-	payload["instructions"] = openai.DefaultInstructions
+	instructions := strings.TrimSpace(openai.DefaultInstructions)
+	if instructions != "" {
+		instructions += "\n\n"
+	}
+	instructions += defaultEchoBotInstruction
+	payload["instructions"] = instructions
 
 	return payload
 }
@@ -1640,13 +1702,13 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	var textBuf strings.Builder
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				return s.completeValidatedTextTest(c, textBuf.String())
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}
@@ -1658,8 +1720,7 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return s.completeValidatedTextTest(c, textBuf.String())
 		}
 
 		var data map[string]any
@@ -1673,12 +1734,12 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		case "content_block_delta":
 			if delta, ok := data["delta"].(map[string]any); ok {
 				if text, ok := delta["text"].(string); ok {
+					textBuf.WriteString(text)
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
 			}
 		case "message_stop":
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return s.completeValidatedTextTest(c, textBuf.String())
 		case "error":
 			errorMsg := "Unknown error"
 			if errData, ok := data["error"].(map[string]any); ok {
@@ -1694,13 +1755,13 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 // processOpenAIStream processes the SSE stream from OpenAI Responses API
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	var textBuf strings.Builder
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
+				return s.completeValidatedTextTest(c, textBuf.String())
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
 		}
@@ -1712,8 +1773,7 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return s.completeValidatedTextTest(c, textBuf.String())
 		}
 
 		var data map[string]any
@@ -1727,11 +1787,11 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 		case "response.output_text.delta":
 			// OpenAI Responses API uses "delta" field for text content
 			if delta, ok := data["delta"].(string); ok && delta != "" {
+				textBuf.WriteString(delta)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed":
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
+			return s.completeValidatedTextTest(c, textBuf.String())
 		case "error":
 			errorMsg := "Unknown error"
 			if errData, ok := data["error"].(map[string]any); ok {
