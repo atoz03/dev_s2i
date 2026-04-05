@@ -74,10 +74,6 @@
 
       <template #table>
         <DataTable :columns="columns" :data="groups" :loading="loading">
-          <template #cell-name="{ value }">
-            <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-          </template>
-
           <template #cell-name="{ row, value }">
             <div class="flex flex-wrap items-center gap-2">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
