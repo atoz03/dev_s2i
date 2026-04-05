@@ -78,6 +78,18 @@
             <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
           </template>
 
+          <template #cell-name="{ row, value }">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <span
+                v-if="isBrowserDefaultGroup(row.id)"
+                class="inline-flex items-center rounded-full bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+              >
+                {{ t('admin.groups.accountDefaultGroupBadge') }}
+              </span>
+            </div>
+          </template>
+
           <template #cell-platform="{ value }">
             <span
               :class="[
@@ -1071,6 +1083,26 @@
           <label class="input-label">{{ t('admin.groups.form.description') }}</label>
           <textarea v-model="editForm.description" rows="3" class="input"></textarea>
         </div>
+        <div class="rounded-lg border border-primary-100 bg-primary-50/70 p-4 dark:border-primary-900/40 dark:bg-primary-900/10">
+          <div class="flex items-start justify-between gap-4">
+            <div class="space-y-1">
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.groups.accountDefaultGroupTitle') }}
+              </label>
+              <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t('admin.groups.accountDefaultGroupHint') }}
+              </p>
+            </div>
+            <label class="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <input
+                v-model="editUseAsDefaultAccountGroup"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              <span>{{ t('admin.groups.accountDefaultGroupAction') }}</span>
+            </label>
+          </div>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.groups.form.platform') }}</label>
           <Select
@@ -1963,6 +1995,11 @@ import Icon from '@/components/icons/Icon.vue'
 import GroupRateMultipliersModal from '@/components/admin/group/GroupRateMultipliersModal.vue'
 import GroupCapacityBadge from '@/components/common/GroupCapacityBadge.vue'
 import { VueDraggable } from 'vue-draggable-plus'
+import {
+  clearDefaultAccountGroupFilter,
+  isDefaultAccountGroup,
+  saveDefaultAccountGroupFilter
+} from '@/utils/accountGroupPreference'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -2135,6 +2172,7 @@ const showSortModal = ref(false)
 const submitting = ref(false)
 const sortSubmitting = ref(false)
 const editingGroup = ref<AdminGroup | null>(null)
+const editUseAsDefaultAccountGroup = ref(false)
 const deletingGroup = ref<AdminGroup | null>(null)
 const showRateMultipliersModal = ref(false)
 const rateMultipliersGroup = ref<AdminGroup | null>(null)
@@ -2629,6 +2667,7 @@ const handleCreateGroup = async () => {
 
 const handleEdit = async (group: AdminGroup) => {
   editingGroup.value = group
+  editUseAsDefaultAccountGroup.value = isDefaultAccountGroup(group.id)
   editForm.name = group.name
   editForm.description = group.description || ''
   editForm.platform = group.platform
@@ -2670,9 +2709,12 @@ const closeEditModal = () => {
   clearAllAccountSearchState()
   showEditModal.value = false
   editingGroup.value = null
+  editUseAsDefaultAccountGroup.value = false
   editModelRoutingRules.value = []
   editForm.copy_accounts_from_group_ids = []
 }
+
+const isBrowserDefaultGroup = (groupID: number) => isDefaultAccountGroup(groupID)
 
 const handleUpdateGroup = async () => {
   if (!editingGroup.value) return
@@ -2704,6 +2746,11 @@ const handleUpdateGroup = async () => {
     payload.weekly_limit_usd = emptyToNull(payload.weekly_limit_usd)
     payload.monthly_limit_usd = emptyToNull(payload.monthly_limit_usd)
     await adminAPI.groups.update(editingGroup.value.id, payload)
+    if (editUseAsDefaultAccountGroup.value) {
+      saveDefaultAccountGroupFilter(editingGroup.value.id)
+    } else if (isDefaultAccountGroup(editingGroup.value.id)) {
+      clearDefaultAccountGroupFilter()
+    }
     appStore.showSuccess(t('admin.groups.groupUpdated'))
     closeEditModal()
     loadGroups()

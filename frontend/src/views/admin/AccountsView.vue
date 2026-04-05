@@ -14,7 +14,6 @@
           <AccountTableActions
             :loading="loading"
             @refresh="handleManualRefresh"
-            @sync="showSync = true"
             @create="showCreate = true"
           >
             <template #after>
@@ -287,7 +286,6 @@
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
-    <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal :show="showBulkEdit" :account-ids="selIds" :selected-platforms="selPlatforms" :selected-types="selTypes" :proxies="proxies" :groups="groups" @close="showBulkEdit = false" @updated="handleBulkUpdated" />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
@@ -318,7 +316,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
+import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
@@ -339,6 +337,7 @@ import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
+import { getPreferredAccountGroupFilter, saveSelectedAccountGroupFilter } from '@/utils/accountGroupPreference'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
 
@@ -367,7 +366,6 @@ const selTypes = computed<AccountType[]>(() => {
 })
 const showCreate = ref(false)
 const showEdit = ref(false)
-const showSync = ref(false)
 const showImportData = ref(false)
 const showExportDataDialog = ref(false)
 const includeProxyOnExport = ref(true)
@@ -398,8 +396,6 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
 const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
-const GROUP_FILTER_STORAGE_KEY = 'account-selected-group-filter'
-
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
 
@@ -541,33 +537,6 @@ const saveAutoRefreshToStorage = () => {
   }
 }
 
-const loadSavedGroupFilter = () => {
-  try {
-    const saved = localStorage.getItem(GROUP_FILTER_STORAGE_KEY)
-    if (!saved) return
-    const normalized = String(saved).trim()
-    if (!normalized) return
-    if (!params.group) {
-      params.group = normalized
-    }
-  } catch (e) {
-    console.error('Failed to load saved group filter:', e)
-  }
-}
-
-const saveGroupFilterToStorage = () => {
-  try {
-    const group = String(params.group || '').trim()
-    if (!group) {
-      localStorage.removeItem(GROUP_FILTER_STORAGE_KEY)
-      return
-    }
-    localStorage.setItem(GROUP_FILTER_STORAGE_KEY, group)
-  } catch (e) {
-    console.error('Failed to save group filter:', e)
-  }
-}
-
 if (typeof window !== 'undefined') {
   loadSavedColumns()
   loadSavedAutoRefresh()
@@ -626,7 +595,10 @@ const {
 })
 
 if (typeof window !== 'undefined') {
-  loadSavedGroupFilter()
+  const preferredGroup = getPreferredAccountGroupFilter()
+  if (preferredGroup && !params.group) {
+    params.group = preferredGroup
+  }
 }
 
 const {
@@ -716,7 +688,7 @@ watch(
   () => params.group,
   () => {
     if (typeof window === 'undefined') return
-    saveGroupFilterToStorage()
+    saveSelectedAccountGroupFilter(params.group)
   }
 )
 
@@ -724,7 +696,6 @@ const isAnyModalOpen = computed(() => {
   return (
     showCreate.value ||
     showEdit.value ||
-    showSync.value ||
     showImportData.value ||
     showExportDataDialog.value ||
     showBulkEdit.value ||

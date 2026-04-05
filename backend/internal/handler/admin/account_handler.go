@@ -54,7 +54,6 @@ type AccountHandler struct {
 	accountUsageService     *service.AccountUsageService
 	accountTestService      *service.AccountTestService
 	concurrencyService      *service.ConcurrencyService
-	crsSyncService          *service.CRSSyncService
 	sessionLimitCache       service.SessionLimitCache
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
@@ -71,7 +70,6 @@ func NewAccountHandler(
 	accountUsageService *service.AccountUsageService,
 	accountTestService *service.AccountTestService,
 	concurrencyService *service.ConcurrencyService,
-	crsSyncService *service.CRSSyncService,
 	sessionLimitCache service.SessionLimitCache,
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
@@ -86,7 +84,6 @@ func NewAccountHandler(
 		accountUsageService:     accountUsageService,
 		accountTestService:      accountTestService,
 		concurrencyService:      concurrencyService,
-		crsSyncService:          crsSyncService,
 		sessionLimitCache:       sessionLimitCache,
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
@@ -652,20 +649,6 @@ type TestAccountRequest struct {
 	Prompt  string `json:"prompt"`
 }
 
-type SyncFromCRSRequest struct {
-	BaseURL            string   `json:"base_url" binding:"required"`
-	Username           string   `json:"username" binding:"required"`
-	Password           string   `json:"password" binding:"required"`
-	SyncProxies        *bool    `json:"sync_proxies"`
-	SelectedAccountIDs []string `json:"selected_account_ids"`
-}
-
-type PreviewFromCRSRequest struct {
-	BaseURL  string `json:"base_url" binding:"required"`
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
 // Test handles testing account connectivity with SSE streaming
 // POST /api/v1/admin/accounts/:id/test
 func (h *AccountHandler) Test(c *gin.Context) {
@@ -720,59 +703,6 @@ func (h *AccountHandler) RecoverState(c *gin.Context) {
 	}
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
-}
-
-// SyncFromCRS handles syncing accounts from claude-relay-service (CRS)
-// POST /api/v1/admin/accounts/sync/crs
-func (h *AccountHandler) SyncFromCRS(c *gin.Context) {
-	var req SyncFromCRSRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	// Default to syncing proxies (can be disabled by explicitly setting false)
-	syncProxies := true
-	if req.SyncProxies != nil {
-		syncProxies = *req.SyncProxies
-	}
-
-	result, err := h.crsSyncService.SyncFromCRS(c.Request.Context(), service.SyncFromCRSInput{
-		BaseURL:            req.BaseURL,
-		Username:           req.Username,
-		Password:           req.Password,
-		SyncProxies:        syncProxies,
-		SelectedAccountIDs: req.SelectedAccountIDs,
-	})
-	if err != nil {
-		// Provide detailed error message for CRS sync failures
-		response.InternalError(c, "CRS sync failed: "+err.Error())
-		return
-	}
-
-	response.Success(c, result)
-}
-
-// PreviewFromCRS handles previewing accounts from CRS before sync
-// POST /api/v1/admin/accounts/sync/crs/preview
-func (h *AccountHandler) PreviewFromCRS(c *gin.Context) {
-	var req PreviewFromCRSRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	result, err := h.crsSyncService.PreviewFromCRS(c.Request.Context(), service.SyncFromCRSInput{
-		BaseURL:  req.BaseURL,
-		Username: req.Username,
-		Password: req.Password,
-	})
-	if err != nil {
-		response.InternalError(c, "CRS preview failed: "+err.Error())
-		return
-	}
-
-	response.Success(c, result)
 }
 
 // refreshSingleAccount refreshes credentials for a single OAuth account.
