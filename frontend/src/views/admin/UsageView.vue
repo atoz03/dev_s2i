@@ -124,7 +124,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
@@ -422,12 +421,29 @@ const getRequestTypeLabel = (log: AdminUsageLog): string => {
   return t('usage.unknown')
 }
 
+const escapeCSVValue = (value: unknown): string => {
+  if (value == null) return ''
+
+  const str = String(value)
+  const escaped = str.replace(/"/g, '""')
+
+  // 防止 CSV 公式注入
+  if (/^[=+\-@\t\r]/.test(str)) {
+    return `"\'${escaped}"`
+  }
+
+  if (/[,\"\n\r]/.test(str)) {
+    return `"${escaped}"`
+  }
+
+  return str
+}
+
 const exportToExcel = async () => {
   if (exporting.value) return; exporting.value = true; exportProgress.show = true
   const c = new AbortController(); exportAbortController = c
   try {
     let p = 1; let total = pagination.total; let exportedCount = 0
-    const ExcelJS = await import('exceljs')
     const headers = [
       t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
       t('admin.usage.account'), t('usage.model'), t('usage.upstreamModel'), t('usage.reasoningEffort'), t('admin.usage.group'),
@@ -441,9 +457,7 @@ const exportToExcel = async () => {
       t('usage.firstToken'), t('usage.duration'),
       t('admin.usage.requestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
     ]
-    const wb = new ExcelJS.Workbook()
-    const ws = wb.addWorksheet('Usage')
-    ws.addRow(headers)
+    const csvRows: string[] = [headers.map((value) => escapeCSVValue(value)).join(',')]
     while (true) {
       const requestType = filters.value.request_type
       const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
@@ -461,15 +475,21 @@ const exportToExcel = async () => {
         (log.total_cost * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
         log.request_id || '', log.user_agent || '', log.ip_address || ''
       ])
-      if (rows.length) rows.forEach((row) => ws.addRow(row))
+      if (rows.length) rows.forEach((row) => csvRows.push(row.map((value) => escapeCSVValue(value)).join(',')))
       exportedCount += rows.length
       exportProgress.current = exportedCount
       exportProgress.progress = total > 0 ? Math.min(100, Math.round(exportedCount / total * 100)) : 0
       if (exportedCount >= total || res.items.length < 100) break; p++
     }
     if(!c.signal.aborted) {
-      const buffer = await wb.xlsx.writeBuffer()
-      saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `usage_${filters.value.start_date}_to_${filters.value.end_date}.xlsx`)
+      const csvContent = `\uFEFF${csvRows.join('\n')}`
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `usage_${filters.value.start_date}_to_${filters.value.end_date}.csv`
+      link.click()
+      window.URL.revokeObjectURL(url)
       appStore.showSuccess(t('usage.exportSuccess'))
     }
   } catch (error) { console.error('Failed to export:', error); appStore.showError('Export Failed') }
