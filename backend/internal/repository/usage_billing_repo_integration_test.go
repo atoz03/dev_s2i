@@ -199,6 +199,71 @@ func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {
 	require.InDelta(t, 3.5, quotaUsed, 0.000001)
 }
 
+func TestUsageBillingRepositoryApply_RespectsFixedDailyAccountQuotaReset(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-fixed-daily-user-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: user.ID,
+		Key:    "sk-usage-billing-fixed-daily-" + uuid.NewString(),
+		Name:   "billing-fixed-daily",
+	})
+	account := mustCreateAccount(t, client, &service.Account{
+		Name: "usage-billing-fixed-daily-account-" + uuid.NewString(),
+		Type: service.AccountTypeAPIKey,
+		Extra: map[string]any{
+			"quota_limit":            100.0,
+			"quota_daily_limit":      30.0,
+			"quota_daily_used":       26.31,
+			"quota_daily_start":      time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339),
+			"quota_daily_reset_mode": "fixed",
+			"quota_daily_reset_hour": 0.0,
+			"quota_reset_timezone":   "UTC",
+			"quota_daily_reset_at":   time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339),
+		},
+	})
+
+	const accountQuotaCost = 3.5
+	_, err := repo.Apply(ctx, &service.UsageBillingCommand{
+		RequestID:        uuid.NewString(),
+		APIKeyID:         apiKey.ID,
+		UserID:           user.ID,
+		AccountID:        account.ID,
+		AccountType:      service.AccountTypeAPIKey,
+		AccountQuotaCost: accountQuotaCost,
+	})
+	require.NoError(t, err)
+
+	var (
+		dailyUsed    float64
+		totalUsed    float64
+		dailyResetAt string
+	)
+	require.NoError(t, integrationDB.QueryRowContext(
+		ctx,
+		`SELECT
+			COALESCE((extra->>'quota_daily_used')::numeric, 0),
+			COALESCE((extra->>'quota_used')::numeric, 0),
+			COALESCE(extra->>'quota_daily_reset_at', '')
+		FROM accounts
+		WHERE id = $1`,
+		account.ID,
+	).Scan(&dailyUsed, &totalUsed, &dailyResetAt))
+
+	require.InDelta(t, accountQuotaCost, dailyUsed, 0.000001, "fixed daily window 过期后应从本次金额重新累计")
+	require.InDelta(t, accountQuotaCost, totalUsed, 0.000001)
+
+	resetAt, err := time.Parse(time.RFC3339, dailyResetAt)
+	require.NoError(t, err)
+	require.True(t, resetAt.After(time.Now().UTC()), "fixed daily reset_at 应被刷新到未来时间")
+	require.Equal(t, 0, resetAt.UTC().Hour())
+}
+
 func TestDashboardAggregationRepositoryCleanupUsageBillingDedup_BatchDeletesOldRows(t *testing.T) {
 	ctx := context.Background()
 	repo := newDashboardAggregationRepositoryWithSQL(integrationDB)
