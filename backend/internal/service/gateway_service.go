@@ -7742,9 +7742,6 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		cmd.CacheCreationTokens = usageLog.CacheCreationTokens
 		cmd.CacheReadTokens = usageLog.CacheReadTokens
 		cmd.ImageCount = usageLog.ImageCount
-		if usageLog.MediaType != nil {
-			cmd.MediaType = *usageLog.MediaType
-		}
 		if usageLog.ServiceTier != nil {
 			cmd.ServiceTier = *usageLog.ServiceTier
 		}
@@ -7901,7 +7898,6 @@ type recordUsageOpts struct {
 	// EnableClaudePath 启用 Claude 路径特有逻辑：
 	// - Claude Max 缓存计费策略
 	// - Sora 媒体类型分支（image/video/prompt）
-	// - MediaType 字段写入使用日志
 	EnableClaudePath bool
 
 	// 长上下文计费（仅 Gemini 路径需要）
@@ -7992,7 +7988,7 @@ type recordUsageCoreInput struct {
 // recordUsageCore 是 RecordUsage 和 RecordUsageWithLongContext 的统一实现。
 // opts 中的字段控制两者之间的差异行为：
 // - ParsedRequest != nil → 启用 Claude Max 缓存计费策略
-// - EnableSoraMedia → 启用 Sora MediaType 分支（image/video/prompt）
+// - EnableClaudePath → 启用 Sora MediaType 计费分支（image/video/prompt）
 // - LongContextThreshold > 0 → Token 计费回退走 CalculateCostWithLongContext
 func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsageCoreInput, opts *recordUsageOpts) error {
 	result := input.Result
@@ -8289,7 +8285,6 @@ func (s *GatewayService) buildRecordUsageLog(
 		FirstTokenMs:          result.FirstTokenMs,
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
-		MediaType:             resolveMediaType(opts, result),
 		CacheTTLOverridden:    cacheTTLOverridden,
 		ChannelID:             optionalInt64Ptr(input.ChannelID),
 		ModelMappingChain:     optionalTrimmedStringPtr(input.ModelMappingChain),
@@ -8330,13 +8325,6 @@ func resolveBillingMode(opts *recordUsageOpts, result *ForwardResult, cost *Cost
 		mode = string(BillingModeToken)
 	}
 	return &mode
-}
-
-func resolveMediaType(opts *recordUsageOpts, result *ForwardResult) *string {
-	if opts.EnableClaudePath && strings.TrimSpace(result.MediaType) != "" {
-		return &result.MediaType
-	}
-	return nil
 }
 
 func optionalSubscriptionID(subscription *UserSubscription) *int64 {

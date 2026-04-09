@@ -574,7 +574,6 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		FirstTokenMs:          l.FirstTokenMs,
 		ImageCount:            l.ImageCount,
 		ImageSize:             l.ImageSize,
-		MediaType:             l.MediaType,
 		UserAgent:             l.UserAgent,
 		CacheTTLOverridden:    l.CacheTTLOverridden,
 		BillingMode:           l.BillingMode,

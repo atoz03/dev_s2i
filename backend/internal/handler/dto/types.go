@@ -382,7 +382,6 @@ type UsageLog struct {
 	// 图片生成字段
 	ImageCount int     `json:"image_count"`
 	ImageSize  *string `json:"image_size"`
-	MediaType  *string `json:"media_type"`
 
 	// User-Agent
 	UserAgent *string `json:"user_agent"`
