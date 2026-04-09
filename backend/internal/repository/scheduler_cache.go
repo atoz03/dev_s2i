@@ -15,15 +15,33 @@ const (
 	schedulerBucketSetKey       = "sched:buckets"
 	schedulerOutboxWatermarkKey = "sched:outbox:watermark"
 	schedulerAccountPrefix      = "sched:acc:"
+	schedulerAccountFullPrefix  = "sched:acc:full:"
 	schedulerActivePrefix       = "sched:active:"
 	schedulerReadyPrefix        = "sched:ready:"
 	schedulerVersionPrefix      = "sched:ver:"
 	schedulerSnapshotPrefix     = "sched:"
 	schedulerLockPrefix         = "sched:lock:"
+	schedulerSnapshotStringMax  = 512
 )
 
 type schedulerCache struct {
 	rdb *redis.Client
+}
+
+var schedulerSnapshotCredentialAllowlist = map[string]struct{}{
+	"api_key":         {},
+	"project_id":      {},
+	"oauth_type":      {},
+	"model_mapping":   {},
+	"tier_id":         {},
+	"organization_id": {},
+	"base_url":        {},
+	"endpoint":        {},
+	"api_version":     {},
+	"deployment_name": {},
+	"deployment_id":   {},
+	"resource_name":   {},
+	"region":          {},
 }
 
 func NewSchedulerCache(rdb *redis.Client) service.SchedulerCache {
@@ -102,11 +120,13 @@ func (c *schedulerCache) SetSnapshot(ctx context.Context, bucket service.Schedul
 
 	pipe := c.rdb.Pipeline()
 	for _, account := range accounts {
-		payload, err := json.Marshal(account)
+		slimPayload, fullPayload, err := marshalSchedulerCachedAccounts(account)
 		if err != nil {
 			return err
 		}
-		pipe.Set(ctx, schedulerAccountKey(strconv.FormatInt(account.ID, 10)), payload, 0)
+		accountID := strconv.FormatInt(account.ID, 10)
+		pipe.Set(ctx, schedulerAccountKey(accountID), slimPayload, 0)
+		pipe.Set(ctx, schedulerAccountFullKey(accountID), fullPayload, 0)
 	}
 	if len(accounts) > 0 {
 		// 使用序号作为 score，保持数据库返回的排序语义。
@@ -136,8 +156,18 @@ func (c *schedulerCache) SetSnapshot(ctx context.Context, bucket service.Schedul
 }
 
 func (c *schedulerCache) GetAccount(ctx context.Context, accountID int64) (*service.Account, error) {
-	key := schedulerAccountKey(strconv.FormatInt(accountID, 10))
-	val, err := c.rdb.Get(ctx, key).Result()
+	id := strconv.FormatInt(accountID, 10)
+	fullKey := schedulerAccountFullKey(id)
+	val, err := c.rdb.Get(ctx, fullKey).Result()
+	switch {
+	case err == nil:
+		return decodeCachedAccount(val)
+	case err != redis.Nil:
+		return nil, err
+	}
+
+	legacyKey := schedulerAccountKey(id)
+	val, err = c.rdb.Get(ctx, legacyKey).Result()
 	if err == redis.Nil {
 		return nil, nil
 	}
@@ -151,20 +181,24 @@ func (c *schedulerCache) SetAccount(ctx context.Context, account *service.Accoun
 	if account == nil || account.ID <= 0 {
 		return nil
 	}
-	payload, err := json.Marshal(account)
+	slimPayload, fullPayload, err := marshalSchedulerCachedAccounts(*account)
 	if err != nil {
 		return err
 	}
-	key := schedulerAccountKey(strconv.FormatInt(account.ID, 10))
-	return c.rdb.Set(ctx, key, payload, 0).Err()
+	id := strconv.FormatInt(account.ID, 10)
+	pipe := c.rdb.Pipeline()
+	pipe.Set(ctx, schedulerAccountKey(id), slimPayload, 0)
+	pipe.Set(ctx, schedulerAccountFullKey(id), fullPayload, 0)
+	_, err = pipe.Exec(ctx)
+	return err
 }
 
 func (c *schedulerCache) DeleteAccount(ctx context.Context, accountID int64) error {
 	if accountID <= 0 {
 		return nil
 	}
-	key := schedulerAccountKey(strconv.FormatInt(accountID, 10))
-	return c.rdb.Del(ctx, key).Err()
+	id := strconv.FormatInt(accountID, 10)
+	return c.rdb.Del(ctx, schedulerAccountKey(id), schedulerAccountFullKey(id)).Err()
 }
 
 func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]time.Time) error {
@@ -172,20 +206,30 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 		return nil
 	}
 
-	keys := make([]string, 0, len(updates))
+	slimKeys := make([]string, 0, len(updates))
+	fullKeys := make([]string, 0, len(updates))
 	ids := make([]int64, 0, len(updates))
 	for id := range updates {
-		keys = append(keys, schedulerAccountKey(strconv.FormatInt(id, 10)))
+		accountID := strconv.FormatInt(id, 10)
+		slimKeys = append(slimKeys, schedulerAccountKey(accountID))
+		fullKeys = append(fullKeys, schedulerAccountFullKey(accountID))
 		ids = append(ids, id)
 	}
 
-	values, err := c.rdb.MGet(ctx, keys...).Result()
+	fullValues, err := c.rdb.MGet(ctx, fullKeys...).Result()
+	if err != nil {
+		return err
+	}
+	slimValues, err := c.rdb.MGet(ctx, slimKeys...).Result()
 	if err != nil {
 		return err
 	}
 
 	pipe := c.rdb.Pipeline()
-	for i, val := range values {
+	for i, val := range fullValues {
+		if val == nil {
+			val = slimValues[i]
+		}
 		if val == nil {
 			continue
 		}
@@ -194,11 +238,12 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 			return err
 		}
 		account.LastUsedAt = ptrTime(updates[ids[i]])
-		updated, err := json.Marshal(account)
+		slimPayload, fullPayload, err := marshalSchedulerCachedAccounts(*account)
 		if err != nil {
 			return err
 		}
-		pipe.Set(ctx, keys[i], updated, 0)
+		pipe.Set(ctx, slimKeys[i], slimPayload, 0)
+		pipe.Set(ctx, fullKeys[i], fullPayload, 0)
 	}
 	_, err = pipe.Exec(ctx)
 	return err
@@ -256,6 +301,10 @@ func schedulerAccountKey(id string) string {
 	return schedulerAccountPrefix + id
 }
 
+func schedulerAccountFullKey(id string) string {
+	return schedulerAccountFullPrefix + id
+}
+
 func ptrTime(t time.Time) *time.Time {
 	return &t
 }
@@ -275,4 +324,130 @@ func decodeCachedAccount(val any) (*service.Account, error) {
 		return nil, err
 	}
 	return &account, nil
+}
+
+func marshalSchedulerCachedAccounts(account service.Account) ([]byte, []byte, error) {
+	slimPayload, err := json.Marshal(buildSchedulerSlimAccount(account))
+	if err != nil {
+		return nil, nil, err
+	}
+	fullPayload, err := json.Marshal(account)
+	if err != nil {
+		return nil, nil, err
+	}
+	return slimPayload, fullPayload, nil
+}
+
+func buildSchedulerSlimAccount(account service.Account) service.Account {
+	return service.Account{
+		ID:                      account.ID,
+		Name:                    account.Name,
+		Notes:                   account.Notes,
+		Platform:                account.Platform,
+		Type:                    account.Type,
+		Credentials:             filterSchedulerSnapshotCredentials(account.Credentials),
+		Extra:                   filterSchedulerSnapshotExtra(account.Extra),
+		ProxyID:                 account.ProxyID,
+		Concurrency:             account.Concurrency,
+		Priority:                account.Priority,
+		RateMultiplier:          account.RateMultiplier,
+		LoadFactor:              account.LoadFactor,
+		Status:                  account.Status,
+		ErrorMessage:            account.ErrorMessage,
+		LastUsedAt:              account.LastUsedAt,
+		ExpiresAt:               account.ExpiresAt,
+		AutoPauseOnExpired:      account.AutoPauseOnExpired,
+		CreatedAt:               account.CreatedAt,
+		UpdatedAt:               account.UpdatedAt,
+		Schedulable:             account.Schedulable,
+		RateLimitedAt:           account.RateLimitedAt,
+		RateLimitResetAt:        account.RateLimitResetAt,
+		OverloadUntil:           account.OverloadUntil,
+		TempUnschedulableUntil:  account.TempUnschedulableUntil,
+		TempUnschedulableReason: account.TempUnschedulableReason,
+		SessionWindowStart:      account.SessionWindowStart,
+		SessionWindowEnd:        account.SessionWindowEnd,
+		SessionWindowStatus:     account.SessionWindowStatus,
+		GroupIDs:                append([]int64(nil), account.GroupIDs...),
+	}
+}
+
+func filterSchedulerSnapshotCredentials(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]any)
+	for key, value := range src {
+		if _, ok := schedulerSnapshotCredentialAllowlist[key]; !ok {
+			continue
+		}
+		if key == "model_mapping" {
+			if copied := copySchedulerModelMapping(value); len(copied) > 0 {
+				out[key] = copied
+			}
+			continue
+		}
+		if copied, ok := copySchedulerScalarValue(value); ok {
+			out[key] = copied
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func filterSchedulerSnapshotExtra(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]any)
+	for key, value := range src {
+		if copied, ok := copySchedulerScalarValue(value); ok {
+			out[key] = copied
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func copySchedulerModelMapping(value any) map[string]any {
+	switch raw := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(raw))
+		for k, v := range raw {
+			if s, ok := v.(string); ok && s != "" {
+				out[k] = s
+			}
+		}
+		return out
+	case map[string]string:
+		out := make(map[string]any, len(raw))
+		for k, v := range raw {
+			if v != "" {
+				out[k] = v
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func copySchedulerScalarValue(value any) (any, bool) {
+	switch v := value.(type) {
+	case nil:
+		return nil, false
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, json.Number:
+		return v, true
+	case string:
+		if v == "" || len(v) > schedulerSnapshotStringMax {
+			return nil, false
+		}
+		return v, true
+	default:
+		return nil, false
+	}
 }
