@@ -157,3 +157,16 @@ func TestGatewaySelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedu
 		t.Fatalf("expected hydrated api key, got %q", got)
 	}
 }
+
+func TestSchedulerSnapshotServiceGetAccount_CacheMissWithoutRepoReturnsNil(t *testing.T) {
+	cache := &snapshotHydrationCache{}
+	svc := NewSchedulerSnapshotService(cache, nil, nil, nil, nil)
+
+	account, err := svc.GetAccount(context.Background(), 9)
+	if err != nil {
+		t.Fatalf("GetAccount error: %v", err)
+	}
+	if account != nil {
+		t.Fatalf("expected nil account on cache miss without repo fallback, got %+v", account)
+	}
+}

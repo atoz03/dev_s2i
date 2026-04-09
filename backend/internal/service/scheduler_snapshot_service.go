@@ -144,6 +144,10 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 		}
 	}
 
+	if s.accountRepo == nil {
+		return nil, nil
+	}
+
 	if err := s.guardFallback(ctx); err != nil {
 		return nil, err
 	}

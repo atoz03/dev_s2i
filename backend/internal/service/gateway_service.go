@@ -2608,6 +2608,17 @@ func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID in
 	return s.accountRepo.GetByID(ctx, accountID)
 }
 
+func (s *GatewayService) hydrateSelectedSchedulableAccount(ctx context.Context, account *Account) *Account {
+	if account == nil {
+		return nil
+	}
+	fresh, err := s.getSchedulableAccount(ctx, account.ID)
+	if err != nil || fresh == nil {
+		return account
+	}
+	return fresh
+}
+
 // filterByMinPriority 过滤出优先级最小的账号集合
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
@@ -3061,7 +3072,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			if s.debugModelRoutingEnabled() {
 				logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy routed select: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), selected.ID)
 			}
-			return selected, nil
+			return s.hydrateSelectedSchedulableAccount(ctx, selected), nil
 		}
 		logger.LegacyPrintf("service.gateway", "[ModelRouting] No routed accounts available for model=%s, falling back to normal selection", requestedModel)
 	}
@@ -3181,7 +3192,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		}
 	}
 
-	return selected, nil
+	return s.hydrateSelectedSchedulableAccount(ctx, selected), nil
 }
 
 // selectAccountWithMixedScheduling 选择账户（支持混合调度）
@@ -3321,7 +3332,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			if s.debugModelRoutingEnabled() {
 				logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed select: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), selected.ID)
 			}
-			return selected, nil
+			return s.hydrateSelectedSchedulableAccount(ctx, selected), nil
 		}
 		logger.LegacyPrintf("service.gateway", "[ModelRouting] No routed accounts available for model=%s, falling back to normal selection", requestedModel)
 	}
@@ -3442,7 +3453,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		}
 	}
 
-	return selected, nil
+	return s.hydrateSelectedSchedulableAccount(ctx, selected), nil
 }
 
 type selectionFailureStats struct {
