@@ -93,6 +93,13 @@ type ChatGPTAccountInfo struct {
 	SubscriptionExpiresAt string // entitlement.expires_at (RFC3339)
 }
 
+type chatGPTAccountCandidate struct {
+	info      ChatGPTAccountInfo
+	isDefault bool
+	isPaid    bool
+	isExpired bool
+}
+
 const chatGPTAccountsCheckURL = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27"
 
 // fetchChatGPTAccountInfo calls ChatGPT backend-api to get account info (plan_type, etc.).
@@ -141,53 +148,9 @@ func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFac
 		return nil
 	}
 
-	// 优先匹配 orgID 对应的账号（access_token JWT 中的 poid）
-	if orgID != "" {
-		if acctRaw, ok := accounts[orgID]; ok {
-			if acct, ok := acctRaw.(map[string]any); ok {
-				fillAccountInfo(info, acct)
-			}
-		}
-	}
-
-	// 未匹配到时，遍历所有账号：优先 is_default，次选非 free
-	if info.PlanType == "" {
-		type candidate struct {
-			planType  string
-			expiresAt string
-		}
-		var defaultC, paidC, anyC candidate
-		for _, acctRaw := range accounts {
-			acct, ok := acctRaw.(map[string]any)
-			if !ok {
-				continue
-			}
-			planType := extractPlanType(acct)
-			if planType == "" {
-				continue
-			}
-			ea := extractEntitlementExpiresAt(acct)
-			if anyC.planType == "" {
-				anyC = candidate{planType, ea}
-			}
-			if account, ok := acct["account"].(map[string]any); ok {
-				if isDefault, _ := account["is_default"].(bool); isDefault {
-					defaultC = candidate{planType, ea}
-				}
-			}
-			if !strings.EqualFold(planType, "free") && paidC.planType == "" {
-				paidC = candidate{planType, ea}
-			}
-		}
-		// 优先级：default > 非 free > 任意
-		switch {
-		case defaultC.planType != "":
-			info.PlanType, info.SubscriptionExpiresAt = defaultC.planType, defaultC.expiresAt
-		case paidC.planType != "":
-			info.PlanType, info.SubscriptionExpiresAt = paidC.planType, paidC.expiresAt
-		default:
-			info.PlanType, info.SubscriptionExpiresAt = anyC.planType, anyC.expiresAt
-		}
+	selected := selectChatGPTAccountInfo(accounts, orgID, time.Now())
+	if selected != nil {
+		*info = *selected
 	}
 
 	if info.PlanType == "" {
@@ -203,6 +166,124 @@ func fetchChatGPTAccountInfo(ctx context.Context, clientFactory PrivacyClientFac
 func fillAccountInfo(info *ChatGPTAccountInfo, acct map[string]any) {
 	info.PlanType = extractPlanType(acct)
 	info.SubscriptionExpiresAt = extractEntitlementExpiresAt(acct)
+}
+
+// selectChatGPTAccountInfo 在多个账号中选择最适合展示的套餐信息。
+// 选择原则：
+// 1. 如果 orgID 对应账号仍有效，优先使用该账号；
+// 2. 如果 orgID 对应的是已过期付费计划，则回退到其他仍有效的账号；
+// 3. 未命中 orgID 时，有效账号的优先级为：默认有效付费账号 > 其他有效付费账号 > 默认有效账号 > 其他有效账号；
+// 4. 如果所有账号都无有效套餐，则回退到旧规则，至少返回一个可展示结果。
+func selectChatGPTAccountInfo(accounts map[string]any, orgID string, now time.Time) *ChatGPTAccountInfo {
+	var (
+		matchedCandidate  *chatGPTAccountCandidate
+		defaultPaidActive *chatGPTAccountCandidate
+		defaultActive     *chatGPTAccountCandidate
+		paidActive        *chatGPTAccountCandidate
+		anyActive         *chatGPTAccountCandidate
+		defaultAny        *chatGPTAccountCandidate
+		paidAny           *chatGPTAccountCandidate
+		anyCandidate      *chatGPTAccountCandidate
+	)
+
+	for accountID, acctRaw := range accounts {
+		acct, ok := acctRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		candidate := buildChatGPTAccountCandidate(acct, now)
+		if candidate == nil {
+			continue
+		}
+
+		if anyCandidate == nil {
+			anyCandidate = candidate
+		}
+		if candidate.isDefault && defaultAny == nil {
+			defaultAny = candidate
+		}
+		if candidate.isPaid && paidAny == nil {
+			paidAny = candidate
+		}
+		if !candidate.isExpired {
+			if anyActive == nil {
+				anyActive = candidate
+			}
+			if candidate.isDefault && candidate.isPaid && defaultPaidActive == nil {
+				defaultPaidActive = candidate
+			}
+			if candidate.isDefault && defaultActive == nil {
+				defaultActive = candidate
+			}
+			if candidate.isPaid && paidActive == nil {
+				paidActive = candidate
+			}
+		}
+		if orgID != "" && accountID == orgID {
+			matchedCandidate = candidate
+		}
+	}
+
+	if matchedCandidate != nil && !matchedCandidate.isExpired {
+		return &matchedCandidate.info
+	}
+
+	switch {
+	case defaultPaidActive != nil:
+		return &defaultPaidActive.info
+	case paidActive != nil:
+		return &paidActive.info
+	case defaultActive != nil:
+		return &defaultActive.info
+	case anyActive != nil:
+		return &anyActive.info
+	case matchedCandidate != nil:
+		return &matchedCandidate.info
+	case defaultAny != nil:
+		return &defaultAny.info
+	case paidAny != nil:
+		return &paidAny.info
+	case anyCandidate != nil:
+		return &anyCandidate.info
+	default:
+		return nil
+	}
+}
+
+func buildChatGPTAccountCandidate(acct map[string]any, now time.Time) *chatGPTAccountCandidate {
+	info := ChatGPTAccountInfo{}
+	fillAccountInfo(&info, acct)
+	if info.PlanType == "" {
+		return nil
+	}
+
+	candidate := &chatGPTAccountCandidate{
+		info:      info,
+		isPaid:    !strings.EqualFold(info.PlanType, "free"),
+		isExpired: isExpiredPaidSubscription(info.PlanType, info.SubscriptionExpiresAt, now),
+	}
+	if account, ok := acct["account"].(map[string]any); ok {
+		candidate.isDefault, _ = account["is_default"].(bool)
+	}
+
+	return candidate
+}
+
+func isExpiredPaidSubscription(planType, expiresAt string, now time.Time) bool {
+	if strings.EqualFold(strings.TrimSpace(planType), "free") {
+		return false
+	}
+	expiresAt = strings.TrimSpace(expiresAt)
+	if expiresAt == "" {
+		return false
+	}
+
+	parsed, err := time.Parse(time.RFC3339, expiresAt)
+	if err != nil {
+		return false
+	}
+	return !parsed.After(now)
 }
 
 // extractPlanType 从单个 account 对象中提取 plan_type
