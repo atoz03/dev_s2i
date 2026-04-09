@@ -62,7 +62,6 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
-		SetSoraStorageQuotaBytes(userIn.SoraStorageQuotaBytes).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
@@ -145,8 +144,6 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User) error
 		SetBalance(userIn.Balance).
 		SetConcurrency(userIn.Concurrency).
 		SetStatus(userIn.Status).
-		SetSoraStorageQuotaBytes(userIn.SoraStorageQuotaBytes).
-		SetSoraStorageUsedBytes(userIn.SoraStorageUsedBytes).
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrUserNotFound, service.ErrEmailExists)

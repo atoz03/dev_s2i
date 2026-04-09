@@ -24,6 +24,15 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// users: columns required by repository queries
 	requireColumn(t, tx, "users", "username", "character varying", 100, false)
 	requireColumn(t, tx, "users", "notes", "text", 0, false)
+	requireColumnAbsent(t, tx, "users", "sora_storage_quota_bytes")
+	requireColumnAbsent(t, tx, "users", "sora_storage_used_bytes")
+
+	// groups: sora columns should be absent after migration 090
+	requireColumnAbsent(t, tx, "groups", "sora_image_price_360")
+	requireColumnAbsent(t, tx, "groups", "sora_image_price_540")
+	requireColumnAbsent(t, tx, "groups", "sora_video_price_per_request")
+	requireColumnAbsent(t, tx, "groups", "sora_video_price_per_request_hd")
+	requireColumnAbsent(t, tx, "groups", "sora_storage_quota_bytes")
 
 	// accounts: schedulable and rate-limit fields
 	requireColumn(t, tx, "accounts", "notes", "text", 0, true)
@@ -138,4 +147,21 @@ WHERE table_schema = 'public'
 	} else {
 		require.Equal(t, "NO", row.Nullable, "nullable mismatch for %s.%s", table, column)
 	}
+}
+
+func requireColumnAbsent(t *testing.T, tx *sql.Tx, table, column string) {
+	t.Helper()
+
+	var exists bool
+	err := tx.QueryRowContext(context.Background(), `
+SELECT EXISTS (
+	SELECT 1
+	FROM information_schema.columns
+	WHERE table_schema = 'public'
+	  AND table_name = $1
+	  AND column_name = $2
+)
+`, table, column).Scan(&exists)
+	require.NoError(t, err, "query information_schema.columns for %s.%s", table, column)
+	require.False(t, exists, "expected column %s.%s to be absent", table, column)
 }
