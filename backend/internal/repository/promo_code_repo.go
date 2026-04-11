@@ -193,7 +193,7 @@ func (r *promoCodeRepository) ListUsagesByPromoCode(ctx context.Context, promoCo
 	}
 
 	usages, err := q.
-		WithUser().
+		WithUser(selectUserForService).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(promocodeusage.FieldID)).

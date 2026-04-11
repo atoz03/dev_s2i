@@ -8,9 +8,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
-	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
-	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -69,8 +67,8 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
 	m, err := r.activeQuery().
 		Where(apikey.IDEQ(id)).
-		WithUser().
-		WithGroup().
+		WithUser(selectUserForService).
+		WithGroup(selectGroupForService).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -103,8 +101,8 @@ func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (stri
 func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.APIKey, error) {
 	m, err := r.activeQuery().
 		Where(apikey.KeyEQ(key)).
-		WithUser().
-		WithGroup().
+		WithUser(selectUserForService).
+		WithGroup(selectGroupForService).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -132,40 +130,8 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldRateLimit1d,
 			apikey.FieldRateLimit7d,
 		).
-		WithUser(func(q *dbent.UserQuery) {
-			q.Select(
-				user.FieldID,
-				user.FieldStatus,
-				user.FieldRole,
-				user.FieldBalance,
-				user.FieldConcurrency,
-			)
-		}).
-		WithGroup(func(q *dbent.GroupQuery) {
-			q.Select(
-				group.FieldID,
-				group.FieldName,
-				group.FieldPlatform,
-				group.FieldStatus,
-				group.FieldSubscriptionType,
-				group.FieldRateMultiplier,
-				group.FieldDailyLimitUsd,
-				group.FieldWeeklyLimitUsd,
-				group.FieldMonthlyLimitUsd,
-				group.FieldImagePrice1k,
-				group.FieldImagePrice2k,
-				group.FieldImagePrice4k,
-				group.FieldClaudeCodeOnly,
-				group.FieldFallbackGroupID,
-				group.FieldFallbackGroupIDOnInvalidRequest,
-				group.FieldModelRoutingEnabled,
-				group.FieldModelRouting,
-				group.FieldMcpXMLInject,
-				group.FieldSupportedModelScopes,
-				group.FieldAllowMessagesDispatch,
-				group.FieldDefaultMappedModel,
-			)
-		}).
+		WithUser(selectUserForService).
+		WithGroup(selectGroupForService).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -310,7 +276,7 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	}
 
 	keys, err := q.
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(apikey.FieldID)).
@@ -360,7 +326,7 @@ func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, par
 	}
 
 	keys, err := q.
-		WithUser().
+		WithUser(selectUserForService).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(apikey.FieldID)).

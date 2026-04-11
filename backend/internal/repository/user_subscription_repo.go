@@ -62,9 +62,9 @@ func (r *userSubscriptionRepository) GetByID(ctx context.Context, id int64) (*se
 	client := clientFromContext(ctx, r.client)
 	m, err := client.UserSubscription.Query().
 		Where(usersubscription.IDEQ(id)).
-		WithUser().
-		WithGroup().
-		WithAssignedByUser().
+		WithUser(selectUserForService).
+		WithGroup(selectGroupForService).
+		WithAssignedByUser(selectUserForService).
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
@@ -76,7 +76,7 @@ func (r *userSubscriptionRepository) GetByUserIDAndGroupID(ctx context.Context, 
 	client := clientFromContext(ctx, r.client)
 	m, err := client.UserSubscription.Query().
 		Where(usersubscription.UserIDEQ(userID), usersubscription.GroupIDEQ(groupID)).
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
@@ -93,7 +93,7 @@ func (r *userSubscriptionRepository) GetActiveByUserIDAndGroupID(ctx context.Con
 			usersubscription.StatusEQ(service.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(time.Now()),
 		).
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
@@ -142,7 +142,7 @@ func (r *userSubscriptionRepository) ListByUserID(ctx context.Context, userID in
 	client := clientFromContext(ctx, r.client)
 	subs, err := client.UserSubscription.Query().
 		Where(usersubscription.UserIDEQ(userID)).
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Order(dbent.Desc(usersubscription.FieldCreatedAt)).
 		All(ctx)
 	if err != nil {
@@ -159,7 +159,7 @@ func (r *userSubscriptionRepository) ListActiveByUserID(ctx context.Context, use
 			usersubscription.StatusEQ(service.SubscriptionStatusActive),
 			usersubscription.ExpiresAtGT(time.Now()),
 		).
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Order(dbent.Desc(usersubscription.FieldCreatedAt)).
 		All(ctx)
 	if err != nil {
@@ -178,8 +178,8 @@ func (r *userSubscriptionRepository) ListByGroupID(ctx context.Context, groupID 
 	}
 
 	subs, err := q.
-		WithUser().
-		WithGroup().
+		WithUser(selectUserForService).
+		WithGroup(selectGroupForService).
 		Order(dbent.Desc(usersubscription.FieldCreatedAt)).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
@@ -237,7 +237,7 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 	}
 
 	// Apply sorting
-	q = q.WithUser().WithGroup().WithAssignedByUser()
+	q = q.WithUser(selectUserForService).WithGroup(selectGroupForService).WithAssignedByUser(selectUserForService)
 
 	// Determine sort field
 	var field string

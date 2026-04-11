@@ -104,14 +104,13 @@ type AdminService interface {
 
 // CreateUserInput represents input for creating a new user via admin operations.
 type CreateUserInput struct {
-	Email                 string
-	Password              string
-	Username              string
-	Notes                 string
-	Balance               float64
-	Concurrency           int
-	AllowedGroups         []int64
-	SoraStorageQuotaBytes int64
+	Email         string
+	Password      string
+	Username      string
+	Notes         string
+	Balance       float64
+	Concurrency   int
+	AllowedGroups []int64
 }
 
 type UpdateUserInput struct {
@@ -125,8 +124,7 @@ type UpdateUserInput struct {
 	AllowedGroups *[]int64 // 使用指针区分"未提供"和"设置为空数组"
 	// GroupRates 用户专属分组倍率配置
 	// map[groupID]*rate，nil 表示删除该分组的专属倍率
-	GroupRates            map[int64]*float64
-	SoraStorageQuotaBytes *int64
+	GroupRates map[int64]*float64
 }
 
 type CreateGroupInput struct {
@@ -140,16 +138,11 @@ type CreateGroupInput struct {
 	WeeklyLimitUSD   *float64 // 周限额 (USD)
 	MonthlyLimitUSD  *float64 // 月限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
-	ImagePrice1K *float64
-	ImagePrice2K *float64
-	ImagePrice4K *float64
-	// Sora 按次计费配置
-	SoraImagePrice360          *float64
-	SoraImagePrice540          *float64
-	SoraVideoPricePerRequest   *float64
-	SoraVideoPricePerRequestHD *float64
-	ClaudeCodeOnly             bool   // 仅允许 Claude Code 客户端
-	FallbackGroupID            *int64 // 降级分组 ID
+	ImagePrice1K    *float64
+	ImagePrice2K    *float64
+	ImagePrice4K    *float64
+	ClaudeCodeOnly  bool   // 仅允许 Claude Code 客户端
+	FallbackGroupID *int64 // 降级分组 ID
 	// 无效请求兜底分组 ID（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
 	// 模型路由配置（仅 anthropic 平台使用）
@@ -158,8 +151,6 @@ type CreateGroupInput struct {
 	MCPXMLInject        *bool
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes []string
-	// Sora 存储配额
-	SoraStorageQuotaBytes int64
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch bool
 	DefaultMappedModel    string
@@ -181,16 +172,11 @@ type UpdateGroupInput struct {
 	WeeklyLimitUSD   *float64 // 周限额 (USD)
 	MonthlyLimitUSD  *float64 // 月限额 (USD)
 	// 图片生成计费配置（仅 antigravity 平台使用）
-	ImagePrice1K *float64
-	ImagePrice2K *float64
-	ImagePrice4K *float64
-	// Sora 按次计费配置
-	SoraImagePrice360          *float64
-	SoraImagePrice540          *float64
-	SoraVideoPricePerRequest   *float64
-	SoraVideoPricePerRequestHD *float64
-	ClaudeCodeOnly             *bool  // 仅允许 Claude Code 客户端
-	FallbackGroupID            *int64 // 降级分组 ID
+	ImagePrice1K    *float64
+	ImagePrice2K    *float64
+	ImagePrice4K    *float64
+	ClaudeCodeOnly  *bool  // 仅允许 Claude Code 客户端
+	FallbackGroupID *int64 // 降级分组 ID
 	// 无效请求兜底分组 ID（仅 anthropic 平台使用）
 	FallbackGroupIDOnInvalidRequest *int64
 	// 模型路由配置（仅 anthropic 平台使用）
@@ -199,8 +185,6 @@ type UpdateGroupInput struct {
 	MCPXMLInject        *bool
 	// 支持的模型系列（仅 antigravity 平台使用）
 	SupportedModelScopes *[]string
-	// Sora 存储配额
-	SoraStorageQuotaBytes *int64
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch *bool
 	DefaultMappedModel    *string
@@ -574,15 +558,14 @@ func (s *adminServiceImpl) GetUser(ctx context.Context, id int64) (*User, error)
 
 func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInput) (*User, error) {
 	user := &User{
-		Email:                 input.Email,
-		Username:              input.Username,
-		Notes:                 input.Notes,
-		Role:                  RoleUser, // Always create as regular user, never admin
-		Balance:               input.Balance,
-		Concurrency:           input.Concurrency,
-		Status:                StatusActive,
-		AllowedGroups:         input.AllowedGroups,
-		SoraStorageQuotaBytes: input.SoraStorageQuotaBytes,
+		Email:         input.Email,
+		Username:      input.Username,
+		Notes:         input.Notes,
+		Role:          RoleUser, // Always create as regular user, never admin
+		Balance:       input.Balance,
+		Concurrency:   input.Concurrency,
+		Status:        StatusActive,
+		AllowedGroups: input.AllowedGroups,
 	}
 	if err := user.SetPassword(input.Password); err != nil {
 		return nil, err
@@ -652,10 +635,6 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 
 	if input.AllowedGroups != nil {
 		user.AllowedGroups = *input.AllowedGroups
-	}
-
-	if input.SoraStorageQuotaBytes != nil {
-		user.SoraStorageQuotaBytes = *input.SoraStorageQuotaBytes
 	}
 
 	if err := s.userRepo.Update(ctx, user); err != nil {
@@ -860,10 +839,6 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	imagePrice1K := normalizePrice(input.ImagePrice1K)
 	imagePrice2K := normalizePrice(input.ImagePrice2K)
 	imagePrice4K := normalizePrice(input.ImagePrice4K)
-	soraImagePrice360 := normalizePrice(input.SoraImagePrice360)
-	soraImagePrice540 := normalizePrice(input.SoraImagePrice540)
-	soraVideoPrice := normalizePrice(input.SoraVideoPricePerRequest)
-	soraVideoPriceHD := normalizePrice(input.SoraVideoPricePerRequestHD)
 
 	// 校验降级分组
 	if input.FallbackGroupID != nil {
@@ -934,17 +909,12 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ImagePrice1K:                    imagePrice1K,
 		ImagePrice2K:                    imagePrice2K,
 		ImagePrice4K:                    imagePrice4K,
-		SoraImagePrice360:               soraImagePrice360,
-		SoraImagePrice540:               soraImagePrice540,
-		SoraVideoPricePerRequest:        soraVideoPrice,
-		SoraVideoPricePerRequestHD:      soraVideoPriceHD,
 		ClaudeCodeOnly:                  input.ClaudeCodeOnly,
 		FallbackGroupID:                 input.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: fallbackOnInvalidRequest,
 		ModelRouting:                    input.ModelRouting,
 		MCPXMLInject:                    mcpXMLInject,
 		SupportedModelScopes:            input.SupportedModelScopes,
-		SoraStorageQuotaBytes:           input.SoraStorageQuotaBytes,
 		AllowMessagesDispatch:           input.AllowMessagesDispatch,
 		RequireOAuthOnly:                input.RequireOAuthOnly,
 		RequirePrivacySet:               input.RequirePrivacySet,
@@ -1114,21 +1084,6 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ImagePrice4K != nil {
 		group.ImagePrice4K = normalizePrice(input.ImagePrice4K)
-	}
-	if input.SoraImagePrice360 != nil {
-		group.SoraImagePrice360 = normalizePrice(input.SoraImagePrice360)
-	}
-	if input.SoraImagePrice540 != nil {
-		group.SoraImagePrice540 = normalizePrice(input.SoraImagePrice540)
-	}
-	if input.SoraVideoPricePerRequest != nil {
-		group.SoraVideoPricePerRequest = normalizePrice(input.SoraVideoPricePerRequest)
-	}
-	if input.SoraVideoPricePerRequestHD != nil {
-		group.SoraVideoPricePerRequestHD = normalizePrice(input.SoraVideoPricePerRequestHD)
-	}
-	if input.SoraStorageQuotaBytes != nil {
-		group.SoraStorageQuotaBytes = *input.SoraStorageQuotaBytes
 	}
 
 	// Claude Code 客户端限制

@@ -121,8 +121,8 @@ func (r *redeemCodeRepository) ListWithFilters(ctx context.Context, params pagin
 	}
 
 	codes, err := q.
-		WithUser().
-		WithGroup().
+		WithUser(selectUserForService).
+		WithGroup(selectGroupForService).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(redeemcode.FieldID)).
@@ -197,7 +197,7 @@ func (r *redeemCodeRepository) ListByUser(ctx context.Context, userID int64, lim
 
 	codes, err := r.client.RedeemCode.Query().
 		Where(redeemcode.UsedByEQ(userID)).
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Order(dbent.Desc(redeemcode.FieldUsedAt)).
 		Limit(limit).
 		All(ctx)
@@ -225,7 +225,7 @@ func (r *redeemCodeRepository) ListByUserPaginated(ctx context.Context, userID i
 	}
 
 	codes, err := q.
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Offset(params.Offset()).
 		Limit(params.Limit()).
 		Order(dbent.Desc(redeemcode.FieldUsedAt)).

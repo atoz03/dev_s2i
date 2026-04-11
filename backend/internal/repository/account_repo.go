@@ -1545,7 +1545,7 @@ func (r *accountRepository) loadAccountGroups(ctx context.Context, accountIDs []
 
 	entries, err := r.client.AccountGroup.Query().
 		Where(dbaccountgroup.AccountIDIn(accountIDs...)).
-		WithGroup().
+		WithGroup(selectGroupForService).
 		Order(dbaccountgroup.ByAccountID(), dbaccountgroup.ByPriority()).
 		All(ctx)
 	if err != nil {

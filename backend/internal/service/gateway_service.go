@@ -8116,15 +8116,8 @@ func (s *GatewayService) calculateSoraMediaCost(
 	billingModel string,
 	multiplier float64,
 ) *CostBreakdown {
+	// 分组级 Sora 定价字段已随 schema 一并移除，这里统一回退到默认定价配置。
 	var soraConfig *SoraPriceConfig
-	if apiKey.Group != nil {
-		soraConfig = &SoraPriceConfig{
-			ImagePrice360:          apiKey.Group.SoraImagePrice360,
-			ImagePrice540:          apiKey.Group.SoraImagePrice540,
-			VideoPricePerRequest:   apiKey.Group.SoraVideoPricePerRequest,
-			VideoPricePerRequestHD: apiKey.Group.SoraVideoPricePerRequestHD,
-		}
-	}
 	if result.MediaType == MediaTypeImage {
 		return s.billingService.CalculateSoraImageCost(result.ImageSize, result.ImageCount, soraConfig, multiplier)
 	}

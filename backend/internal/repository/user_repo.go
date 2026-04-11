@@ -82,7 +82,25 @@ func (r *userRepository) Create(ctx context.Context, userIn *service.User) error
 }
 
 func (r *userRepository) GetByID(ctx context.Context, id int64) (*service.User, error) {
-	m, err := r.client.User.Query().Where(dbuser.IDEQ(id)).Only(ctx)
+	m, err := r.client.User.Query().
+		Where(dbuser.IDEQ(id)).
+		Select(
+			dbuser.FieldID,
+			dbuser.FieldEmail,
+			dbuser.FieldUsername,
+			dbuser.FieldNotes,
+			dbuser.FieldPasswordHash,
+			dbuser.FieldRole,
+			dbuser.FieldBalance,
+			dbuser.FieldConcurrency,
+			dbuser.FieldStatus,
+			dbuser.FieldTotpSecretEncrypted,
+			dbuser.FieldTotpEnabled,
+			dbuser.FieldTotpEnabledAt,
+			dbuser.FieldCreatedAt,
+			dbuser.FieldUpdatedAt,
+		).
+		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
@@ -99,7 +117,25 @@ func (r *userRepository) GetByID(ctx context.Context, id int64) (*service.User, 
 }
 
 func (r *userRepository) GetByEmail(ctx context.Context, email string) (*service.User, error) {
-	m, err := r.client.User.Query().Where(dbuser.EmailEQ(email)).Only(ctx)
+	m, err := r.client.User.Query().
+		Where(dbuser.EmailEQ(email)).
+		Select(
+			dbuser.FieldID,
+			dbuser.FieldEmail,
+			dbuser.FieldUsername,
+			dbuser.FieldNotes,
+			dbuser.FieldPasswordHash,
+			dbuser.FieldRole,
+			dbuser.FieldBalance,
+			dbuser.FieldConcurrency,
+			dbuser.FieldStatus,
+			dbuser.FieldTotpSecretEncrypted,
+			dbuser.FieldTotpEnabled,
+			dbuser.FieldTotpEnabledAt,
+			dbuser.FieldCreatedAt,
+			dbuser.FieldUpdatedAt,
+		).
+		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
@@ -255,7 +291,7 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 				usersubscription.UserIDIn(userIDs...),
 				usersubscription.StatusEQ(service.SubscriptionStatusActive),
 			).
-			WithGroup().
+			WithGroup(selectGroupForService).
 			All(ctx)
 		if err != nil {
 			return nil, nil, err
@@ -373,63 +409,33 @@ func (r *userRepository) UpdateConcurrency(ctx context.Context, id int64, amount
 	return nil
 }
 
-// AddSoraStorageUsageWithQuota 原子累加 Sora 存储用量，并在有配额时校验不超额。
+// AddSoraStorageUsageWithQuota 保留旧接口兼容，但 sora 存储列已从 users 表移除。
+// 这里仅做用户存在性校验，避免运行时代码继续访问已删除列。
 func (r *userRepository) AddSoraStorageUsageWithQuota(ctx context.Context, userID int64, deltaBytes int64, effectiveQuota int64) (int64, error) {
-	if deltaBytes <= 0 {
-		user, err := r.GetByID(ctx, userID)
-		if err != nil {
-			return 0, err
-		}
-		return user.SoraStorageUsedBytes, nil
-	}
-	var newUsed int64
-	err := scanSingleRow(ctx, r.sql, `
-		UPDATE users
-		SET sora_storage_used_bytes = sora_storage_used_bytes + $2
-		WHERE id = $1
-		  AND ($3 = 0 OR sora_storage_used_bytes + $2 <= $3)
-		RETURNING sora_storage_used_bytes
-	`, []any{userID, deltaBytes, effectiveQuota}, &newUsed)
-	if err == nil {
-		return newUsed, nil
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		// 区分用户不存在和配额冲突
-		exists, existsErr := r.client.User.Query().Where(dbuser.IDEQ(userID)).Exist(ctx)
-		if existsErr != nil {
-			return 0, existsErr
-		}
-		if !exists {
-			return 0, service.ErrUserNotFound
-		}
-		return 0, service.ErrSoraStorageQuotaExceeded
-	}
-	return 0, err
-}
-
-// ReleaseSoraStorageUsageAtomic 原子释放 Sora 存储用量，并保证不低于 0。
-func (r *userRepository) ReleaseSoraStorageUsageAtomic(ctx context.Context, userID int64, deltaBytes int64) (int64, error) {
-	if deltaBytes <= 0 {
-		user, err := r.GetByID(ctx, userID)
-		if err != nil {
-			return 0, err
-		}
-		return user.SoraStorageUsedBytes, nil
-	}
-	var newUsed int64
-	err := scanSingleRow(ctx, r.sql, `
-		UPDATE users
-		SET sora_storage_used_bytes = GREATEST(sora_storage_used_bytes - $2, 0)
-		WHERE id = $1
-		RETURNING sora_storage_used_bytes
-	`, []any{userID, deltaBytes}, &newUsed)
+	_ = deltaBytes
+	_ = effectiveQuota
+	exists, err := r.client.User.Query().Where(dbuser.IDEQ(userID)).Exist(ctx)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, service.ErrUserNotFound
-		}
 		return 0, err
 	}
-	return newUsed, nil
+	if !exists {
+		return 0, service.ErrUserNotFound
+	}
+	return 0, nil
+}
+
+// ReleaseSoraStorageUsageAtomic 保留旧接口兼容，但 sora 存储列已从 users 表移除。
+// 这里仅做用户存在性校验，避免运行时代码继续访问已删除列。
+func (r *userRepository) ReleaseSoraStorageUsageAtomic(ctx context.Context, userID int64, deltaBytes int64) (int64, error) {
+	_ = deltaBytes
+	exists, err := r.client.User.Query().Where(dbuser.IDEQ(userID)).Exist(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if !exists {
+		return 0, service.ErrUserNotFound
+	}
+	return 0, nil
 }
 
 func (r *userRepository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
