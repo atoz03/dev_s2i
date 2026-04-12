@@ -126,7 +126,7 @@ type SystemSettings struct {
 	DefaultUpstreamUserAgent      string `json:"default_upstream_user_agent"`
 	ForceUnifiedUpstreamUserAgent bool   `json:"force_unified_upstream_user_agent"`
 	UpdateGitHubRepo              string `json:"update_github_repo"`
-	EnableCCHSigning             bool `json:"enable_cch_signing"`
+	EnableCCHSigning              bool   `json:"enable_cch_signing"`
 
 	// Payment configuration
 	PaymentEnabled           bool     `json:"payment_enabled"`
