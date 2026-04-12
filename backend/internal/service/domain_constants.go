@@ -72,6 +72,9 @@ const (
 // LinuxDoConnectSyntheticEmailDomain 是 LinuxDo Connect 用户的合成邮箱后缀（RFC 保留域名）。
 const LinuxDoConnectSyntheticEmailDomain = "@linuxdo-connect.invalid"
 
+// OIDCConnectSyntheticEmailDomain 是 OIDC 用户的合成邮箱后缀（RFC 保留域名）。
+const OIDCConnectSyntheticEmailDomain = "@oidc-connect.invalid"
+
 // Setting keys
 const (
 	// 注册设置
@@ -106,6 +109,30 @@ const (
 	SettingKeyLinuxDoConnectClientSecret = "linuxdo_connect_client_secret"
 	SettingKeyLinuxDoConnectRedirectURL  = "linuxdo_connect_redirect_url"
 
+	// Generic OIDC OAuth 登录设置
+	SettingKeyOIDCConnectEnabled              = "oidc_connect_enabled"
+	SettingKeyOIDCConnectProviderName         = "oidc_connect_provider_name"
+	SettingKeyOIDCConnectClientID             = "oidc_connect_client_id"
+	SettingKeyOIDCConnectClientSecret         = "oidc_connect_client_secret"
+	SettingKeyOIDCConnectIssuerURL            = "oidc_connect_issuer_url"
+	SettingKeyOIDCConnectDiscoveryURL         = "oidc_connect_discovery_url"
+	SettingKeyOIDCConnectAuthorizeURL         = "oidc_connect_authorize_url"
+	SettingKeyOIDCConnectTokenURL             = "oidc_connect_token_url"
+	SettingKeyOIDCConnectUserInfoURL          = "oidc_connect_userinfo_url"
+	SettingKeyOIDCConnectJWKSURL              = "oidc_connect_jwks_url"
+	SettingKeyOIDCConnectScopes               = "oidc_connect_scopes"
+	SettingKeyOIDCConnectRedirectURL          = "oidc_connect_redirect_url"
+	SettingKeyOIDCConnectFrontendRedirectURL  = "oidc_connect_frontend_redirect_url"
+	SettingKeyOIDCConnectTokenAuthMethod      = "oidc_connect_token_auth_method"
+	SettingKeyOIDCConnectUsePKCE              = "oidc_connect_use_pkce"
+	SettingKeyOIDCConnectValidateIDToken      = "oidc_connect_validate_id_token"
+	SettingKeyOIDCConnectAllowedSigningAlgs   = "oidc_connect_allowed_signing_algs"
+	SettingKeyOIDCConnectClockSkewSeconds     = "oidc_connect_clock_skew_seconds"
+	SettingKeyOIDCConnectRequireEmailVerified = "oidc_connect_require_email_verified"
+	SettingKeyOIDCConnectUserInfoEmailPath    = "oidc_connect_userinfo_email_path"
+	SettingKeyOIDCConnectUserInfoIDPath       = "oidc_connect_userinfo_id_path"
+	SettingKeyOIDCConnectUserInfoUsernamePath = "oidc_connect_userinfo_username_path"
+
 	// OEM设置
 	SettingKeySoraClientEnabled           = "sora_client_enabled"           // 是否启用 Sora 客户端（管理员手动控制）
 	SettingKeySiteName                    = "site_name"                     // 网站名称
@@ -118,6 +145,8 @@ const (
 	SettingKeyHideCcsImportButton         = "hide_ccs_import_button"        // 是否隐藏 API Keys 页面的导入 CCS 按钮
 	SettingKeyPurchaseSubscriptionEnabled = "purchase_subscription_enabled" // 是否展示"购买订阅"页面入口
 	SettingKeyPurchaseSubscriptionURL     = "purchase_subscription_url"     // "购买订阅"页面 URL（作为 iframe src）
+	SettingKeyTableDefaultPageSize        = "table_default_page_size"       // 表格默认每页条数
+	SettingKeyTablePageSizeOptions        = "table_page_size_options"       // 表格可选每页条数（JSON 数组）
 	SettingKeyCustomMenuItems             = "custom_menu_items"             // 自定义菜单项（JSON 数组）
 	SettingKeyCustomEndpoints             = "custom_endpoints"              // 自定义端点列表（JSON 数组）
 
@@ -247,6 +276,8 @@ const (
 	SettingKeyForceUnifiedUpstreamUserAgent = "force_unified_upstream_user_agent"
 	// SettingKeyUpdateGitHubRepo 系统更新检查仓库（格式：owner/repo）
 	SettingKeyUpdateGitHubRepo = "update_github_repo"
+	// SettingKeyEnableCCHSigning 是否启用 CCH 签名
+	SettingKeyEnableCCHSigning = "enable_cch_signing"
 )
 
 // AdminAPIKeyPrefix is the prefix for admin API keys (distinct from user "sk-" keys).

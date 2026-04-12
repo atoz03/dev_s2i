@@ -31,6 +31,31 @@ type SystemSettings struct {
 	LinuxDoConnectClientSecretConfigured bool
 	LinuxDoConnectRedirectURL            string
 
+	// Generic OIDC OAuth 登录
+	OIDCConnectEnabled                bool
+	OIDCConnectProviderName           string
+	OIDCConnectClientID               string
+	OIDCConnectClientSecret           string
+	OIDCConnectClientSecretConfigured bool
+	OIDCConnectIssuerURL              string
+	OIDCConnectDiscoveryURL           string
+	OIDCConnectAuthorizeURL           string
+	OIDCConnectTokenURL               string
+	OIDCConnectUserInfoURL            string
+	OIDCConnectJWKSURL                string
+	OIDCConnectScopes                 string
+	OIDCConnectRedirectURL            string
+	OIDCConnectFrontendRedirectURL    string
+	OIDCConnectTokenAuthMethod        string
+	OIDCConnectUsePKCE                bool
+	OIDCConnectValidateIDToken        bool
+	OIDCConnectAllowedSigningAlgs     string
+	OIDCConnectClockSkewSeconds       int
+	OIDCConnectRequireEmailVerified   bool
+	OIDCConnectUserInfoEmailPath      string
+	OIDCConnectUserInfoIDPath         string
+	OIDCConnectUserInfoUsernamePath   string
+
 	SiteName                    string
 	SiteLogo                    string
 	SiteSubtitle                string
@@ -42,6 +67,8 @@ type SystemSettings struct {
 	PurchaseSubscriptionEnabled bool
 	PurchaseSubscriptionURL     string
 	SoraClientEnabled           bool
+	TableDefaultPageSize        int
+	TablePageSizeOptions        []int
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
@@ -82,6 +109,7 @@ type SystemSettings struct {
 	DefaultUpstreamUserAgent      string
 	ForceUnifiedUpstreamUserAgent bool
 	UpdateGitHubRepo              string
+	EnableCCHSigning              bool // 是否启用 CCH 签名
 }
 
 type DefaultSubscriptionSetting struct {
@@ -110,13 +138,18 @@ type PublicSettings struct {
 
 	PurchaseSubscriptionEnabled bool
 	PurchaseSubscriptionURL     string
-	SoraClientEnabled           bool
+	TableDefaultPageSize        int
+	TablePageSizeOptions        []int
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	LinuxDoOAuthEnabled bool
-	BackendModeEnabled  bool
-	Version             string
+	LinuxDoOAuthEnabled   bool
+	SoraClientEnabled     bool
+	BackendModeEnabled    bool
+	OIDCOAuthEnabled      bool
+	OIDCOAuthProviderName string
+	PaymentEnabled        bool
+	Version               string
 }
 
 // SoraS3Settings Sora S3 存储配置

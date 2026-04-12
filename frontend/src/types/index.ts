@@ -103,11 +103,14 @@ export interface PublicSettings {
   doc_url: string
   home_content: string
   hide_ccs_import_button: boolean
-  purchase_subscription_enabled: boolean
-  purchase_subscription_url: string
+  payment_enabled: boolean
+  table_default_page_size: number
+  table_page_size_options: number[]
   custom_menu_items: CustomMenuItem[]
   custom_endpoints: CustomEndpoint[]
   linuxdo_oauth_enabled: boolean
+  oidc_oauth_enabled: boolean
+  oidc_oauth_provider_name: string
   backend_mode_enabled: boolean
   version: string
 }
@@ -365,6 +368,13 @@ export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 
 
 export type SubscriptionType = 'standard' | 'subscription'
 
+export interface OpenAIMessagesDispatchModelConfig {
+  opus_mapped_model?: string
+  sonnet_mapped_model?: string
+  haiku_mapped_model?: string
+  exact_model_mappings?: Record<string, string>
+}
+
 export interface Group {
   id: number
   name: string
@@ -383,6 +393,8 @@ export interface Group {
   fallback_group_id_on_invalid_request: number | null
   // OpenAI Messages 调度开关（用户侧需要此字段判断是否展示 Claude Code 教程）
   allow_messages_dispatch?: boolean
+  default_mapped_model?: string
+  messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   require_oauth_only: boolean
   require_privacy_set: boolean
   created_at: string
@@ -413,6 +425,7 @@ export interface AdminGroup extends Group {
   rate_limited_account_count?: number
 
   default_mapped_model?: string
+  messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
 
   // 分组排序
   sort_order: number
@@ -1328,6 +1341,8 @@ export interface UsageQueryParams {
   billing_type?: number | null
   start_date?: string
   end_date?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
 }
 
 // ==================== Account Usage Statistics ====================
@@ -1553,3 +1568,6 @@ export interface UpdateScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
 }
+
+// Payment types
+export type { SubscriptionPlan, PaymentOrder, CheckoutInfoResponse } from './payment'

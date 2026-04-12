@@ -54,6 +54,7 @@ func groupSelectFieldsForService() []string {
 		group.FieldRequireOauthOnly,
 		group.FieldRequirePrivacySet,
 		group.FieldDefaultMappedModel,
+		group.FieldMessagesDispatchModelConfig,
 		group.FieldCreatedAt,
 		group.FieldUpdatedAt,
 	}
