@@ -53,7 +53,7 @@ func TestResolveAccountUpstreamModel_Antigravity_Unsupported(t *testing.T) {
 		Platform: PlatformAntigravity,
 	}
 	got := resolveAccountUpstreamModel(account, "totally-unknown-model")
-	require.Equal(t, "totally-unknown-model", got, "unsupported model should passthrough after antigravity cleanup")
+	require.Equal(t, "totally-unknown-model", got, "当前实现对未识别模型保持透传")
 }
 
 func TestResolveAccountUpstreamModel_NonAntigravity(t *testing.T) {
@@ -288,5 +288,5 @@ func TestIsUpstreamModelRestrictedByChannel_UnsupportedModel(t *testing.T) {
 
 	account := &Account{Platform: PlatformAntigravity}
 	require.True(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "totally-unknown-model"),
-		"unknown model passthrough 后不在 channel pricing 中，应被限制")
+		"当前实现对未识别模型透传后，会继续按渠道定价限制判定")
 }

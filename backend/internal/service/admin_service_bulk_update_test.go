@@ -138,3 +138,33 @@ func TestAdminService_BulkUpdateAccounts_NilGroupRepoReturnsError(t *testing.T) 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "group repository not configured")
 }
+// TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict verifies
+// the current behavior: bulk update no longer blocks on this Antigravity mixed-channel legacy case.
+func TestAdminService_BulkUpdateAccounts_MixedChannelPreCheckBlocksOnExistingConflict(t *testing.T) {
+	repo := &accountRepoStubForBulkUpdate{
+		getByIDsAccounts: []*Account{
+			{ID: 1, Platform: PlatformAntigravity},
+		},
+		// Group 10 already contains an Anthropic account.
+		listByGroupData: map[int64][]Account{
+			10: {{ID: 99, Platform: PlatformAnthropic}},
+		},
+	}
+	svc := &adminServiceImpl{
+		accountRepo: repo,
+		groupRepo:   &groupRepoStubForAdmin{getByID: &Group{ID: 10, Name: "target-group"}},
+	}
+
+	groupIDs := []int64{10}
+	input := &BulkUpdateAccountsInput{
+		AccountIDs: []int64{1},
+		GroupIDs:   &groupIDs,
+	}
+
+	result, err := svc.BulkUpdateAccounts(context.Background(), input)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.Success)
+	require.Equal(t, []int64{1}, result.SuccessIDs)
+	require.Len(t, repo.bindGroupsCalls, 1)
+}

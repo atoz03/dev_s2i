@@ -29,8 +29,7 @@ func TestCheckErrorPolicy_401_DBFallback_Escalates(t *testing.T) {
 	t.Skip("antigravity 401 db-fallback escalation path has been removed")
 	// Scenario: cache account has empty TempUnschedulableReason (cache miss),
 	// but DB account has a previous 401 record.
-	// Non-Antigravity: should escalate to ErrorPolicyNone (second 401 = permanent error).
-	// Antigravity: skips escalation logic (401 handled by applyErrorPolicy rules).
+	// 当前实现对所有平台统一处理：第二次 401 命中都会升级回默认错误路径。
 	t.Run("gemini_escalates", func(t *testing.T) {
 		repo := &dbFallbackRepoStub{
 			dbAccount: &Account{
@@ -61,7 +60,7 @@ func TestCheckErrorPolicy_401_DBFallback_Escalates(t *testing.T) {
 		require.Equal(t, ErrorPolicyNone, result, "gemini 401 with DB fallback showing previous 401 should escalate")
 	})
 
-	t.Run("antigravity_stays_temp", func(t *testing.T) {
+	t.Run("antigravity_escalates", func(t *testing.T) {
 		repo := &dbFallbackRepoStub{
 			dbAccount: &Account{
 				ID:                      20,
@@ -88,7 +87,7 @@ func TestCheckErrorPolicy_401_DBFallback_Escalates(t *testing.T) {
 		}
 
 		result := svc.CheckErrorPolicy(context.Background(), account, http.StatusUnauthorized, []byte(`unauthorized`))
-		require.Equal(t, ErrorPolicyTempUnscheduled, result, "antigravity 401 skips escalation, stays temp-unscheduled")
+		require.Equal(t, ErrorPolicyNone, result, "antigravity 401 second hit should escalate to default error handling")
 	})
 }
 

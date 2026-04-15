@@ -53,7 +53,7 @@ func TestShouldClearStickySession(t *testing.T) {
 		{name: "temp unschedulable", account: &Account{Status: StatusActive, Schedulable: true, TempUnschedulableUntil: &future}, requestedModel: "", want: true},
 		{name: "temp unschedulable expired", account: &Account{Status: StatusActive, Schedulable: true, TempUnschedulableUntil: &past}, requestedModel: "", want: false},
 		{name: "active schedulable", account: &Account{Status: StatusActive, Schedulable: true}, requestedModel: "", want: false},
-		// 模型限流测试：有限流即清除
+		// 当前实现不再基于模型限流时间额外清理粘性会话。
 		{
 			name: "model rate limited short duration",
 			account: &Account{
@@ -68,7 +68,7 @@ func TestShouldClearStickySession(t *testing.T) {
 				},
 			},
 			requestedModel: "claude-sonnet-4",
-			want:           true, // 有限流即清除
+			want:           false,
 		},
 		{
 			name: "model rate limited long duration",
@@ -84,7 +84,7 @@ func TestShouldClearStickySession(t *testing.T) {
 				},
 			},
 			requestedModel: "claude-sonnet-4",
-			want:           true, // 有限流即清除
+			want:           false,
 		},
 		{
 			name: "model rate limited different model",

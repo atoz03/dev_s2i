@@ -39,7 +39,7 @@ func TestGetBaseURL(t *testing.T) {
 			expected: "https://custom.example.com",
 		},
 		{
-			name: "antigravity apikey keeps original base_url",
+			name: "antigravity apikey keeps configured base_url",
 			account: Account{
 				Type:        AccountTypeAPIKey,
 				Platform:    PlatformAntigravity,
@@ -104,7 +104,7 @@ func TestGetGeminiBaseURL(t *testing.T) {
 			expected: "https://custom-gemini.example.com",
 		},
 		{
-			name: "antigravity apikey keeps original base_url",
+			name: "antigravity apikey keeps configured base_url",
 			account: Account{
 				Type:        AccountTypeAPIKey,
 				Platform:    PlatformAntigravity,

@@ -44,8 +44,7 @@ func TestOpenAIOAuthService_GenerateAuthURL_OpenAIKeepsCodexFlow(t *testing.T) {
 	require.Equal(t, openai.ClientID, session.ClientID)
 }
 
-// TestOpenAIOAuthService_GenerateAuthURL_SoraUsesCodexClient 验证 Sora 平台复用 Codex CLI 的
-// client_id（支持 localhost redirect_uri），但不启用 codex_cli_simplified_flow。
+// TestOpenAIOAuthService_GenerateAuthURL_SoraUsesCodexClient 验证历史 Sora 入参会被归一化为 OpenAI 流程。
 func TestOpenAIOAuthService_GenerateAuthURL_SoraUsesCodexClient(t *testing.T) {
 	t.Skip("sora platform oauth flow has been removed")
 	svc := NewOpenAIOAuthService(nil, &openaiOAuthClientAuthURLStub{})
@@ -60,7 +59,7 @@ func TestOpenAIOAuthService_GenerateAuthURL_SoraUsesCodexClient(t *testing.T) {
 	require.NoError(t, err)
 	q := parsed.Query()
 	require.Equal(t, openai.ClientID, q.Get("client_id"))
-	require.Empty(t, q.Get("codex_cli_simplified_flow"))
+	require.Equal(t, "true", q.Get("codex_cli_simplified_flow"))
 
 	session, ok := svc.sessionStore.Get(result.SessionID)
 	require.True(t, ok)
