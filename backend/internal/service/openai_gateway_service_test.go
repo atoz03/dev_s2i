@@ -18,6 +18,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // 编译期接口断言
@@ -150,7 +151,11 @@ func TestOpenAIGatewayService_GenerateSessionHash_Priority(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 
-	svc := &OpenAIGatewayService{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
 
 	bodyWithKey := []byte(`{"prompt_cache_key":"ses_aaa"}`)
 
@@ -196,7 +201,11 @@ func TestOpenAIGatewayService_GenerateSessionHash_UsesXXHash64(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 
 	c.Request.Header.Set("session_id", "sess-fixed-value")
-	svc := &OpenAIGatewayService{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
 
 	got := svc.GenerateSessionHash(c, nil)
 	want := fmt.Sprintf("%016x", xxhash.Sum64String("sess-fixed-value"))
@@ -210,7 +219,11 @@ func TestOpenAIGatewayService_GenerateSessionHash_AttachesLegacyHashToContext(t 
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 
 	c.Request.Header.Set("session_id", "sess-legacy-check")
-	svc := &OpenAIGatewayService{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
 
 	sessionHash := svc.GenerateSessionHash(c, nil)
 	require.NotEmpty(t, sessionHash)
@@ -225,7 +238,11 @@ func TestOpenAIGatewayService_GenerateSessionHashWithFallback(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 
-	svc := &OpenAIGatewayService{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
 	seed := "openai_ws_ingress:9:100:200"
 
 	got := svc.GenerateSessionHashWithFallback(c, []byte(`{}`), seed)
@@ -235,6 +252,96 @@ func TestOpenAIGatewayService_GenerateSessionHashWithFallback(t *testing.T) {
 
 	empty := svc.GenerateSessionHashWithFallback(c, []byte(`{}`), "   ")
 	require.Equal(t, "", empty)
+}
+
+func TestOpenAIGatewayService_ResolveSessionIDWithFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+
+	require.Equal(t, "fallback-key", svc.ResolveSessionIDWithFallback(c, []byte(`{}`), " fallback-key "))
+
+	c.Request.Header.Set("conversation_id", "conv-123")
+	require.Equal(t, "conv-123", svc.ResolveSessionIDWithFallback(c, []byte(`{"prompt_cache_key":"body-key"}`), "fallback-key"))
+
+	c.Request.Header.Set("session_id", "sess-456")
+	require.Equal(t, "sess-456", svc.ResolveSessionIDWithFallback(c, []byte(`{"prompt_cache_key":"body-key"}`), "fallback-key"))
+}
+
+func TestOpenAIGatewayService_BuildUpstreamRequestInjectsPromptCacheKeyForAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Set("api_key", &APIKey{ID: 77})
+
+	body := []byte(`{"model":"gpt-5","previous_response_id":"resp_old","prompt_cache_retention":{"ttl":"5m"},"safety_identifier":"sensitive"}`)
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"api_key": "sk-upstream"},
+	}
+
+	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, body, "sk-upstream", true, "raw-session", false)
+	require.NoError(t, err)
+
+	upstreamBody, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+
+	expectedSessionKey := isolateOpenAISessionID(77, "raw-session")
+	require.Equal(t, expectedSessionKey, gjson.GetBytes(upstreamBody, "prompt_cache_key").String())
+	require.False(t, gjson.GetBytes(upstreamBody, "previous_response_id").Exists())
+	require.False(t, gjson.GetBytes(upstreamBody, "prompt_cache_retention").Exists())
+	require.False(t, gjson.GetBytes(upstreamBody, "safety_identifier").Exists())
+	require.Equal(t, expectedSessionKey, req.Header.Get("session_id"))
+	require.Equal(t, expectedSessionKey, req.Header.Get("conversation_id"))
+}
+
+func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughInjectsPromptCacheKeyFromHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("session_id", "client-session")
+	c.Set("api_key", &APIKey{ID: 88})
+
+	body := []byte(`{"model":"gpt-5","previous_response_id":"resp_old","prompt_cache_retention":{"ttl":"5m"},"safety_identifier":"sensitive"}`)
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"api_key": "sk-upstream"},
+	}
+
+	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "sk-upstream")
+	require.NoError(t, err)
+
+	upstreamBody, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+
+	expectedSessionKey := isolateOpenAISessionID(88, "client-session")
+	require.Equal(t, expectedSessionKey, gjson.GetBytes(upstreamBody, "prompt_cache_key").String())
+	require.False(t, gjson.GetBytes(upstreamBody, "previous_response_id").Exists())
+	require.False(t, gjson.GetBytes(upstreamBody, "prompt_cache_retention").Exists())
+	require.False(t, gjson.GetBytes(upstreamBody, "safety_identifier").Exists())
+	require.Equal(t, expectedSessionKey, req.Header.Get("session_id"))
+	require.Equal(t, expectedSessionKey, req.Header.Get("conversation_id"))
 }
 
 func (c stubConcurrencyCache) GetAccountWaitingCount(ctx context.Context, accountID int64) (int, error) {

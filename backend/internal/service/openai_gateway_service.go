@@ -1896,7 +1896,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	originalBody := body
-	reqModel, reqStream, promptCacheKey := extractOpenAIRequestMetaFromBody(body)
+	reqModel, reqStream, _ := extractOpenAIRequestMetaFromBody(body)
+	promptCacheKey := s.ExtractSessionID(c, body)
 	originalModel := reqModel
 
 	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
@@ -1950,11 +1951,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if v, ok := reqBody["stream"].(bool); ok {
 		reqStream = v
 	}
-	if promptCacheKey == "" {
-		if v, ok := reqBody["prompt_cache_key"].(string); ok {
-			promptCacheKey = strings.TrimSpace(v)
-		}
-	}
+	promptCacheKey = s.ResolveSessionIDWithFallback(c, body, promptCacheKey)
 
 	// Track if body needs re-serialization
 	bodyModified := false
@@ -2710,6 +2707,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	rawSessionKey := s.ResolveSessionIDWithFallback(c, body, "")
+	upstreamSessionKey := buildOpenAIUpstreamSessionKey(c, rawSessionKey)
+	if normalizedBody, _, err := normalizeOpenAIResponsesPromptCacheBody(body, upstreamSessionKey); err != nil {
+		return nil, err
+	} else {
+		body = normalizedBody
+	}
+	compactPath := isOpenAIResponsesCompactPath(c)
+
 	targetURL := openaiPlatformAPIURL
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -2753,22 +2759,14 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
 	if account.Type == AccountTypeOAuth {
-		promptCacheKey := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
 		req.Host = "chatgpt.com"
 		if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 			req.Header.Set("chatgpt-account-id", chatgptAccountID)
 		}
-		apiKeyID := getAPIKeyIDFromContext(c)
-		// 先保存客户端原始值，再做 compact 补充，避免后续统一隔离时读到已处理的值。
-		clientSessionID := strings.TrimSpace(req.Header.Get("session_id"))
-		clientConversationID := strings.TrimSpace(req.Header.Get("conversation_id"))
-		if isOpenAIResponsesCompactPath(c) {
+		if compactPath {
 			req.Header.Set("accept", "application/json")
 			if req.Header.Get("version") == "" {
 				req.Header.Set("version", codexCLIVersion)
-			}
-			if clientSessionID == "" {
-				clientSessionID = resolveOpenAICompactSessionID(c)
 			}
 		} else if req.Header.Get("accept") == "" {
 			req.Header.Set("accept", "text/event-stream")
@@ -2779,20 +2777,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		if req.Header.Get("originator") == "" {
 			req.Header.Set("originator", "codex_cli_rs")
 		}
-		// 用隔离后的 session 标识符覆盖客户端透传值，防止跨用户会话碰撞。
-		if clientSessionID == "" {
-			clientSessionID = promptCacheKey
-		}
-		if clientConversationID == "" {
-			clientConversationID = promptCacheKey
-		}
-		if clientSessionID != "" {
-			req.Header.Set("session_id", isolateOpenAISessionID(apiKeyID, clientSessionID))
-		}
-		if clientConversationID != "" {
-			req.Header.Set("conversation_id", isolateOpenAISessionID(apiKeyID, clientConversationID))
-		}
 	}
+	applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
 
 	// 透传模式支持统一上游 User-Agent（系统级）与账户级 User-Agent。
 	s.applyUpstreamUserAgent(ctx, req, account)
@@ -3104,6 +3090,14 @@ func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, fil
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
+	upstreamSessionKey := buildOpenAIUpstreamSessionKey(c, promptCacheKey)
+	if normalizedBody, _, err := normalizeOpenAIResponsesPromptCacheBody(body, upstreamSessionKey); err != nil {
+		return nil, err
+	} else {
+		body = normalizedBody
+	}
+	compactPath := isOpenAIResponsesCompactPath(c)
+
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
@@ -3156,29 +3150,18 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 	}
 	if account.Type == AccountTypeOAuth {
-		// 清除客户端透传的 session 头，后续用隔离后的值重新设置，防止跨用户会话碰撞。
-		req.Header.Del("conversation_id")
-		req.Header.Del("session_id")
-
 		req.Header.Set("OpenAI-Beta", "responses=experimental")
 		req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
-		apiKeyID := getAPIKeyIDFromContext(c)
-		if isOpenAIResponsesCompactPath(c) {
+		if compactPath {
 			req.Header.Set("accept", "application/json")
 			if req.Header.Get("version") == "" {
 				req.Header.Set("version", codexCLIVersion)
 			}
-			compactSession := resolveOpenAICompactSessionID(c)
-			req.Header.Set("session_id", isolateOpenAISessionID(apiKeyID, compactSession))
 		} else {
 			req.Header.Set("accept", "text/event-stream")
 		}
-		if promptCacheKey != "" {
-			isolated := isolateOpenAISessionID(apiKeyID, promptCacheKey)
-			req.Header.Set("conversation_id", isolated)
-			req.Header.Set("session_id", isolated)
-		}
 	}
+	applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
 
 	// 优先应用统一上游 User-Agent（系统级），其次账户级 User-Agent。
 	s.applyUpstreamUserAgent(ctx, req, account)

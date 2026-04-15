@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
@@ -873,6 +875,51 @@ func TestOpenAIGatewayService_APIKeyPassthrough_PreservesBodyAndUsesResponsesEnd
 	require.Equal(t, "Bearer sk-api-key", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, "curl/8.0", upstream.lastReq.Header.Get("User-Agent"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Test"))
+}
+
+func TestOpenAIGatewayService_ForwardAsChatCompletions_APIKeyCompatInjectsPromptCacheKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(nil))
+	c.Set("api_key", &APIKey{ID: 456})
+
+	inputBody := []byte(`{"model":"gpt-5.4","messages":[{"role":"system","content":"sys"},{"role":"user","content":"hi"}],"stream":true}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid-compat"}},
+		Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+	}
+	upstream := &httpUpstreamRecorder{resp: resp}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:             456,
+		Name:           "apikey-compat",
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeAPIKey,
+		Concurrency:    1,
+		Credentials:    map[string]any{"api_key": "sk-api-key"},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, inputBody, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var chatReq apicompat.ChatCompletionsRequest
+	require.NoError(t, json.Unmarshal(inputBody, &chatReq))
+	expectedRawKey := deriveCompatPromptCacheKey(&chatReq, "gpt-5.4")
+	expectedUpstreamKey := isolateOpenAISessionID(456, expectedRawKey)
+
+	require.Equal(t, expectedUpstreamKey, gjson.GetBytes(upstream.lastBody, "prompt_cache_key").String())
+	require.Equal(t, expectedUpstreamKey, upstream.lastReq.Header.Get("session_id"))
+	require.Equal(t, expectedUpstreamKey, upstream.lastReq.Header.Get("conversation_id"))
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_WarnOnTimeoutHeadersForStream(t *testing.T) {
