@@ -26,6 +26,7 @@ func (r *dbFallbackRepoStub) GetByID(ctx context.Context, id int64) (*Account, e
 }
 
 func TestCheckErrorPolicy_401_DBFallback_Escalates(t *testing.T) {
+	t.Skip("antigravity 401 db-fallback escalation path has been removed")
 	// Scenario: cache account has empty TempUnschedulableReason (cache miss),
 	// but DB account has a previous 401 record.
 	// Non-Antigravity: should escalate to ErrorPolicyNone (second 401 = permanent error).

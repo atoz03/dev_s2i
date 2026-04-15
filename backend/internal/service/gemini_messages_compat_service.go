@@ -271,11 +271,8 @@ func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 //
 // isAccountValidForPlatform checks if account matches target platform.
 // Native platform matches directly; mixed scheduling mode requires antigravity to enable mixed_scheduling.
-func (s *GeminiMessagesCompatService) isAccountValidForPlatform(account *Account, platform string, useMixedScheduling bool) bool {
-	if account.Platform == platform {
-		return true
-	}
-	return false
+func (s *GeminiMessagesCompatService) isAccountValidForPlatform(account *Account, platform string, _ bool) bool {
+	return account.Platform == platform
 }
 
 func (s *GeminiMessagesCompatService) passesRateLimitPreCheckWithCache(ctx context.Context, account *Account, requestedModel string, precheckResult map[int64]bool) bool {

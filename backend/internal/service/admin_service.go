@@ -2270,9 +2270,7 @@ func runProxyQualityTarget(ctx context.Context, client *http.Client, target prox
 		item.Message = fmt.Sprintf("读取响应失败: %v", readErr)
 		return item
 	}
-	if int64(len(body)) > proxyQualityMaxBodyBytes {
-		body = body[:proxyQualityMaxBodyBytes]
-	}
+	_ = body
 
 	if _, ok := target.AllowedStatuses[resp.StatusCode]; ok {
 		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {

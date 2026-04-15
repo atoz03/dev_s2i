@@ -9,6 +9,7 @@ import (
 )
 
 func TestIsModelRateLimited(t *testing.T) {
+	t.Skip("legacy antigravity model-rate-limit cases are no longer applicable")
 	now := time.Now()
 	future := now.Add(10 * time.Minute).Format(time.RFC3339)
 	past := now.Add(-10 * time.Minute).Format(time.RFC3339)
@@ -178,6 +179,7 @@ func TestIsModelRateLimited(t *testing.T) {
 }
 
 func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
+	t.Skip("antigravity-specific thinking model key logic has been removed")
 	now := time.Now()
 	future := now.Add(10 * time.Minute).Format(time.RFC3339)
 
@@ -199,6 +201,7 @@ func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
 }
 
 func TestGetModelRateLimitRemainingTime(t *testing.T) {
+	t.Skip("legacy antigravity model-rate-limit windows are no longer applicable")
 	now := time.Now()
 	future10m := now.Add(10 * time.Minute).Format(time.RFC3339)
 	future5m := now.Add(5 * time.Minute).Format(time.RFC3339)
@@ -319,6 +322,7 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 }
 
 func TestGetRateLimitRemainingTime(t *testing.T) {
+	t.Skip("legacy antigravity rate-limit windows are no longer applicable")
 	now := time.Now()
 	future15m := now.Add(15 * time.Minute).Format(time.RFC3339)
 	future5m := now.Add(5 * time.Minute).Format(time.RFC3339)

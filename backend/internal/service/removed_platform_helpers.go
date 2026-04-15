@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-const (
-	forbiddenTypeValidation = "validation"
-	forbiddenTypeViolation  = "violation"
-)
-
 func isGoogleProjectConfigError(message string) bool {
 	msg := strings.ToLower(strings.TrimSpace(message))
 	if msg == "" {
@@ -37,21 +32,4 @@ func extractAntigravityErrorMessage(body []byte) string {
 
 func filterEmptyPartsFromGeminiRequest(body []byte) ([]byte, error) {
 	return body, nil
-}
-
-func classifyForbiddenType(message string) string {
-	lower := strings.ToLower(message)
-	if strings.Contains(lower, "validation") || strings.Contains(lower, "verify") {
-		return forbiddenTypeValidation
-	}
-	return forbiddenTypeViolation
-}
-
-func extractValidationURL(message string) string {
-	for _, token := range strings.Fields(message) {
-		if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
-			return token
-		}
-	}
-	return ""
 }

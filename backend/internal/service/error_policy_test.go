@@ -110,9 +110,7 @@ func TestCheckErrorPolicy(t *testing.T) {
 			expected:   ErrorPolicyTempUnscheduled,
 		},
 		{
-			// Antigravity 401 不走升级逻辑（由 applyErrorPolicy 的 temp_unschedulable_rules 自行控制），
-			// second hit 仍然返回 TempUnscheduled。
-			name: "temp_unschedulable_401_second_hit_antigravity_stays_temp",
+			name: "temp_unschedulable_401_second_hit_returns_none_after_cleanup",
 			account: &Account{
 				ID:                      15,
 				Type:                    AccountTypeOAuth,
@@ -131,7 +129,7 @@ func TestCheckErrorPolicy(t *testing.T) {
 			},
 			statusCode: 401,
 			body:       []byte(`unauthorized`),
-			expected:   ErrorPolicyTempUnscheduled,
+			expected:   ErrorPolicyNone,
 		},
 		{
 			name: "temp_unschedulable_body_miss_returns_none",
@@ -262,131 +260,6 @@ func TestHandleUpstreamError_PoolModeCustomErrorCodesOverride(t *testing.T) {
 		require.Equal(t, 1, repo.setErrCalls)
 		require.Equal(t, 0, repo.tempCalls)
 	})
-}
-
-// ---------------------------------------------------------------------------
-// TestApplyErrorPolicy — 4 table-driven cases for the wrapper method
-// ---------------------------------------------------------------------------
-
-func TestApplyErrorPolicy(t *testing.T) {
-	tests := []struct {
-		name              string
-		account           *Account
-		statusCode        int
-		body              []byte
-		expectedHandled   bool
-		expectedStatus    int  // expected outStatus
-		expectedSwitchErr bool // expect *AntigravityAccountSwitchError
-		handleErrorCalls  int
-	}{
-		{
-			name: "none_not_handled",
-			account: &Account{
-				ID:       10,
-				Type:     AccountTypeOAuth,
-				Platform: PlatformAntigravity,
-			},
-			statusCode:       500,
-			body:             []byte(`"error"`),
-			expectedHandled:  false,
-			expectedStatus:   500, // passthrough
-			handleErrorCalls: 0,
-		},
-		{
-			name: "skipped_handled_no_handleError",
-			account: &Account{
-				ID:       11,
-				Type:     AccountTypeAPIKey,
-				Platform: PlatformAntigravity,
-				Credentials: map[string]any{
-					"custom_error_codes_enabled": true,
-					"custom_error_codes":         []any{float64(429)},
-				},
-			},
-			statusCode:       500, // not in custom codes
-			body:             []byte(`"error"`),
-			expectedHandled:  true,
-			expectedStatus:   http.StatusInternalServerError, // skipped → 500
-			handleErrorCalls: 0,
-		},
-		{
-			name: "matched_handled_calls_handleError",
-			account: &Account{
-				ID:       12,
-				Type:     AccountTypeAPIKey,
-				Platform: PlatformAntigravity,
-				Credentials: map[string]any{
-					"custom_error_codes_enabled": true,
-					"custom_error_codes":         []any{float64(500)},
-				},
-			},
-			statusCode:       500,
-			body:             []byte(`"error"`),
-			expectedHandled:  true,
-			expectedStatus:   500, // matched → original status
-			handleErrorCalls: 1,
-		},
-		{
-			name: "temp_unscheduled_returns_switch_error",
-			account: &Account{
-				ID:       13,
-				Type:     AccountTypeOAuth,
-				Platform: PlatformAntigravity,
-				Credentials: map[string]any{
-					"temp_unschedulable_enabled": true,
-					"temp_unschedulable_rules": []any{
-						map[string]any{
-							"error_code":       float64(503),
-							"keywords":         []any{"overloaded"},
-							"duration_minutes": float64(10),
-						},
-					},
-				},
-			},
-			statusCode:        503,
-			body:              []byte(`overloaded`),
-			expectedHandled:   true,
-			expectedStatus:    503, // temp_unscheduled → original status
-			expectedSwitchErr: true,
-			handleErrorCalls:  0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &errorPolicyRepoStub{}
-			rlSvc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
-			svc := &AntigravityGatewayService{
-				rateLimitService: rlSvc,
-			}
-
-			var handleErrorCount int
-			p := antigravityRetryLoopParams{
-				ctx:     context.Background(),
-				prefix:  "[test]",
-				account: tt.account,
-				handleError: func(ctx context.Context, prefix string, account *Account, statusCode int, headers http.Header, body []byte, requestedModel string, groupID int64, sessionHash string, isStickySession bool) *handleModelRateLimitResult {
-					handleErrorCount++
-					return nil
-				},
-				isStickySession: true,
-			}
-
-			handled, outStatus, retErr := svc.applyErrorPolicy(p, tt.statusCode, http.Header{}, tt.body)
-
-			require.Equal(t, tt.expectedHandled, handled, "handled mismatch")
-			require.Equal(t, tt.expectedStatus, outStatus, "outStatus mismatch")
-			require.Equal(t, tt.handleErrorCalls, handleErrorCount, "handleError call count mismatch")
-
-			if tt.expectedSwitchErr {
-				var switchErr *AntigravityAccountSwitchError
-				require.ErrorAs(t, retErr, &switchErr)
-				require.Equal(t, tt.account.ID, switchErr.OriginalAccountID)
-			} else {
-				require.NoError(t, retErr)
-			}
-		})
-	}
 }
 
 // ---------------------------------------------------------------------------

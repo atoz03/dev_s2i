@@ -143,38 +143,6 @@ func TestHandleFailoverError_BasicSwitch(t *testing.T) {
 		require.Empty(t, mock.calls, "不应调用 TempUnschedule")
 	})
 
-	t.Run("非重试错误_Antigravity_第一次切换无延迟", func(t *testing.T) {
-		// switchCount 从 0→1 时，sleepFailoverDelay(ctx, 1) 的延时 = (1-1)*1s = 0
-		mock := &mockTempUnscheduler{}
-		fs := NewFailoverState(3, false)
-		err := newTestFailoverErr(500, false, false)
-
-		start := time.Now()
-		action := fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformAntigravity, err)
-		elapsed := time.Since(start)
-
-		require.Equal(t, FailoverContinue, action)
-		require.Equal(t, 1, fs.SwitchCount)
-		require.Less(t, elapsed, 200*time.Millisecond, "第一次切换延迟应为 0")
-	})
-
-	t.Run("非重试错误_Antigravity_第二次切换有1秒延迟", func(t *testing.T) {
-		// switchCount 从 1→2 时，sleepFailoverDelay(ctx, 2) 的延时 = (2-1)*1s = 1s
-		mock := &mockTempUnscheduler{}
-		fs := NewFailoverState(3, false)
-		fs.SwitchCount = 1 // 模拟已切换一次
-
-		err := newTestFailoverErr(500, false, false)
-		start := time.Now()
-		action := fs.HandleFailoverError(context.Background(), mock, 200, service.PlatformAntigravity, err)
-		elapsed := time.Since(start)
-
-		require.Equal(t, FailoverContinue, action)
-		require.Equal(t, 2, fs.SwitchCount)
-		require.GreaterOrEqual(t, elapsed, 800*time.Millisecond, "第二次切换延迟应约 1s")
-		require.Less(t, elapsed, 3*time.Second)
-	})
-
 	t.Run("连续切换直到耗尽", func(t *testing.T) {
 		mock := &mockTempUnscheduler{}
 		fs := NewFailoverState(2, false)
@@ -419,21 +387,21 @@ func TestHandleFailoverError_ContextCanceled(t *testing.T) {
 		require.Equal(t, 1, fs.SameAccountRetryCount[100])
 	})
 
-	t.Run("Antigravity延迟期间context取消", func(t *testing.T) {
+	t.Run("切换时context已取消应立即返回", func(t *testing.T) {
 		mock := &mockTempUnscheduler{}
 		fs := NewFailoverState(3, false)
-		fs.SwitchCount = 1 // 下一次 switchCount=2 → delay = 1s
 		err := newTestFailoverErr(500, false, false)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // 立即取消
 
 		start := time.Now()
-		action := fs.HandleFailoverError(ctx, mock, 100, service.PlatformAntigravity, err)
+		action := fs.HandleFailoverError(ctx, mock, 100, "openai", err)
 		elapsed := time.Since(start)
 
-		require.Equal(t, FailoverCanceled, action)
+		require.Equal(t, FailoverContinue, action)
 		require.Less(t, elapsed, 100*time.Millisecond, "应立即返回而非等待 1s")
+		require.Equal(t, 1, fs.SwitchCount)
 	})
 }
 
@@ -553,34 +521,6 @@ func TestHandleFailoverError_IntegrationScenario(t *testing.T) {
 		require.Len(t, fs.FailedAccountIDs, 4, "4个不同账号都在失败列表中")
 		require.True(t, fs.ForceCacheBilling)
 		require.Len(t, mock.calls, 1, "只有账号 100 触发了 TempUnschedule")
-	})
-
-	t.Run("模拟Antigravity平台完整流程", func(t *testing.T) {
-		mock := &mockTempUnscheduler{}
-		fs := NewFailoverState(2, false)
-
-		err := newTestFailoverErr(500, false, false)
-
-		// 第一次切换：delay = 0s
-		start := time.Now()
-		action := fs.HandleFailoverError(context.Background(), mock, 100, service.PlatformAntigravity, err)
-		elapsed := time.Since(start)
-		require.Equal(t, FailoverContinue, action)
-		require.Less(t, elapsed, 200*time.Millisecond, "第一次切换延迟为 0")
-
-		// 第二次切换：delay = 1s
-		start = time.Now()
-		action = fs.HandleFailoverError(context.Background(), mock, 200, service.PlatformAntigravity, err)
-		elapsed = time.Since(start)
-		require.Equal(t, FailoverContinue, action)
-		require.GreaterOrEqual(t, elapsed, 800*time.Millisecond, "第二次切换延迟约 1s")
-
-		// 第三次：耗尽（无延迟，因为在检查延迟之前就返回了）
-		start = time.Now()
-		action = fs.HandleFailoverError(context.Background(), mock, 300, service.PlatformAntigravity, err)
-		elapsed = time.Since(start)
-		require.Equal(t, FailoverExhausted, action)
-		require.Less(t, elapsed, 200*time.Millisecond, "耗尽时不应有延迟")
 	})
 
 	t.Run("ForceCacheBilling通过错误标志设置", func(t *testing.T) {

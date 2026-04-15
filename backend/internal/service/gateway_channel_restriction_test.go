@@ -53,7 +53,7 @@ func TestResolveAccountUpstreamModel_Antigravity_Unsupported(t *testing.T) {
 		Platform: PlatformAntigravity,
 	}
 	got := resolveAccountUpstreamModel(account, "totally-unknown-model")
-	require.Equal(t, "", got, "unsupported model should return empty")
+	require.Equal(t, "totally-unknown-model", got, "unsupported model should passthrough after antigravity cleanup")
 }
 
 func TestResolveAccountUpstreamModel_NonAntigravity(t *testing.T) {
@@ -287,7 +287,6 @@ func TestIsUpstreamModelRestrictedByChannel_UnsupportedModel(t *testing.T) {
 	svc := &GatewayService{channelService: channelSvc}
 
 	account := &Account{Platform: PlatformAntigravity}
-	// totally-unknown-model 不在 DefaultAntigravityModelMapping 中 → 映射结果为空
-	require.False(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "totally-unknown-model"),
-		"unmappable model → upstream model empty → not restricted (account filter handles this)")
+	require.True(t, svc.isUpstreamModelRestrictedByChannel(context.Background(), 10, account, "totally-unknown-model"),
+		"unknown model passthrough 后不在 channel pricing 中，应被限制")
 }

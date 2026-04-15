@@ -681,6 +681,7 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_NoModel
 }
 
 func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyMixedScheduling(t *testing.T) {
+	t.Skip("mixed scheduling with antigravity has been removed")
 	ctx := context.Background()
 	repo := &mockAccountRepoForGemini{
 		accounts: []Account{
@@ -886,6 +887,7 @@ func TestGeminiPlatformRouting_DocumentRouteDecision(t *testing.T) {
 }
 
 func TestGeminiMessagesCompatService_isModelSupportedByAccount(t *testing.T) {
+	t.Skip("legacy antigravity model support assertions are no longer applicable")
 	svc := &GeminiMessagesCompatService{}
 
 	tests := []struct {
