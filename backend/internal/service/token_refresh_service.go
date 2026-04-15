@@ -43,7 +43,6 @@ func NewTokenRefreshService(
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
-	antigravityOAuthService *AntigravityOAuthService,
 	cacheInvalidator TokenCacheInvalidator,
 	schedulerCache SchedulerCache,
 	cfg *config.Config,
@@ -60,18 +59,15 @@ func NewTokenRefreshService(
 	}
 
 	openAIRefresher := NewOpenAITokenRefresher(openaiOAuthService, accountRepo)
-	openAIRefresher.SetSyncLinkedSoraAccounts(cfg.TokenRefresh.SyncLinkedSoraAccounts)
 
 	claudeRefresher := NewClaudeTokenRefresher(oauthService)
 	geminiRefresher := NewGeminiTokenRefresher(geminiOAuthService)
-	agRefresher := NewAntigravityTokenRefresher(antigravityOAuthService)
 
 	// 注册平台特定的刷新器（TokenRefresher 接口）
 	s.refreshers = []TokenRefresher{
 		claudeRefresher,
 		openAIRefresher,
 		geminiRefresher,
-		agRefresher,
 	}
 
 	// 注册对应的 OAuthRefreshExecutor（带 CacheKey 方法）
@@ -79,22 +75,9 @@ func NewTokenRefreshService(
 		claudeRefresher,
 		openAIRefresher,
 		geminiRefresher,
-		agRefresher,
 	}
 
 	return s
-}
-
-// SetSoraAccountRepo 设置 Sora 账号扩展表仓储
-// 用于在 OpenAI Token 刷新时同步更新 sora_accounts 表
-// 需要在 Start() 之前调用
-func (s *TokenRefreshService) SetSoraAccountRepo(repo SoraAccountRepository) {
-	// 将 soraAccountRepo 注入到 OpenAITokenRefresher
-	for _, refresher := range s.refreshers {
-		if openaiRefresher, ok := refresher.(*OpenAITokenRefresher); ok {
-			openaiRefresher.SetSoraAccountRepo(repo)
-		}
-	}
 }
 
 // SetPrivacyDeps 注入 OpenAI privacy opt-out 所需依赖
@@ -303,9 +286,8 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 					"error", setErr,
 				)
 			}
-			// 刷新失败但 access_token 可能仍有效，尝试设置隐私
+			// 刷新失败但 access_token 可能仍有效，尝试设置 OpenAI 隐私
 			s.ensureOpenAIPrivacy(ctx, account)
-			s.ensureAntigravityPrivacy(ctx, account)
 			return err
 		}
 
@@ -333,9 +315,8 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 		"error", lastErr,
 	)
 
-	// 刷新失败但 access_token 可能仍有效，尝试设置隐私
+	// 刷新失败但 access_token 可能仍有效，尝试设置 OpenAI 隐私
 	s.ensureOpenAIPrivacy(ctx, account)
-	s.ensureAntigravityPrivacy(ctx, account)
 
 	// 设置临时不可调度 10 分钟（不标记 error，保持 status=active 让下个刷新周期能继续尝试）
 	until := time.Now().Add(tokenRefreshTempUnschedDuration)
@@ -357,19 +338,6 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 
 // postRefreshActions 刷新成功后的后续动作（清除错误状态、缓存失效、调度器同步等）
 func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *Account) {
-	// Antigravity 账户：如果之前是因为缺少 project_id 而标记为 error，现在成功获取到了，清除错误状态
-	if account.Platform == PlatformAntigravity &&
-		account.Status == StatusError &&
-		strings.Contains(account.ErrorMessage, "missing_project_id:") {
-		if clearErr := s.accountRepo.ClearError(ctx, account.ID); clearErr != nil {
-			slog.Warn("token_refresh.clear_account_error_failed",
-				"account_id", account.ID,
-				"error", clearErr,
-			)
-		} else {
-			slog.Info("token_refresh.cleared_missing_project_id_error", "account_id", account.ID)
-		}
-	}
 	// 刷新成功后清除临时不可调度状态（处理 OAuth 401 恢复场景）
 	if account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) {
 		if clearErr := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); clearErr != nil {
@@ -414,8 +382,6 @@ func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *A
 	}
 	// OpenAI OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则尝试关闭训练数据共享
 	s.ensureOpenAIPrivacy(ctx, account)
-	// Antigravity OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则调用 setUserSettings
-	s.ensureAntigravityPrivacy(ctx, account)
 }
 
 // errRefreshSkipped 表示刷新被跳过（锁竞争或已被其他路径刷新），不计入 failed 或 refreshed
@@ -482,52 +448,6 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		)
 	} else {
 		slog.Info("token_refresh.privacy_mode_set",
-			"account_id", account.ID,
-			"privacy_mode", mode,
-		)
-	}
-}
-
-// ensureAntigravityPrivacy 后台刷新中检查 Antigravity OAuth 账号隐私状态。
-// 仅当 privacy_mode 已成功设置（"privacy_set"）时跳过；
-// 未设置或之前失败（"privacy_set_failed"）均会重试。
-func (s *TokenRefreshService) ensureAntigravityPrivacy(ctx context.Context, account *Account) {
-	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
-		return
-	}
-	if account.Extra != nil {
-		if mode, ok := account.Extra["privacy_mode"].(string); ok && mode == AntigravityPrivacySet {
-			return
-		}
-	}
-
-	token, _ := account.Credentials["access_token"].(string)
-	if token == "" {
-		return
-	}
-
-	projectID, _ := account.Credentials["project_id"].(string)
-
-	var proxyURL string
-	if account.ProxyID != nil && s.proxyRepo != nil {
-		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
-			proxyURL = p.URL()
-		}
-	}
-
-	mode := setAntigravityPrivacy(ctx, token, projectID, proxyURL)
-	if mode == "" {
-		return
-	}
-
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
-		slog.Warn("token_refresh.update_antigravity_privacy_mode_failed",
-			"account_id", account.ID,
-			"error", err,
-		)
-	} else {
-		applyAntigravityPrivacyMode(account, mode)
-		slog.Info("token_refresh.antigravity_privacy_mode_set",
 			"account_id", account.ID,
 			"privacy_mode", mode,
 		)

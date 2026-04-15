@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/cespare/xxhash/v2"
 )
 
@@ -21,7 +20,7 @@ func shortHash(data []byte) string {
 // BuildGeminiDigestChain 根据 Gemini 请求生成摘要链
 // 格式: s:<hash>-u:<hash>-m:<hash>-u:<hash>-...
 // s = systemInstruction, u = user, m = model
-func BuildGeminiDigestChain(req *antigravity.GeminiRequest) string {
+func BuildGeminiDigestChain(req *GeminiRequest) string {
 	if req == nil {
 		return ""
 	}

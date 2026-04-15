@@ -27,30 +27,6 @@ func TestFinalizeProxyQualityResult_ScoreAndGrade(t *testing.T) {
 	require.Contains(t, result.Summary, "挑战 1 项")
 }
 
-func TestRunProxyQualityTarget_SoraChallenge(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.Header().Set("cf-ray", "test-ray-123")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte("<!DOCTYPE html><title>Just a moment...</title><script>window._cf_chl_opt={};</script>"))
-	}))
-	defer server.Close()
-
-	target := proxyQualityTarget{
-		Target: "sora",
-		URL:    server.URL,
-		Method: http.MethodGet,
-		AllowedStatuses: map[int]struct{}{
-			http.StatusUnauthorized: {},
-		},
-	}
-
-	item := runProxyQualityTarget(context.Background(), server.Client(), target)
-	require.Equal(t, "challenge", item.Status)
-	require.Equal(t, http.StatusForbidden, item.HTTPStatus)
-	require.Equal(t, "test-ray-123", item.CFRay)
-}
-
 func TestRunProxyQualityTarget_AllowedStatusPass(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

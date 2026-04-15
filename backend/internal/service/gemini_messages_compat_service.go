@@ -44,16 +44,15 @@ const (
 const geminiDummyThoughtSignature = "skip_thought_signature_validator"
 
 type GeminiMessagesCompatService struct {
-	accountRepo               AccountRepository
-	groupRepo                 GroupRepository
-	cache                     GatewayCache
-	schedulerSnapshot         *SchedulerSnapshotService
-	tokenProvider             *GeminiTokenProvider
-	rateLimitService          *RateLimitService
-	httpUpstream              HTTPUpstream
-	antigravityGatewayService *AntigravityGatewayService
-	cfg                       *config.Config
-	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+	accountRepo          AccountRepository
+	groupRepo            GroupRepository
+	cache                GatewayCache
+	schedulerSnapshot    *SchedulerSnapshotService
+	tokenProvider        *GeminiTokenProvider
+	rateLimitService     *RateLimitService
+	httpUpstream         HTTPUpstream
+	cfg                  *config.Config
+	responseHeaderFilter *responseheaders.CompiledHeaderFilter
 }
 
 func NewGeminiMessagesCompatService(
@@ -64,20 +63,18 @@ func NewGeminiMessagesCompatService(
 	tokenProvider *GeminiTokenProvider,
 	rateLimitService *RateLimitService,
 	httpUpstream HTTPUpstream,
-	antigravityGatewayService *AntigravityGatewayService,
 	cfg *config.Config,
 ) *GeminiMessagesCompatService {
 	return &GeminiMessagesCompatService{
-		accountRepo:               accountRepo,
-		groupRepo:                 groupRepo,
-		cache:                     cache,
-		schedulerSnapshot:         schedulerSnapshot,
-		tokenProvider:             tokenProvider,
-		rateLimitService:          rateLimitService,
-		httpUpstream:              httpUpstream,
-		antigravityGatewayService: antigravityGatewayService,
-		cfg:                       cfg,
-		responseHeaderFilter:      compileResponseHeaderFilter(cfg),
+		accountRepo:          accountRepo,
+		groupRepo:            groupRepo,
+		cache:                cache,
+		schedulerSnapshot:    schedulerSnapshot,
+		tokenProvider:        tokenProvider,
+		rateLimitService:     rateLimitService,
+		httpUpstream:         httpUpstream,
+		cfg:                  cfg,
+		responseHeaderFilter: compileResponseHeaderFilter(cfg),
 	}
 }
 
@@ -163,12 +160,12 @@ func (s *GeminiMessagesCompatService) resolvePlatformAndSchedulingMode(ctx conte
 				return "", false, false, fmt.Errorf("get group failed: %w", err)
 			}
 		}
-		// gemini 分组支持混合调度（包含启用了 mixed_scheduling 的 antigravity 账户）
-		return group.Platform, group.Platform == PlatformGemini, false, nil
+		// gemini 分组使用原生 gemini 调度
+		return group.Platform, false, false, nil
 	}
 
 	// 无分组时只使用原生 gemini 平台
-	return PlatformGemini, true, false, nil
+	return PlatformGemini, false, false, nil
 }
 
 // tryStickySessionHit 尝试从粘性会话获取账号。
@@ -276,9 +273,6 @@ func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 // Native platform matches directly; mixed scheduling mode requires antigravity to enable mixed_scheduling.
 func (s *GeminiMessagesCompatService) isAccountValidForPlatform(account *Account, platform string, useMixedScheduling bool) bool {
 	if account.Platform == platform {
-		return true
-	}
-	if useMixedScheduling && account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		return true
 	}
 	return false
@@ -395,18 +389,7 @@ func (s *GeminiMessagesCompatService) isBetterGeminiAccount(candidate, current *
 
 // isModelSupportedByAccount 根据账户平台检查模型支持
 func (s *GeminiMessagesCompatService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
-	if account.Platform == PlatformAntigravity {
-		if strings.TrimSpace(requestedModel) == "" {
-			return true
-		}
-		return mapAntigravityModel(account, requestedModel) != ""
-	}
 	return account.IsModelSupported(requestedModel)
-}
-
-// GetAntigravityGatewayService 返回 AntigravityGatewayService
-func (s *GeminiMessagesCompatService) GetAntigravityGatewayService() *AntigravityGatewayService {
-	return s.antigravityGatewayService
 }
 
 func (s *GeminiMessagesCompatService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -422,11 +405,7 @@ func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Co
 		return accounts, err
 	}
 
-	useMixedScheduling := platform == PlatformGemini && !hasForcePlatform
 	queryPlatforms := []string{platform}
-	if useMixedScheduling {
-		queryPlatforms = []string{platform, PlatformAntigravity}
-	}
 
 	if groupID != nil {
 		return s.accountRepo.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, queryPlatforms)
@@ -454,15 +433,6 @@ func (s *GeminiMessagesCompatService) validateUpstreamBaseURL(raw string) (strin
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
 	return normalized, nil
-}
-
-// HasAntigravityAccounts 检查是否有可用的 antigravity 账户
-func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context, groupID *int64) (bool, error) {
-	accounts, err := s.listSchedulableAccountsOnce(ctx, groupID, PlatformAntigravity, false)
-	if err != nil {
-		return false, err
-	}
-	return len(accounts) > 0, nil
 }
 
 // SelectAccountForAIStudioEndpoints selects an account that is likely to succeed against

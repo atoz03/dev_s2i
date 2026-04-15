@@ -567,7 +567,7 @@ func (s *OpsService) executeWithAccount(ctx context.Context, reqType opsRetryReq
 		}
 		_, err = s.openAIGatewayService.Forward(ctx, c, account, body)
 	case opsRetryTypeGeminiV1B:
-		if s.geminiCompatService == nil || s.antigravityGatewayService == nil {
+		if s.geminiCompatService == nil {
 			return &opsRetryExecution{status: opsRetryStatusFailed, errorMessage: "gemini services not available"}
 		}
 		modelName := strings.TrimSpace(errorLog.Model)
@@ -575,18 +575,9 @@ func (s *OpsService) executeWithAccount(ctx context.Context, reqType opsRetryReq
 		if errorLog.Stream {
 			action = "streamGenerateContent"
 		}
-		if account.Platform == PlatformAntigravity {
-			_, err = s.antigravityGatewayService.ForwardGemini(ctx, c, account, modelName, action, errorLog.Stream, body, false)
-		} else {
-			_, err = s.geminiCompatService.ForwardNative(ctx, c, account, modelName, action, errorLog.Stream, body)
-		}
+		_, err = s.geminiCompatService.ForwardNative(ctx, c, account, modelName, action, errorLog.Stream, body)
 	case opsRetryTypeMessages:
 		switch account.Platform {
-		case PlatformAntigravity:
-			if s.antigravityGatewayService == nil {
-				return &opsRetryExecution{status: opsRetryStatusFailed, errorMessage: "antigravity gateway service not available"}
-			}
-			_, err = s.antigravityGatewayService.Forward(ctx, c, account, body, false)
 		case PlatformGemini:
 			if s.geminiCompatService == nil {
 				return &opsRetryExecution{status: opsRetryStatusFailed, errorMessage: "gemini gateway service not available"}

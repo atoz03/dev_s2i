@@ -2,8 +2,6 @@ package service
 
 import (
 	"encoding/json"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
 // CleanGeminiNativeThoughtSignatures 从 Gemini 原生 API 请求中替换 thoughtSignature 字段为 dummy 签名，
@@ -52,7 +50,7 @@ func replaceThoughtSignaturesRecursive(data any) any {
 		for key, value := range v {
 			// 替换 thoughtSignature 字段为 dummy 签名
 			if key == "thoughtSignature" {
-				result[key] = antigravity.DummyThoughtSignature
+				result[key] = GeminiDummyThoughtSignature
 				continue
 			}
 			// 递归处理嵌套结构

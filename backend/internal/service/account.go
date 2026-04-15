@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 type Account struct {
@@ -143,18 +142,11 @@ func (a *Account) IsOAuth() bool {
 }
 
 // IsPrivacySet 检查账号的 privacy 是否已成功设置。
-// OpenAI: privacy_mode == "training_off"
-// Antigravity: privacy_mode == "privacy_set"
-// 其他平台: 无 privacy 概念，始终返回 true
 func (a *Account) IsPrivacySet() bool {
-	switch a.Platform {
-	case PlatformOpenAI:
+	if a.Platform == PlatformOpenAI {
 		return a.getExtraString("privacy_mode") == PrivacyModeTrainingOff
-	case PlatformAntigravity:
-		return a.getExtraString("privacy_mode") == AntigravityPrivacySet
-	default:
-		return true
 	}
+	return true
 }
 
 func (a *Account) IsGemini() bool {
@@ -425,18 +417,9 @@ func (a *Account) GetModelMapping() map[string]string {
 
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
 	if a.Credentials == nil {
-		// Antigravity 平台使用默认映射
-		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
-		}
-		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
 		return nil
 	}
 	if len(rawMapping) == 0 {
-		// Antigravity 平台使用默认映射
-		if a.Platform == domain.PlatformAntigravity {
-			return domain.DefaultAntigravityModelMapping
-		}
 		return nil
 	}
 
@@ -447,19 +430,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		}
 	}
 	if len(result) > 0 {
-		if a.Platform == domain.PlatformAntigravity {
-			ensureAntigravityDefaultPassthroughs(result, []string{
-				"gemini-3-flash",
-				"gemini-3.1-pro-high",
-				"gemini-3.1-pro-low",
-			})
-		}
 		return result
-	}
-
-	// Antigravity 平台使用默认映射
-	if a.Platform == domain.PlatformAntigravity {
-		return domain.DefaultAntigravityModelMapping
 	}
 	return nil
 }
@@ -495,33 +466,12 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 	return h.Sum64()
 }
 
-func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
-	if mapping == nil || model == "" {
-		return
-	}
-	if _, exists := mapping[model]; exists {
-		return
-	}
-	for pattern := range mapping {
-		if matchWildcard(pattern, model) {
-			return
-		}
-	}
-	mapping[model] = model
-}
-
-func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []string) {
-	for _, model := range models {
-		ensureAntigravityDefaultPassthrough(mapping, model)
-	}
-}
-
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	trimmed := strings.TrimSpace(requestedModel)
 	if trimmed == "" {
 		return ""
 	}
-	if platform != PlatformGemini && platform != PlatformAntigravity {
+	if platform != PlatformGemini {
 		return trimmed
 	}
 	if trimmed == "gemini-3.1-pro-preview-customtools" {
@@ -561,9 +511,6 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
 		return true // 无映射 = 允许所有
-	}
-	if a.Platform == PlatformSora {
-		return soraMappingSupportsRequestedModel(mapping, requestedModel)
 	}
 	if mappingSupportsRequestedModel(mapping, requestedModel) {
 		return true
@@ -606,21 +553,14 @@ func (a *Account) GetBaseURL() string {
 	if baseURL == "" {
 		return "https://api.anthropic.com"
 	}
-	if a.Platform == PlatformAntigravity {
-		return strings.TrimRight(baseURL, "/") + "/antigravity"
-	}
 	return baseURL
 }
 
 // GetGeminiBaseURL 返回 Gemini 兼容端点的 base URL。
-// Antigravity 平台的 APIKey 账号自动拼接 /antigravity。
 func (a *Account) GetGeminiBaseURL(defaultBaseURL string) string {
 	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
 	if baseURL == "" {
 		return defaultBaseURL
-	}
-	if a.Platform == PlatformAntigravity && a.Type == AccountTypeAPIKey {
-		return strings.TrimRight(baseURL, "/") + "/antigravity"
 	}
 	return baseURL
 }
@@ -940,38 +880,9 @@ func (a *Account) IsOpenAITokenExpired() bool {
 	return time.Now().Add(60 * time.Second).After(*expiresAt)
 }
 
-// IsMixedSchedulingEnabled 检查 antigravity 账户是否启用混合调度
-// 启用后可参与 anthropic/gemini 分组的账户调度
-func (a *Account) IsMixedSchedulingEnabled() bool {
-	if a.Platform != PlatformAntigravity {
-		return false
-	}
-	if a.Extra == nil {
-		return false
-	}
-	if v, ok := a.Extra["mixed_scheduling"]; ok {
-		if enabled, ok := v.(bool); ok {
-			return enabled
-		}
-	}
-	return false
-}
+func (a *Account) IsMixedSchedulingEnabled() bool { return false }
 
-// IsOveragesEnabled 检查 Antigravity 账号是否启用 AI Credits 超量请求。
-func (a *Account) IsOveragesEnabled() bool {
-	if a.Platform != PlatformAntigravity {
-		return false
-	}
-	if a.Extra == nil {
-		return false
-	}
-	if v, ok := a.Extra["allow_overages"]; ok {
-		if enabled, ok := v.(bool); ok {
-			return enabled
-		}
-	}
-	return false
-}
+func (a *Account) IsOveragesEnabled() bool { return false }
 
 // IsOpenAIPassthroughEnabled 返回 OpenAI 账号是否启用"自动透传（仅替换认证）"。
 //

@@ -42,11 +42,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Server layer ProviderSet
 		server.ProviderSet,
 
-			// Payment providers
-			payment.ProviderSet,
+		// Payment providers
+		payment.ProviderSet,
 
-			// Privacy client factory for OpenAI training opt-out
-			providePrivacyClientFactory,
+		// Privacy client factory for OpenAI training opt-out
+		providePrivacyClientFactory,
 
 		// BuildInfo provider
 		provideServiceBuildInfo,
@@ -94,7 +94,6 @@ func provideCleanup(
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
 	geminiOAuth *service.GeminiOAuthService,
-	antigravityOAuth *service.AntigravityOAuthService,
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	backupSvc *service.BackupService,
@@ -211,10 +210,6 @@ func provideCleanup(
 			}},
 			{"GeminiOAuthService", func() error {
 				geminiOAuth.Stop()
-				return nil
-			}},
-			{"AntigravityOAuthService", func() error {
-				antigravityOAuth.Stop()
 				return nil
 			}},
 			{"OpenAIWSPool", func() error {

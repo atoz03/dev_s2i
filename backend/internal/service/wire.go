@@ -42,11 +42,9 @@ func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
 // ProvideTokenRefreshService creates and starts TokenRefreshService
 func ProvideTokenRefreshService(
 	accountRepo AccountRepository,
-	soraAccountRepo SoraAccountRepository, // Sora 扩展表仓储，用于双表同步
 	oauthService *OAuthService,
 	openaiOAuthService *OpenAIOAuthService,
 	geminiOAuthService *GeminiOAuthService,
-	antigravityOAuthService *AntigravityOAuthService,
 	cacheInvalidator TokenCacheInvalidator,
 	schedulerCache SchedulerCache,
 	cfg *config.Config,
@@ -55,9 +53,7 @@ func ProvideTokenRefreshService(
 	proxyRepo ProxyRepository,
 	refreshAPI *OAuthRefreshAPI,
 ) *TokenRefreshService {
-	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache)
-	// 注入 Sora 账号扩展表仓储，用于 OpenAI Token 刷新时同步 sora_accounts 表
-	svc.SetSoraAccountRepo(soraAccountRepo)
+	svc := NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache)
 	// 注入 OpenAI privacy opt-out 依赖
 	svc.SetPrivacyDeps(privacyClientFactory, proxyRepo)
 	// 注入统一 OAuth 刷新 API（消除 TokenRefreshService 与 TokenProvider 之间的竞争条件）
@@ -107,22 +103,6 @@ func ProvideGeminiTokenProvider(
 	executor := NewGeminiTokenRefresher(geminiOAuthService)
 	p.SetRefreshAPI(refreshAPI, executor)
 	p.SetRefreshPolicy(GeminiProviderRefreshPolicy())
-	return p
-}
-
-// ProvideAntigravityTokenProvider creates AntigravityTokenProvider with OAuthRefreshAPI injection
-func ProvideAntigravityTokenProvider(
-	accountRepo AccountRepository,
-	tokenCache GeminiTokenCache,
-	antigravityOAuthService *AntigravityOAuthService,
-	refreshAPI *OAuthRefreshAPI,
-	tempUnschedCache TempUnschedCache,
-) *AntigravityTokenProvider {
-	p := NewAntigravityTokenProvider(accountRepo, tokenCache, antigravityOAuthService)
-	executor := NewAntigravityTokenRefresher(antigravityOAuthService)
-	p.SetRefreshAPI(refreshAPI, executor)
-	p.SetRefreshPolicy(AntigravityProviderRefreshPolicy())
-	p.SetTempUnschedCache(tempUnschedCache)
 	return p
 }
 
@@ -283,30 +263,6 @@ func ProvideOpsSystemLogSink(opsRepo OpsRepository) *OpsSystemLogSink {
 	return sink
 }
 
-// ProvideSoraMediaStorage 初始化 Sora 媒体存储
-func ProvideSoraMediaStorage(cfg *config.Config) *SoraMediaStorage {
-	return NewSoraMediaStorage(cfg)
-}
-
-func ProvideSoraSDKClient(
-	cfg *config.Config,
-	httpUpstream HTTPUpstream,
-	tokenProvider *OpenAITokenProvider,
-	accountRepo AccountRepository,
-	soraAccountRepo SoraAccountRepository,
-) *SoraSDKClient {
-	client := NewSoraSDKClient(cfg, httpUpstream, tokenProvider)
-	client.SetAccountRepositories(accountRepo, soraAccountRepo)
-	return client
-}
-
-// ProvideSoraMediaCleanupService 创建并启动 Sora 媒体清理服务
-func ProvideSoraMediaCleanupService(storage *SoraMediaStorage, cfg *config.Config) *SoraMediaCleanupService {
-	svc := NewSoraMediaCleanupService(storage, cfg)
-	svc.Start()
-	return svc
-}
-
 func buildIdempotencyConfig(cfg *config.Config) IdempotencyConfig {
 	idempotencyCfg := DefaultIdempotencyConfig()
 	if cfg != nil {
@@ -434,14 +390,6 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementService,
 	NewAdminService,
 	NewGatewayService,
-	NewSoraS3Storage,
-	ProvideSoraMediaStorage,
-	ProvideSoraMediaCleanupService,
-	ProvideSoraSDKClient,
-	wire.Bind(new(SoraClient), new(*SoraSDKClient)),
-	NewSoraQuotaService,
-	NewSoraGenerationService,
-	NewSoraGatewayService,
 	NewOpenAIGatewayService,
 	NewOAuthService,
 	NewOpenAIOAuthService,
@@ -449,14 +397,11 @@ var ProviderSet = wire.NewSet(
 	NewGeminiQuotaService,
 	NewCompositeTokenCacheInvalidator,
 	wire.Bind(new(TokenCacheInvalidator), new(*CompositeTokenCacheInvalidator)),
-	NewAntigravityOAuthService,
 	NewOAuthRefreshAPI,
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
-	ProvideAntigravityTokenProvider,
 	ProvideOpenAITokenProvider,
 	ProvideClaudeTokenProvider,
-	NewAntigravityGatewayService,
 	ProvideRateLimitService,
 	NewAccountUsageService,
 	NewAccountTestService,
@@ -488,7 +433,6 @@ var ProviderSet = wire.NewSet(
 	ProvideDashboardAggregationService,
 	ProvideUsageCleanupService,
 	ProvideDeferredService,
-	NewAntigravityQuotaFetcher,
 	NewUserAttributeService,
 	NewUsageCache,
 	NewTotpService,

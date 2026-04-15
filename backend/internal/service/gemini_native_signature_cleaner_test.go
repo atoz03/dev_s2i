@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,7 +36,7 @@ func TestCleanGeminiNativeThoughtSignatures_ReplacesNestedThoughtSignatures(t *t
 	require.NotContains(t, string(cleaned), `"thoughtSignature":"sig_1"`)
 	require.NotContains(t, string(cleaned), `"thoughtSignature":"sig_2"`)
 	require.NotContains(t, string(cleaned), `"thoughtSignature":"sig_3"`)
-	require.Contains(t, string(cleaned), `"thoughtSignature":"`+antigravity.DummyThoughtSignature+`"`)
+	require.Contains(t, string(cleaned), `"thoughtSignature":"`+GeminiDummyThoughtSignature+`"`)
 	require.Contains(t, string(cleaned), `"signature":"keep_me"`)
 }
 
@@ -63,13 +62,13 @@ func TestReplaceThoughtSignaturesRecursive_OnlyReplacesTargetField(t *testing.T)
 
 	got, ok := replaceThoughtSignaturesRecursive(input).(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, antigravity.DummyThoughtSignature, got["thoughtSignature"])
+	require.Equal(t, GeminiDummyThoughtSignature, got["thoughtSignature"])
 	require.Equal(t, "keep_signature", got["signature"])
 
 	nested, ok := got["nested"].([]any)
 	require.True(t, ok)
 	nestedMap, ok := nested[0].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, antigravity.DummyThoughtSignature, nestedMap["thoughtSignature"])
+	require.Equal(t, GeminiDummyThoughtSignature, nestedMap["thoughtSignature"])
 	require.Equal(t, "keep_nested_signature", nestedMap["signature"])
 }

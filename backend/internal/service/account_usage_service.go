@@ -19,7 +19,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -258,14 +257,13 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo             AccountRepository
-	usageLogRepo            UsageLogRepository
-	usageFetcher            ClaudeUsageFetcher
-	geminiQuotaService      *GeminiQuotaService
-	antigravityQuotaFetcher *AntigravityQuotaFetcher
-	cache                   *UsageCache
-	identityCache           IdentityCache
-	tlsFPProfileService     *TLSFingerprintProfileService
+	accountRepo         AccountRepository
+	usageLogRepo        UsageLogRepository
+	usageFetcher        ClaudeUsageFetcher
+	geminiQuotaService  *GeminiQuotaService
+	cache               *UsageCache
+	identityCache       IdentityCache
+	tlsFPProfileService *TLSFingerprintProfileService
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -274,20 +272,18 @@ func NewAccountUsageService(
 	usageLogRepo UsageLogRepository,
 	usageFetcher ClaudeUsageFetcher,
 	geminiQuotaService *GeminiQuotaService,
-	antigravityQuotaFetcher *AntigravityQuotaFetcher,
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountUsageService {
 	return &AccountUsageService{
-		accountRepo:             accountRepo,
-		usageLogRepo:            usageLogRepo,
-		usageFetcher:            usageFetcher,
-		geminiQuotaService:      geminiQuotaService,
-		antigravityQuotaFetcher: antigravityQuotaFetcher,
-		cache:                   cache,
-		identityCache:           identityCache,
-		tlsFPProfileService:     tlsFPProfileService,
+		accountRepo:         accountRepo,
+		usageLogRepo:        usageLogRepo,
+		usageFetcher:        usageFetcher,
+		geminiQuotaService:  geminiQuotaService,
+		cache:               cache,
+		identityCache:       identityCache,
+		tlsFPProfileService: tlsFPProfileService,
 	}
 }
 
@@ -311,15 +307,6 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 
 	if account.Platform == PlatformGemini {
 		usage, err := s.getGeminiUsage(ctx, account)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
-		}
-		return usage, err
-	}
-
-	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
-	if account.Platform == PlatformAntigravity {
-		usage, err := s.getAntigravityUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -774,423 +761,6 @@ func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Accou
 	return usage, nil
 }
 
-// getAntigravityUsage 获取 Antigravity 账户额度
-func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *Account) (*UsageInfo, error) {
-	if s.antigravityQuotaFetcher == nil || !s.antigravityQuotaFetcher.CanFetch(account) {
-		now := time.Now()
-		return &UsageInfo{UpdatedAt: &now}, nil
-	}
-
-	// 1. 检查缓存
-	if cached, ok := s.cache.antigravityCache.Load(account.ID); ok {
-		if cache, ok := cached.(*antigravityUsageCache); ok {
-			ttl := antigravityCacheTTL(cache.usageInfo)
-			if time.Since(cache.timestamp) < ttl {
-				usage := cache.usageInfo
-				if usage.FiveHour != nil && usage.FiveHour.ResetsAt != nil {
-					usage.FiveHour.RemainingSeconds = int(time.Until(*usage.FiveHour.ResetsAt).Seconds())
-				}
-				return usage, nil
-			}
-		}
-	}
-
-	// 2. singleflight 防止并发击穿
-	flightKey := fmt.Sprintf("ag-usage:%d", account.ID)
-	result, flightErr, _ := s.cache.antigravityFlight.Do(flightKey, func() (any, error) {
-		// 再次检查缓存（等待期间可能已被填充）
-		if cached, ok := s.cache.antigravityCache.Load(account.ID); ok {
-			if cache, ok := cached.(*antigravityUsageCache); ok {
-				ttl := antigravityCacheTTL(cache.usageInfo)
-				if time.Since(cache.timestamp) < ttl {
-					usage := cache.usageInfo
-					// 重新计算 RemainingSeconds，避免返回过时的剩余秒数
-					recalcAntigravityRemainingSeconds(usage)
-					return usage, nil
-				}
-			}
-		}
-
-		// 使用独立 context，避免调用方 cancel 导致所有共享 flight 的请求失败
-		fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer fetchCancel()
-
-		proxyURL := s.antigravityQuotaFetcher.GetProxyURL(fetchCtx, account)
-		fetchResult, err := s.antigravityQuotaFetcher.FetchQuota(fetchCtx, account, proxyURL)
-		if err != nil {
-			degraded := buildAntigravityDegradedUsage(err)
-			enrichUsageWithAccountError(degraded, account)
-			s.cache.antigravityCache.Store(account.ID, &antigravityUsageCache{
-				usageInfo: degraded,
-				timestamp: time.Now(),
-			})
-			return degraded, nil
-		}
-
-		enrichUsageWithAccountError(fetchResult.UsageInfo, account)
-		s.cache.antigravityCache.Store(account.ID, &antigravityUsageCache{
-			usageInfo: fetchResult.UsageInfo,
-			timestamp: time.Now(),
-		})
-		return fetchResult.UsageInfo, nil
-	})
-
-	if flightErr != nil {
-		return nil, flightErr
-	}
-	usage, ok := result.(*UsageInfo)
-	if !ok || usage == nil {
-		now := time.Now()
-		return &UsageInfo{UpdatedAt: &now}, nil
-	}
-	return usage, nil
-}
-
-// recalcAntigravityRemainingSeconds 重新计算 Antigravity UsageInfo 中各窗口的 RemainingSeconds
-// 用于从缓存取出时更新倒计时，避免返回过时的剩余秒数
-func recalcAntigravityRemainingSeconds(info *UsageInfo) {
-	if info == nil {
-		return
-	}
-	if info.FiveHour != nil && info.FiveHour.ResetsAt != nil {
-		remaining := int(time.Until(*info.FiveHour.ResetsAt).Seconds())
-		if remaining < 0 {
-			remaining = 0
-		}
-		info.FiveHour.RemainingSeconds = remaining
-	}
-}
-
-// antigravityCacheTTL 根据 UsageInfo 内容决定缓存 TTL
-// 403 forbidden 状态稳定，缓存与成功相同（3 分钟）；
-// 其他错误（401/网络）可能快速恢复，缓存 1 分钟。
-func antigravityCacheTTL(info *UsageInfo) time.Duration {
-	if info == nil {
-		return antigravityErrorTTL
-	}
-	if info.IsForbidden {
-		return apiCacheTTL // 封号/验证状态不会很快变
-	}
-	if info.ErrorCode != "" || info.Error != "" {
-		return antigravityErrorTTL
-	}
-	return apiCacheTTL
-}
-
-// buildAntigravityDegradedUsage 从 FetchQuota 错误构建降级 UsageInfo
-func buildAntigravityDegradedUsage(err error) *UsageInfo {
-	now := time.Now()
-	errMsg := fmt.Sprintf("usage API error: %v", err)
-	slog.Warn("antigravity usage fetch failed, returning degraded response", "error", err)
-
-	info := &UsageInfo{
-		UpdatedAt: &now,
-		Error:     errMsg,
-	}
-
-	// 从错误信息推断 error_code 和状态标记
-	// 错误格式来自 antigravity/client.go: "fetchAvailableModels 失败 (HTTP %d): ..."
-	errStr := err.Error()
-	switch {
-	case strings.Contains(errStr, "HTTP 401") ||
-		strings.Contains(errStr, "UNAUTHENTICATED") ||
-		strings.Contains(errStr, "invalid_grant"):
-		info.ErrorCode = errorCodeUnauthenticated
-		info.NeedsReauth = true
-	case strings.Contains(errStr, "HTTP 429"):
-		info.ErrorCode = errorCodeRateLimited
-	default:
-		info.ErrorCode = errorCodeNetworkError
-	}
-
-	return info
-}
-
-// enrichUsageWithAccountError 结合账号错误状态修正 UsageInfo
-// 场景 1（成功路径）：FetchAvailableModels 正常返回，但账号已因 403 被标记为 error，
-//
-//	需要在正常 usage 数据上附加 forbidden/validation 信息。
-//
-// 场景 2（降级路径）：被封号的账号 OAuth token 失效，FetchAvailableModels 返回 401，
-//
-//	降级逻辑设置了 needs_reauth，但账号实际是 403 封号/需验证，需覆盖为正确状态。
-func enrichUsageWithAccountError(info *UsageInfo, account *Account) {
-	if info == nil || account == nil || account.Status != StatusError {
-		return
-	}
-	msg := strings.ToLower(account.ErrorMessage)
-	if !strings.Contains(msg, "403") && !strings.Contains(msg, "forbidden") &&
-		!strings.Contains(msg, "violation") && !strings.Contains(msg, "validation") {
-		return
-	}
-	fbType := classifyForbiddenType(account.ErrorMessage)
-	info.IsForbidden = true
-	info.ForbiddenType = fbType
-	info.ForbiddenReason = account.ErrorMessage
-	info.NeedsVerify = fbType == forbiddenTypeValidation
-	info.IsBanned = fbType == forbiddenTypeViolation
-	info.ValidationURL = extractValidationURL(account.ErrorMessage)
-	info.ErrorCode = errorCodeForbidden
-	info.NeedsReauth = false
-}
-
-// addWindowStats 为 usage 数据添加窗口期统计
-// 使用独立缓存（1 分钟），与 API 缓存分离
-func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Account, usage *UsageInfo) {
-	// 修复：即使 FiveHour 为 nil，也要尝试获取统计数据
-	// 因为 SevenDay/SevenDaySonnet 可能需要
-	if usage.FiveHour == nil && usage.SevenDay == nil && usage.SevenDaySonnet == nil {
-		return
-	}
-
-	// 检查窗口统计缓存（1 分钟）
-	var windowStats *WindowStats
-	if cached, ok := s.cache.windowStatsCache.Load(account.ID); ok {
-		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
-			windowStats = cache.stats
-		}
-	}
-
-	// 如果没有缓存，从数据库查询
-	if windowStats == nil {
-		// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-		startTime := account.GetCurrentWindowStartTime()
-
-		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
-		if err != nil {
-			log.Printf("Failed to get window stats for account %d: %v", account.ID, err)
-			return
-		}
-
-		windowStats = &WindowStats{
-			Requests:     stats.Requests,
-			Tokens:       stats.Tokens,
-			Cost:         stats.Cost,
-			StandardCost: stats.StandardCost,
-			UserCost:     stats.UserCost,
-		}
-
-		// 缓存窗口统计（1 分钟）
-		s.cache.windowStatsCache.Store(account.ID, &windowStatsCache{
-			stats:     windowStats,
-			timestamp: time.Now(),
-		})
-	}
-
-	// 为 FiveHour 添加 WindowStats（5h 窗口统计）
-	if usage.FiveHour != nil {
-		usage.FiveHour.WindowStats = windowStats
-	}
-}
-
-// GetTodayStats 获取账号今日统计
-func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64) (*WindowStats, error) {
-	stats, err := s.usageLogRepo.GetAccountTodayStats(ctx, accountID)
-	if err != nil {
-		return nil, fmt.Errorf("get today stats failed: %w", err)
-	}
-
-	return &WindowStats{
-		Requests:     stats.Requests,
-		Tokens:       stats.Tokens,
-		Cost:         stats.Cost,
-		StandardCost: stats.StandardCost,
-		UserCost:     stats.UserCost,
-	}, nil
-}
-
-// GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
-func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
-	uniqueIDs := make([]int64, 0, len(accountIDs))
-	seen := make(map[int64]struct{}, len(accountIDs))
-	for _, accountID := range accountIDs {
-		if accountID <= 0 {
-			continue
-		}
-		if _, exists := seen[accountID]; exists {
-			continue
-		}
-		seen[accountID] = struct{}{}
-		uniqueIDs = append(uniqueIDs, accountID)
-	}
-
-	result := make(map[int64]*WindowStats, len(uniqueIDs))
-	if len(uniqueIDs) == 0 {
-		return result, nil
-	}
-
-	startTime := timezone.Today()
-	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
-		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
-		if err == nil {
-			for _, accountID := range uniqueIDs {
-				result[accountID] = windowStatsFromAccountStats(statsByAccount[accountID])
-			}
-			return result, nil
-		}
-	}
-
-	var mu sync.Mutex
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(8)
-
-	for _, accountID := range uniqueIDs {
-		id := accountID
-		g.Go(func() error {
-			stats, err := s.usageLogRepo.GetAccountWindowStats(gctx, id, startTime)
-			if err != nil {
-				return nil
-			}
-			mu.Lock()
-			result[id] = windowStatsFromAccountStats(stats)
-			mu.Unlock()
-			return nil
-		})
-	}
-
-	_ = g.Wait()
-
-	for _, accountID := range uniqueIDs {
-		if _, ok := result[accountID]; !ok {
-			result[accountID] = &WindowStats{}
-		}
-	}
-	return result, nil
-}
-
-func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
-	if stats == nil {
-		return &WindowStats{}
-	}
-	return &WindowStats{
-		Requests:     stats.Requests,
-		Tokens:       stats.Tokens,
-		Cost:         stats.Cost,
-		StandardCost: stats.StandardCost,
-		UserCost:     stats.UserCost,
-	}
-}
-
-func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
-	if len(extra) == 0 {
-		return nil
-	}
-
-	var (
-		usedPercentKey string
-		resetAfterKey  string
-		resetAtKey     string
-	)
-
-	switch window {
-	case "5h":
-		usedPercentKey = "codex_5h_used_percent"
-		resetAfterKey = "codex_5h_reset_after_seconds"
-		resetAtKey = "codex_5h_reset_at"
-	case "7d":
-		usedPercentKey = "codex_7d_used_percent"
-		resetAfterKey = "codex_7d_reset_after_seconds"
-		resetAtKey = "codex_7d_reset_at"
-	default:
-		return nil
-	}
-
-	usedRaw, ok := extra[usedPercentKey]
-	if !ok {
-		return nil
-	}
-
-	progress := &UsageProgress{Utilization: parseExtraFloat64(usedRaw)}
-	if resetAtRaw, ok := extra[resetAtKey]; ok {
-		if resetAt, err := parseTime(fmt.Sprint(resetAtRaw)); err == nil {
-			progress.ResetsAt = &resetAt
-			progress.RemainingSeconds = int(time.Until(resetAt).Seconds())
-			if progress.RemainingSeconds < 0 {
-				progress.RemainingSeconds = 0
-			}
-		}
-	}
-	if progress.ResetsAt == nil {
-		if resetAfterSeconds := parseExtraInt(extra[resetAfterKey]); resetAfterSeconds > 0 {
-			base := now
-			if updatedAtRaw, ok := extra["codex_usage_updated_at"]; ok {
-				if updatedAt, err := parseTime(fmt.Sprint(updatedAtRaw)); err == nil {
-					base = updatedAt
-				}
-			}
-			resetAt := base.Add(time.Duration(resetAfterSeconds) * time.Second)
-			progress.ResetsAt = &resetAt
-			progress.RemainingSeconds = int(time.Until(resetAt).Seconds())
-			if progress.RemainingSeconds < 0 {
-				progress.RemainingSeconds = 0
-			}
-		}
-	}
-
-	// 窗口已过期（resetAt 在 now 之前）→ 额度已重置，归零
-	if progress.ResetsAt != nil && !now.Before(*progress.ResetsAt) {
-		progress.Utilization = 0
-	}
-
-	return progress
-}
-
-func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {
-	stats, err := s.usageLogRepo.GetAccountUsageStats(ctx, accountID, startTime, endTime)
-	if err != nil {
-		return nil, fmt.Errorf("get account usage stats failed: %w", err)
-	}
-	return stats, nil
-}
-
-// fetchOAuthUsageRaw 从 Anthropic API 获取原始响应（不构建 UsageInfo）
-// 如果账号开启了 TLS 指纹，则使用 TLS 指纹伪装
-// 如果有缓存的 Fingerprint，则使用缓存的 User-Agent 等信息
-func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *Account) (*ClaudeUsageResponse, error) {
-	accessToken := account.GetCredential("access_token")
-	if accessToken == "" {
-		return nil, fmt.Errorf("no access token available")
-	}
-
-	var proxyURL string
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
-	}
-
-	// 构建完整的选项
-	opts := &ClaudeUsageFetchOptions{
-		AccessToken: accessToken,
-		ProxyURL:    proxyURL,
-		AccountID:   account.ID,
-		TLSProfile:  s.tlsFPProfileService.ResolveTLSProfile(account),
-	}
-
-	// 尝试获取缓存的 Fingerprint（包含 User-Agent 等信息）
-	if s.identityCache != nil {
-		if fp, err := s.identityCache.GetFingerprint(ctx, account.ID); err == nil && fp != nil {
-			opts.Fingerprint = fp
-		}
-	}
-
-	return s.usageFetcher.FetchUsageWithOptions(ctx, opts)
-}
-
-// parseTime 尝试多种格式解析时间
-func parseTime(s string) (time.Time, error) {
-	formats := []string{
-		time.RFC3339,
-		time.RFC3339Nano,
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05.000Z",
-	}
-	for _, format := range formats {
-		if t, err := time.Parse(format, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unable to parse time: %s", s)
-}
-
 func (s *AccountUsageService) tryClearRecoverableAccountError(ctx context.Context, account *Account) {
 	if account == nil || account.Status != StatusError {
 		return
@@ -1354,4 +924,159 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 // 用于账号列表页面显示当前窗口费用
 func (s *AccountUsageService) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
 	return s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+}
+
+// GetAccountUsageStats 返回账号在指定时间范围内的完整用量统计。
+func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.AccountUsageStatsResponse, error) {
+	if s == nil || s.usageLogRepo == nil {
+		return nil, fmt.Errorf("usage log repository is not configured")
+	}
+	return s.usageLogRepo.GetAccountUsageStats(ctx, accountID, startTime, endTime)
+}
+
+// GetTodayStats 返回账号从今日零点开始的统计。
+func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64) (*usagestats.AccountStats, error) {
+	startTime := timezone.StartOfDay(timezone.Now())
+	return s.GetAccountWindowStats(ctx, accountID, startTime)
+}
+
+// GetTodayStatsBatch 批量返回多个账号从今日零点开始的统计。
+func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*usagestats.AccountStats, error) {
+	result := make(map[int64]*usagestats.AccountStats, len(accountIDs))
+	if s == nil || len(accountIDs) == 0 {
+		return result, nil
+	}
+	startTime := timezone.StartOfDay(timezone.Now())
+	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
+		return batchReader.GetAccountWindowStatsBatch(ctx, accountIDs, startTime)
+	}
+	for _, accountID := range accountIDs {
+		stats, err := s.GetAccountWindowStats(ctx, accountID, startTime)
+		if err != nil {
+			return nil, err
+		}
+		result[accountID] = stats
+	}
+	return result, nil
+}
+
+// addWindowStats 为 usage 数据添加窗口期统计。
+func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Account, usage *UsageInfo) {
+	if usage == nil || (usage.FiveHour == nil && usage.SevenDay == nil && usage.SevenDaySonnet == nil) {
+		return
+	}
+	var windowStats *WindowStats
+	if cached, ok := s.cache.windowStatsCache.Load(account.ID); ok {
+		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
+			windowStats = cache.stats
+		}
+	}
+	if windowStats == nil {
+		startTime := account.GetCurrentWindowStartTime()
+		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
+		if err != nil {
+			log.Printf("Failed to get window stats for account %d: %v", account.ID, err)
+			return
+		}
+		windowStats = &WindowStats{Requests: stats.Requests, Tokens: stats.Tokens, Cost: stats.Cost, StandardCost: stats.StandardCost, UserCost: stats.UserCost}
+		s.cache.windowStatsCache.Store(account.ID, &windowStatsCache{stats: windowStats, timestamp: time.Now()})
+	}
+	if usage.FiveHour != nil {
+		usage.FiveHour.WindowStats = windowStats
+	}
+}
+
+// fetchOAuthUsageRaw 从 Anthropic API 获取原始 usage 响应。
+func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *Account) (*ClaudeUsageResponse, error) {
+	accessToken := account.GetCredential("access_token")
+	if accessToken == "" {
+		return nil, fmt.Errorf("no access token available")
+	}
+	var proxyURL string
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	opts := &ClaudeUsageFetchOptions{AccessToken: accessToken, ProxyURL: proxyURL, AccountID: account.ID, TLSProfile: s.tlsFPProfileService.ResolveTLSProfile(account)}
+	if s.identityCache != nil {
+		if fp, err := s.identityCache.GetFingerprint(ctx, account.ID); err == nil && fp != nil {
+			opts.Fingerprint = fp
+		}
+	}
+	return s.usageFetcher.FetchUsageWithOptions(ctx, opts)
+}
+
+func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
+	if len(extra) == 0 {
+		return nil
+	}
+	var usedPercentKey, resetAfterKey, resetAtKey string
+	switch window {
+	case "5h":
+		usedPercentKey = "codex_5h_used_percent"
+		resetAfterKey = "codex_5h_reset_after_seconds"
+		resetAtKey = "codex_5h_reset_at"
+	case "7d":
+		usedPercentKey = "codex_7d_used_percent"
+		resetAfterKey = "codex_7d_reset_after_seconds"
+		resetAtKey = "codex_7d_reset_at"
+	default:
+		return nil
+	}
+	usedRaw, ok := extra[usedPercentKey]
+	if !ok {
+		return nil
+	}
+	progress := &UsageProgress{Utilization: parseExtraFloat64(usedRaw)}
+	if resetAtRaw, ok := extra[resetAtKey]; ok {
+		if resetAt, err := parseTime(fmt.Sprint(resetAtRaw)); err == nil {
+			progress.ResetsAt = &resetAt
+			progress.RemainingSeconds = int(time.Until(resetAt).Seconds())
+			if progress.RemainingSeconds < 0 {
+				progress.RemainingSeconds = 0
+			}
+		}
+	}
+	if progress.ResetsAt == nil {
+		if resetAfterSeconds := parseExtraInt(extra[resetAfterKey]); resetAfterSeconds > 0 {
+			base := now
+			if updatedAtRaw, ok := extra["codex_usage_updated_at"]; ok {
+				if updatedAt, err := parseTime(fmt.Sprint(updatedAtRaw)); err == nil {
+					base = updatedAt
+				}
+			}
+			resetAt := base.Add(time.Duration(resetAfterSeconds) * time.Second)
+			progress.ResetsAt = &resetAt
+			progress.RemainingSeconds = int(time.Until(resetAt).Seconds())
+			if progress.RemainingSeconds < 0 {
+				progress.RemainingSeconds = 0
+			}
+		}
+	}
+	if progress.ResetsAt != nil && !now.Before(*progress.ResetsAt) {
+		progress.Utilization = 0
+	}
+	return progress
+}
+
+func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
+	if stats == nil {
+		return &WindowStats{}
+	}
+	return &WindowStats{
+		Requests:     stats.Requests,
+		Tokens:       stats.Tokens,
+		Cost:         stats.Cost,
+		StandardCost: stats.StandardCost,
+		UserCost:     stats.UserCost,
+	}
+}
+
+func parseTime(s string) (time.Time, error) {
+	formats := []string{time.RFC3339, time.RFC3339Nano, "2006-01-02T15:04:05Z", "2006-01-02T15:04:05.000Z"}
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unable to parse time: %s", s)
 }
