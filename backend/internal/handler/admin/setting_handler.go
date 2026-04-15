@@ -2516,7 +2516,12 @@ func (h *SettingHandler) GetBetaPolicySettings(c *gin.Context) {
 
 	rules := make([]dto.BetaPolicyRule, len(settings.Rules))
 	for i, r := range settings.Rules {
-		rules[i] = dto.BetaPolicyRule(r)
+		rules[i] = dto.BetaPolicyRule{
+			BetaToken:    r.BetaToken,
+			Action:       r.Action,
+			Scope:        r.Scope,
+			ErrorMessage: r.ErrorMessage,
+		}
 	}
 	response.Success(c, dto.BetaPolicySettings{Rules: rules})
 }
@@ -2537,7 +2542,12 @@ func (h *SettingHandler) UpdateBetaPolicySettings(c *gin.Context) {
 
 	rules := make([]service.BetaPolicyRule, len(req.Rules))
 	for i, r := range req.Rules {
-		rules[i] = service.BetaPolicyRule(r)
+		rules[i] = service.BetaPolicyRule{
+			BetaToken:    r.BetaToken,
+			Action:       r.Action,
+			Scope:        r.Scope,
+			ErrorMessage: r.ErrorMessage,
+		}
 	}
 
 	settings := &service.BetaPolicySettings{Rules: rules}
@@ -2555,7 +2565,12 @@ func (h *SettingHandler) UpdateBetaPolicySettings(c *gin.Context) {
 
 	outRules := make([]dto.BetaPolicyRule, len(updated.Rules))
 	for i, r := range updated.Rules {
-		outRules[i] = dto.BetaPolicyRule(r)
+		outRules[i] = dto.BetaPolicyRule{
+			BetaToken:    r.BetaToken,
+			Action:       r.Action,
+			Scope:        r.Scope,
+			ErrorMessage: r.ErrorMessage,
+		}
 	}
 	response.Success(c, dto.BetaPolicySettings{Rules: outRules})
 }

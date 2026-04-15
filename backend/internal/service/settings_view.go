@@ -110,6 +110,16 @@ type SystemSettings struct {
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
 
+	// Sora Client 开关
+	SoraClientEnabled bool
+
+	// Upstream User-Agent 统一配置
+	DefaultUpstreamUserAgent      string
+	ForceUnifiedUpstreamUserAgent bool
+
+	// 自动更新源仓库（如 https://github.com/owner/repo）
+	UpdateGitHubRepo string
+
 	// Balance low notification
 	BalanceLowNotifyEnabled     bool
 	BalanceLowNotifyThreshold   float64
@@ -157,6 +167,8 @@ type PublicSettings struct {
 	OIDCOAuthEnabled      bool
 	OIDCOAuthProviderName string
 	Version               string
+
+	SoraClientEnabled bool
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool

@@ -503,6 +503,11 @@ type ForwardResult struct {
 	// 图片生成计费字段（图片生成模型使用）
 	ImageCount int    // 生成的图片数量
 	ImageSize  string // 图片尺寸 "1K", "2K", "4K"
+
+	// Sora 媒体输出字段（Sora 模型使用）
+	MediaType string   // 媒体类型，如 video/image/prompt
+	MediaURL  string   // 主媒体 URL
+	MediaURLs []string // 多媒体 URL 列表
 }
 
 // UpstreamFailoverError indicates an upstream error that should trigger account failover.
