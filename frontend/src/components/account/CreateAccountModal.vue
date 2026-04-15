@@ -4474,7 +4474,7 @@ const handleOpenAIExchange = async (authCode: string) => {
 }
 
 // OpenAI 手动 RT 批量验证和创建
-// OpenAI Mobile RT 使用的 client_id（与后端 openai.SoraClientID 一致）
+// OpenAI Mobile RT 使用的固定 client_id
 const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
 
 // OpenAI/Sora RT 批量验证和创建（共享逻辑）
@@ -4619,7 +4619,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 // 手动输入 RT（Codex CLI client_id，默认）
 const handleOpenAIValidateRT = (rt: string) => handleOpenAIBatchRT(rt)
 
-// 手动输入 Mobile RT（SoraClientID）
+// 手动输入 Mobile RT
 const handleOpenAIValidateMobileRT = (rt: string) => handleOpenAIBatchRT(rt, OPENAI_MOBILE_RT_CLIENT_ID)
 
 // Sora 手动 ST 批量验证和创建

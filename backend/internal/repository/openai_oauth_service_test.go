@@ -158,8 +158,9 @@ func (s *OpenAIOAuthServiceSuite) TestRefreshToken_DefaultsToOpenAIClientID() {
 	require.Equal(s.T(), []string{openai.ClientID}, seenClientIDs)
 }
 
-// TestRefreshToken_UseSoraClientID 验证显式传入 Sora ClientID 时直接使用，不回退。
-func (s *OpenAIOAuthServiceSuite) TestRefreshToken_UseSoraClientID() {
+// TestRefreshToken_UseProvidedClientIDDirectly 验证显式传入 client_id 时直接使用，不回退。
+func (s *OpenAIOAuthServiceSuite) TestRefreshToken_UseProvidedClientIDDirectly() {
+	const providedClientID = "provided-client-id"
 	var seenClientIDs []string
 	s.setupServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -168,18 +169,18 @@ func (s *OpenAIOAuthServiceSuite) TestRefreshToken_UseSoraClientID() {
 		}
 		clientID := r.PostForm.Get("client_id")
 		seenClientIDs = append(seenClientIDs, clientID)
-		if clientID == openai.SoraClientID {
+		if clientID == providedClientID {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"access_token":"at-sora","refresh_token":"rt-sora","token_type":"bearer","expires_in":3600}`)
+			_, _ = io.WriteString(w, `{"access_token":"at-provided","refresh_token":"rt-provided","token_type":"bearer","expires_in":3600}`)
 			return
 		}
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 
-	resp, err := s.svc.RefreshTokenWithClientID(s.ctx, "rt", "", openai.SoraClientID)
+	resp, err := s.svc.RefreshTokenWithClientID(s.ctx, "rt", "", providedClientID)
 	require.NoError(s.T(), err, "RefreshTokenWithClientID")
-	require.Equal(s.T(), "at-sora", resp.AccessToken)
-	require.Equal(s.T(), []string{openai.SoraClientID}, seenClientIDs)
+	require.Equal(s.T(), "at-provided", resp.AccessToken)
+	require.Equal(s.T(), []string{providedClientID}, seenClientIDs)
 }
 
 func (s *OpenAIOAuthServiceSuite) TestRefreshToken_UseProvidedClientID() {
@@ -276,7 +277,7 @@ func (s *OpenAIOAuthServiceSuite) TestExchangeCode_UsesProvidedRedirectURI() {
 }
 
 func (s *OpenAIOAuthServiceSuite) TestExchangeCode_UseProvidedClientID() {
-	wantClientID := openai.SoraClientID
+	wantClientID := "provided-client-id"
 	errCh := make(chan string, 1)
 	s.setupServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
