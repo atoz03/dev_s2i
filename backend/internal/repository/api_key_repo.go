@@ -9,7 +9,9 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
+	"github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -70,8 +72,8 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
 	m, err := r.activeQuery().
 		Where(apikey.IDEQ(id)).
-		WithUser(selectUserForService).
-		WithGroup(selectGroupForService).
+		WithUser().
+		WithGroup().
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -104,8 +106,8 @@ func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (stri
 func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.APIKey, error) {
 	m, err := r.activeQuery().
 		Where(apikey.KeyEQ(key)).
-		WithUser(selectUserForService).
-		WithGroup(selectGroupForService).
+		WithUser().
+		WithGroup().
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -133,8 +135,48 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldRateLimit1d,
 			apikey.FieldRateLimit7d,
 		).
-		WithUser(selectUserForService).
-		WithGroup(selectGroupForService).
+		WithUser(func(q *dbent.UserQuery) {
+			q.Select(
+				user.FieldID,
+				user.FieldEmail,
+				user.FieldUsername,
+				user.FieldStatus,
+				user.FieldRole,
+				user.FieldBalance,
+				user.FieldConcurrency,
+				user.FieldBalanceNotifyEnabled,
+				user.FieldBalanceNotifyThresholdType,
+				user.FieldBalanceNotifyThreshold,
+				user.FieldBalanceNotifyExtraEmails,
+				user.FieldTotalRecharged,
+			)
+		}).
+		WithGroup(func(q *dbent.GroupQuery) {
+			q.Select(
+				group.FieldID,
+				group.FieldName,
+				group.FieldPlatform,
+				group.FieldStatus,
+				group.FieldSubscriptionType,
+				group.FieldRateMultiplier,
+				group.FieldDailyLimitUsd,
+				group.FieldWeeklyLimitUsd,
+				group.FieldMonthlyLimitUsd,
+				group.FieldImagePrice1k,
+				group.FieldImagePrice2k,
+				group.FieldImagePrice4k,
+				group.FieldClaudeCodeOnly,
+				group.FieldFallbackGroupID,
+				group.FieldFallbackGroupIDOnInvalidRequest,
+				group.FieldModelRoutingEnabled,
+				group.FieldModelRouting,
+				group.FieldMcpXMLInject,
+				group.FieldSupportedModelScopes,
+				group.FieldAllowMessagesDispatch,
+				group.FieldDefaultMappedModel,
+				group.FieldMessagesDispatchModelConfig,
+			)
+		}).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -279,7 +321,7 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	}
 
 	keysQuery := q.
-		WithGroup(selectGroupForService).
+		WithGroup().
 		Offset(params.Offset()).
 		Limit(params.Limit())
 	for _, order := range apiKeyListOrder(params) {
@@ -332,7 +374,7 @@ func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, par
 	}
 
 	keysQuery := q.
-		WithUser(selectUserForService).
+		WithUser().
 		Offset(params.Offset()).
 		Limit(params.Limit())
 	for _, order := range apiKeyListOrder(params) {
@@ -604,22 +646,31 @@ func userEntityToService(u *dbent.User) *service.User {
 	if u == nil {
 		return nil
 	}
-	return &service.User{
-		ID:                  u.ID,
-		Email:               u.Email,
-		Username:            u.Username,
-		Notes:               u.Notes,
-		PasswordHash:        u.PasswordHash,
-		Role:                u.Role,
-		Balance:             u.Balance,
-		Concurrency:         u.Concurrency,
-		Status:              u.Status,
-		TotpSecretEncrypted: u.TotpSecretEncrypted,
-		TotpEnabled:         u.TotpEnabled,
-		TotpEnabledAt:       u.TotpEnabledAt,
-		CreatedAt:           u.CreatedAt,
-		UpdatedAt:           u.UpdatedAt,
+	out := &service.User{
+		ID:                         u.ID,
+		Email:                      u.Email,
+		Username:                   u.Username,
+		Notes:                      u.Notes,
+		PasswordHash:               u.PasswordHash,
+		Role:                       u.Role,
+		Balance:                    u.Balance,
+		Concurrency:                u.Concurrency,
+		Status:                     u.Status,
+		TotpSecretEncrypted:        u.TotpSecretEncrypted,
+		TotpEnabled:                u.TotpEnabled,
+		TotpEnabledAt:              u.TotpEnabledAt,
+		BalanceNotifyEnabled:       u.BalanceNotifyEnabled,
+		BalanceNotifyThresholdType: u.BalanceNotifyThresholdType,
+		BalanceNotifyThreshold:     u.BalanceNotifyThreshold,
+		TotalRecharged:             u.TotalRecharged,
+		CreatedAt:                  u.CreatedAt,
+		UpdatedAt:                  u.UpdatedAt,
 	}
+	// Parse extra emails JSON (supports both old []string and new []NotifyEmailEntry format)
+	if u.BalanceNotifyExtraEmails != "" && u.BalanceNotifyExtraEmails != "[]" {
+		out.BalanceNotifyExtraEmails = service.ParseNotifyEmails(u.BalanceNotifyExtraEmails)
+	}
+	return out
 }
 
 func groupEntityToService(g *dbent.Group) *service.Group {

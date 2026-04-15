@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { CustomMenuItem, CustomEndpoint } from '@/types'
+import type { CustomMenuItem, CustomEndpoint, NotifyEmailEntry } from '@/types'
 
 export interface DefaultSubscriptionSetting {
   group_id: number
@@ -19,6 +19,7 @@ export interface SystemSettings {
   registration_enabled: boolean
   email_verify_enabled: boolean
   registration_email_suffix_whitelist: string[]
+  promo_code_enabled: boolean
   password_reset_enabled: boolean
   frontend_url: string
   invitation_code_enabled: boolean
@@ -89,6 +90,8 @@ export interface SystemSettings {
   enable_model_fallback: boolean
   fallback_model_anthropic: string
   fallback_model_openai: string
+  fallback_model_gemini: string
+  fallback_model_antigravity: string
 
   // Identity patch configuration (Claude -> Gemini)
   enable_identity_patch: boolean
@@ -110,10 +113,8 @@ export interface SystemSettings {
   // Gateway forwarding behavior
   enable_fingerprint_unification: boolean
   enable_metadata_passthrough: boolean
-  default_upstream_user_agent: string
-  force_unified_upstream_user_agent: boolean
-  update_github_repo: string
   enable_cch_signing: boolean
+  web_search_emulation_enabled?: boolean
 
   // Payment configuration
   payment_enabled: boolean
@@ -134,12 +135,20 @@ export interface SystemSettings {
   payment_cancel_rate_limit_window: number
   payment_cancel_rate_limit_unit: string
   payment_cancel_rate_limit_window_mode: string
+
+  // Balance & quota notification
+  balance_low_notify_enabled: boolean
+  balance_low_notify_threshold: number
+  balance_low_notify_recharge_url: string
+  account_quota_notify_enabled: boolean
+  account_quota_notify_emails: NotifyEmailEntry[]
 }
 
 export interface UpdateSettingsRequest {
   registration_enabled?: boolean
   email_verify_enabled?: boolean
   registration_email_suffix_whitelist?: string[]
+  promo_code_enabled?: boolean
   password_reset_enabled?: boolean
   frontend_url?: string
   invitation_code_enabled?: boolean
@@ -199,6 +208,8 @@ export interface UpdateSettingsRequest {
   enable_model_fallback?: boolean
   fallback_model_anthropic?: string
   fallback_model_openai?: string
+  fallback_model_gemini?: string
+  fallback_model_antigravity?: string
   enable_identity_patch?: boolean
   identity_patch_prompt?: string
   ops_monitoring_enabled?: boolean
@@ -210,9 +221,6 @@ export interface UpdateSettingsRequest {
   allow_ungrouped_key_scheduling?: boolean
   enable_fingerprint_unification?: boolean
   enable_metadata_passthrough?: boolean
-  default_upstream_user_agent?: string
-  force_unified_upstream_user_agent?: boolean
-  update_github_repo?: string
   enable_cch_signing?: boolean
   // Payment configuration
   payment_enabled?: boolean
@@ -233,6 +241,12 @@ export interface UpdateSettingsRequest {
   payment_cancel_rate_limit_window?: number
   payment_cancel_rate_limit_unit?: string
   payment_cancel_rate_limit_window_mode?: string
+  // Balance & quota notification
+  balance_low_notify_enabled?: boolean
+  balance_low_notify_threshold?: number
+  balance_low_notify_recharge_url?: string
+  account_quota_notify_enabled?: boolean
+  account_quota_notify_emails?: NotifyEmailEntry[]
 }
 
 /**
@@ -265,79 +279,6 @@ export interface TestSmtpRequest {
   smtp_use_tls: boolean
 }
 
-export interface TestEndpointRequest {
-  target_url: string
-  mode?: 'tcp' | 'head' | 'get' | string
-  timeout_ms?: number
-  headers?: Record<string, string>
-}
-
-export interface TestEndpointResult {
-  target_url: string
-  mode: string
-  success: boolean
-  status_code?: number
-  latency_ms: number
-  resolved_user_agent?: string
-  response_len?: number
-  message?: string
-  headers?: Record<string, string>
-}
-
-export interface TestEndpointBatchRequest {
-  targets: string[]
-  mode?: 'tcp' | 'head' | 'get' | string
-  timeout_ms?: number
-  headers?: Record<string, string>
-  max_concurrency?: number
-}
-
-export interface TestEndpointBatchResponse {
-  items: TestEndpointResult[]
-  best?: TestEndpointResult
-}
-
-export interface EndpointProbePlan {
-  id: number
-  name: string
-  enabled: boolean
-  mode: string
-  targets: string[]
-  headers: Record<string, string>
-  timeout_ms: number
-  interval_seconds: number
-  max_concurrency: number
-  last_run_at?: string
-  next_run_at?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface EndpointProbePlanRequest {
-  name: string
-  enabled?: boolean
-  mode?: 'tcp' | 'head' | 'get' | string
-  targets: string[]
-  headers?: Record<string, string>
-  timeout_ms?: number
-  interval_seconds?: number
-  max_concurrency?: number
-}
-
-export interface EndpointProbeHistory {
-  id: number
-  plan_id: number
-  target_url: string
-  mode: string
-  success: boolean
-  status_code?: number
-  latency_ms: number
-  message?: string
-  resolved_user_agent?: string
-  probed_at: string
-  created_at: string
-}
-
 /**
  * Test SMTP connection with provided config
  * @param config - SMTP configuration to test
@@ -345,62 +286,6 @@ export interface EndpointProbeHistory {
  */
 export async function testSmtpConnection(config: TestSmtpRequest): Promise<{ message: string }> {
   const { data } = await apiClient.post<{ message: string }>('/admin/settings/test-smtp', config)
-  return data
-}
-
-export async function testEndpointProbe(request: TestEndpointRequest): Promise<TestEndpointResult> {
-  const { data } = await apiClient.post<TestEndpointResult>('/admin/settings/test-endpoint', request)
-  return data
-}
-
-export async function testEndpointProbeBatch(
-  request: TestEndpointBatchRequest
-): Promise<TestEndpointBatchResponse> {
-  const { data } = await apiClient.post<TestEndpointBatchResponse>(
-    '/admin/settings/test-endpoint-batch',
-    request
-  )
-  return data
-}
-
-export async function listEndpointProbePlans(): Promise<EndpointProbePlan[]> {
-  const { data } = await apiClient.get<EndpointProbePlan[]>('/admin/settings/endpoint-probe/plans')
-  return data
-}
-
-export async function createEndpointProbePlan(
-  request: EndpointProbePlanRequest
-): Promise<EndpointProbePlan> {
-  const { data } = await apiClient.post<EndpointProbePlan>('/admin/settings/endpoint-probe/plans', request)
-  return data
-}
-
-export async function updateEndpointProbePlan(
-  id: number,
-  request: EndpointProbePlanRequest
-): Promise<EndpointProbePlan> {
-  const { data } = await apiClient.put<EndpointProbePlan>(`/admin/settings/endpoint-probe/plans/${id}`, request)
-  return data
-}
-
-export async function deleteEndpointProbePlan(id: number): Promise<{ message: string }> {
-  const { data } = await apiClient.delete<{ message: string }>(`/admin/settings/endpoint-probe/plans/${id}`)
-  return data
-}
-
-export async function runEndpointProbePlanNow(id: number): Promise<{ items: TestEndpointResult[] }> {
-  const { data } = await apiClient.post<{ items: TestEndpointResult[] }>(`/admin/settings/endpoint-probe/plans/${id}/run`)
-  return data
-}
-
-export async function listEndpointProbePlanResults(
-  id: number,
-  limit = 100
-): Promise<EndpointProbeHistory[]> {
-  const { data } = await apiClient.get<EndpointProbeHistory[]>(
-    `/admin/settings/endpoint-probe/plans/${id}/results`,
-    { params: { limit } }
-  )
   return data
 }
 
@@ -575,6 +460,9 @@ export interface BetaPolicyRule {
   action: 'pass' | 'filter' | 'block'
   scope: 'all' | 'oauth' | 'apikey' | 'bedrock'
   error_message?: string
+  model_whitelist?: string[]
+  fallback_action?: 'pass' | 'filter' | 'block'
+  fallback_error_message?: string
 }
 
 /**
@@ -608,6 +496,63 @@ export async function updateBetaPolicySettings(
   return data
 }
 
+// --- Web Search Emulation Config ---
+
+export interface WebSearchProviderConfig {
+  type: 'brave' | 'tavily'
+  api_key: string
+  api_key_configured: boolean
+  quota_limit: number | null
+  subscribed_at: number | null
+  quota_used?: number
+  proxy_id: number | null
+  expires_at: number | null
+}
+
+export interface WebSearchEmulationConfig {
+  enabled: boolean
+  providers: WebSearchProviderConfig[]
+}
+
+export interface WebSearchTestResult {
+  provider: string
+  results: { url: string; title: string; snippet: string; page_age?: string }[]
+  query: string
+}
+
+export async function getWebSearchEmulationConfig(): Promise<WebSearchEmulationConfig> {
+  const { data } = await apiClient.get<WebSearchEmulationConfig>(
+    '/admin/settings/web-search-emulation'
+  )
+  return data
+}
+
+export async function updateWebSearchEmulationConfig(
+  config: WebSearchEmulationConfig
+): Promise<WebSearchEmulationConfig> {
+  const { data } = await apiClient.put<WebSearchEmulationConfig>(
+    '/admin/settings/web-search-emulation',
+    config
+  )
+  return data
+}
+
+export async function testWebSearchEmulation(
+  query: string
+): Promise<WebSearchTestResult> {
+  const { data } = await apiClient.post<WebSearchTestResult>(
+    '/admin/settings/web-search-emulation/test',
+    { query }
+  )
+  return data
+}
+
+export async function resetWebSearchUsage(
+  payload: { provider_type: string }
+): Promise<void> {
+  await apiClient.post('/admin/settings/web-search-emulation/reset-usage', payload)
+}
+
 export const settingsAPI = {
   getSettings,
   updateSettings,
@@ -624,14 +569,10 @@ export const settingsAPI = {
   updateRectifierSettings,
   getBetaPolicySettings,
   updateBetaPolicySettings,
-  testEndpointProbe,
-  testEndpointProbeBatch,
-  listEndpointProbePlans,
-  createEndpointProbePlan,
-  updateEndpointProbePlan,
-  deleteEndpointProbePlan,
-  runEndpointProbePlanNow,
-  listEndpointProbePlanResults
+  getWebSearchEmulationConfig,
+  updateWebSearchEmulationConfig,
+  testWebSearchEmulation,
+  resetWebSearchUsage
 }
 
 export default settingsAPI

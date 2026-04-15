@@ -36,17 +36,15 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Business layer ProviderSets
 		repository.ProviderSet,
 		service.ProviderSet,
+		payment.ProviderSet,
 		middleware.ProviderSet,
 		handler.ProviderSet,
 
 		// Server layer ProviderSet
 		server.ProviderSet,
 
-			// Payment providers
-			payment.ProviderSet,
-
-			// Privacy client factory for OpenAI training opt-out
-			providePrivacyClientFactory,
+		// Privacy client factory for OpenAI training opt-out
+		providePrivacyClientFactory,
 
 		// BuildInfo provider
 		provideServiceBuildInfo,

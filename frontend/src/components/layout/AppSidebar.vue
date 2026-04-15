@@ -806,7 +806,6 @@ onMounted(() => {
 .sidebar-brand {
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
   white-space: nowrap;
   transition:
     max-width 0.22s ease,
@@ -817,6 +816,7 @@ onMounted(() => {
 
 .sidebar-brand-collapsed {
   max-width: 0;
+  overflow: hidden;
   opacity: 0;
   transform: translateX(-4px);
   pointer-events: none;

@@ -19,6 +19,7 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache: true
+          cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.2'
@@ -38,6 +39,7 @@ jobs:
           go-version-file: backend/go.mod
           check-latest: false
           cache: true
+          cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.26.2'

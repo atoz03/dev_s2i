@@ -630,6 +630,108 @@
                     {{ t('admin.settings.betaPolicy.errorMessageHint') }}
                   </p>
                 </div>
+
+                <!-- Quick Presets (only for tokens with presets) -->
+                <div v-if="betaPresets[rule.beta_token]?.length" class="mt-3">
+                  <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    {{ t('admin.settings.betaPolicy.quickPresets') }}
+                  </label>
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      v-for="preset in betaPresets[rule.beta_token]"
+                      :key="preset.label"
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-md border border-primary-200 bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+                      @click="applyBetaPreset(rule, preset)"
+                      :title="preset.description"
+                    >
+                      {{ preset.label }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Model Whitelist -->
+                <div class="mt-3">
+                  <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    {{ t('admin.settings.betaPolicy.modelWhitelist') }}
+                  </label>
+                  <p class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t('admin.settings.betaPolicy.modelWhitelistHint') }}
+                  </p>
+                  <!-- Existing patterns -->
+                  <div
+                    v-for="(_, index) in (rule.model_whitelist || [])"
+                    :key="index"
+                    class="mb-1.5 flex items-center gap-2"
+                  >
+                    <input
+                      v-model="rule.model_whitelist![index]"
+                      type="text"
+                      class="input input-sm flex-1"
+                      :placeholder="t('admin.settings.betaPolicy.modelPatternPlaceholder')"
+                    />
+                    <button
+                      type="button"
+                      @click="rule.model_whitelist!.splice(index, 1)"
+                      class="shrink-0 rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                    >
+                      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <!-- Add pattern button -->
+                  <button
+                    type="button"
+                    @click="if (!rule.model_whitelist) rule.model_whitelist = []; rule.model_whitelist.push('')"
+                    class="mb-2 inline-flex items-center gap-1 text-xs text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                  >
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                    {{ t('admin.settings.betaPolicy.addModelPattern') }}
+                  </button>
+                  <!-- Common pattern chips -->
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('admin.settings.betaPolicy.commonPatterns') }}:</span>
+                    <button
+                      v-for="pattern in commonModelPatterns"
+                      :key="pattern"
+                      type="button"
+                      class="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-700 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
+                      @click="addQuickPattern(rule, pattern)"
+                    >
+                      {{ pattern }}
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Fallback Action (only when model_whitelist is non-empty) -->
+                <div v-if="rule.model_whitelist && rule.model_whitelist.length > 0" class="mt-3">
+                  <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    {{ t('admin.settings.betaPolicy.fallbackAction') }}
+                  </label>
+                  <Select
+                    :modelValue="rule.fallback_action || 'pass'"
+                    @update:modelValue="rule.fallback_action = $event as any"
+                    :options="betaPolicyActionOptions"
+                  />
+                  <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    {{ t('admin.settings.betaPolicy.fallbackActionHint') }}
+                  </p>
+                  <!-- Fallback Error Message (only when fallback_action=block) -->
+                  <div v-if="rule.fallback_action === 'block'" class="mt-2">
+                    <input
+                      v-model="rule.fallback_error_message"
+                      type="text"
+                      class="input"
+                      :placeholder="t('admin.settings.betaPolicy.fallbackErrorMessagePlaceholder')"
+                    />
+                    <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                      {{ t('admin.settings.betaPolicy.errorMessageHint') }}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <!-- Save Button -->
@@ -758,6 +860,21 @@
               <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.registration.emailSuffixWhitelistInputHint') }}
               </p>
+            </div>
+
+            <!-- Promo Code -->
+            <div
+              class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
+            >
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">{{
+                  t('admin.settings.registration.promoCode')
+                }}</label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.registration.promoCodeHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.promo_code_enabled" />
             </div>
 
             <!-- Invitation Code -->
@@ -1535,7 +1652,10 @@
                   {{ t('admin.settings.scheduling.allowUngroupedKeyHint') }}
                 </p>
               </div>
-              <Toggle v-model="form.allow_ungrouped_key_scheduling" />
+              <label class="toggle">
+                <input v-model="form.allow_ungrouped_key_scheduling" type="checkbox" />
+                <span class="toggle-slider"></span>
+              </label>
             </div>
           </div>
         </div>
@@ -1577,49 +1697,245 @@
               <Toggle v-model="form.enable_metadata_passthrough" />
             </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                {{ t('admin.settings.gatewayForwarding.defaultUpstreamUserAgent') }}
-              </label>
-              <input
-                v-model="form.default_upstream_user_agent"
-                type="text"
-                class="input"
-                :placeholder="t('admin.settings.gatewayForwarding.defaultUpstreamUserAgentPlaceholder')"
-              />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.settings.gatewayForwarding.defaultUpstreamUserAgentHint') }}
-              </p>
-            </div>
-
+            <!-- CCH Signing -->
             <div class="flex items-center justify-between">
               <div>
                 <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.gatewayForwarding.forceUnifiedUpstreamUserAgent') }}
+                  {{ t('admin.settings.gatewayForwarding.cchSigning') }}
                 </label>
                 <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.gatewayForwarding.forceUnifiedUpstreamUserAgentHint') }}
+                  {{ t('admin.settings.gatewayForwarding.cchSigningHint') }}
                 </p>
               </div>
-              <Toggle v-model="form.force_unified_upstream_user_agent" />
-            </div>
-
-            <div>
-              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                更新检查仓库
-              </label>
-              <input
-                v-model="form.update_github_repo"
-                type="text"
-                class="input max-w-md font-mono text-sm"
-                placeholder="owner/repo（例如 atoz03/sub2api）"
-              />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                前端“检查更新/刷新”按钮会按此仓库读取 latest release。
-              </p>
+              <Toggle v-model="form.enable_cch_signing" />
             </div>
           </div>
         </div>
+        <!-- Web Search Emulation -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.webSearchEmulation.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.webSearchEmulation.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <!-- Global Toggle -->
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.webSearchEmulation.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.webSearchEmulation.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="webSearchConfig.enabled" />
+            </div>
+
+            <!-- Providers -->
+            <div v-if="webSearchConfig.enabled" class="space-y-4">
+              <div class="flex items-center justify-between">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.webSearchEmulation.providers') }}
+                </label>
+                <button type="button" class="btn btn-secondary btn-sm" @click="addWebSearchProvider">
+                  {{ t('admin.settings.webSearchEmulation.addProvider') }}
+                </button>
+              </div>
+
+              <div v-if="webSearchConfig.providers.length === 0" class="rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-400 dark:border-dark-600">
+                {{ t('admin.settings.webSearchEmulation.noProviders') }}
+              </div>
+
+              <div v-for="(provider, pIdx) in webSearchConfig.providers" :key="pIdx"
+                class="rounded-lg border border-gray-200 dark:border-dark-600">
+                <!-- Collapsible header -->
+                <div
+                  class="flex cursor-pointer items-center justify-between px-4 py-3"
+                  @click="toggleProviderExpand(pIdx)"
+                >
+                  <div class="flex items-center gap-3">
+                    <svg
+                      class="h-4 w-4 text-gray-400 transition-transform"
+                      :class="{ 'rotate-90': expandedProviders[pIdx] }"
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                    <Select
+                      v-model="provider.type"
+                      :options="[
+                        { value: 'brave', label: 'Brave Search' },
+                        { value: 'tavily', label: 'Tavily' },
+                      ]"
+                      class="w-36"
+                      @click.stop
+                    />
+                    <!-- Quota summary (always visible) -->
+                    <span class="text-xs text-gray-400">
+                      {{ provider.quota_used ?? 0 }} / {{ provider.quota_limit != null && provider.quota_limit > 0 ? provider.quota_limit : '∞' }}
+                    </span>
+                    <span v-if="!expandedProviders[pIdx] && provider.api_key_configured" class="text-xs text-green-500">
+                      {{ t('admin.settings.webSearchEmulation.apiKeyConfigured') }}
+                    </span>
+                  </div>
+                  <button type="button" class="text-red-500 hover:text-red-700 text-xs" @click.stop="removeWebSearchProvider(pIdx)">
+                    {{ t('admin.settings.webSearchEmulation.removeProvider') }}
+                  </button>
+                </div>
+
+                <!-- Expanded content -->
+                <div v-if="expandedProviders[pIdx]" class="space-y-3 border-t border-gray-100 px-4 pb-4 pt-3 dark:border-dark-700">
+                  <!-- API Key with inline show/copy -->
+                  <div>
+                    <label class="text-xs text-gray-500">{{ t('admin.settings.webSearchEmulation.apiKey') }}</label>
+                    <div class="relative">
+                      <input
+                        v-model="provider.api_key"
+                        :type="apiKeyVisible[pIdx] ? 'text' : 'password'"
+                        class="input w-full text-sm"
+                        :class="(provider.api_key || provider.api_key_configured) ? 'pr-16' : ''"
+                        :placeholder="provider.api_key_configured ? '••••••••' : t('admin.settings.webSearchEmulation.apiKeyPlaceholder')"
+                      />
+                      <div v-if="provider.api_key || provider.api_key_configured" class="absolute inset-y-0 right-0 flex items-center pr-1.5">
+                        <button
+                          type="button"
+                          class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          :title="apiKeyVisible[pIdx] ? t('admin.settings.webSearchEmulation.hideApiKey') : t('admin.settings.webSearchEmulation.showApiKey')"
+                          @click="apiKeyVisible[pIdx] = !apiKeyVisible[pIdx]"
+                        >
+                          <svg v-if="!apiKeyVisible[pIdx]" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          <svg v-else class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          :class="{ 'opacity-30 cursor-not-allowed': !provider.api_key }"
+                          :title="t('admin.settings.webSearchEmulation.copyApiKey')"
+                          :disabled="!provider.api_key"
+                          @click="copyApiKey(pIdx)"
+                        >
+                          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Quota + Subscription in compact row -->
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="text-xs text-gray-500">{{ t('admin.settings.webSearchEmulation.quotaLimit') }}</label>
+                      <input v-model="provider.quota_limit" type="number" min="1" class="input text-sm" :placeholder="'∞'" />
+                      <p class="mt-0.5 text-xs text-gray-400">{{ t('admin.settings.webSearchEmulation.quotaLimitHint') }}</p>
+                    </div>
+                    <div>
+                      <label class="text-xs text-gray-500">{{ t('admin.settings.webSearchEmulation.subscribedAt') }}</label>
+                      <input
+                        :value="formatSubscribedAt(provider.subscribed_at)"
+                        type="date"
+                        class="input text-sm"
+                        @input="provider.subscribed_at = parseSubscribedAt(($event.target as HTMLInputElement).value)"
+                      />
+                      <p class="mt-0.5 text-xs text-gray-400">{{ t('admin.settings.webSearchEmulation.subscribedAtHint') }}</p>
+                    </div>
+                  </div>
+
+                  <!-- Usage display -->
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-gray-500">{{ t('admin.settings.webSearchEmulation.quotaUsage') }}:</span>
+                    <div v-if="provider.quota_limit != null && provider.quota_limit > 0" class="flex-1 rounded-full bg-gray-200 dark:bg-dark-600" style="height: 6px">
+                      <div
+                        class="h-full rounded-full transition-all"
+                        :class="quotaPercentage(provider) > 90 ? 'bg-red-500' : quotaPercentage(provider) > 70 ? 'bg-yellow-500' : 'bg-green-500'"
+                        :style="{ width: Math.min(quotaPercentage(provider), 100) + '%' }"
+                      />
+                    </div>
+                    <div v-else class="flex-1" />
+                    <span class="text-xs text-gray-500">{{ provider.quota_used ?? 0 }} / {{ provider.quota_limit != null && provider.quota_limit > 0 ? provider.quota_limit : '∞' }}</span>
+                    <button
+                      v-if="(provider.quota_used ?? 0) > 0"
+                      type="button"
+                      class="text-xs text-primary-600 hover:text-primary-700"
+                      @click="resetWebSearchUsage(pIdx)"
+                    >
+                      {{ t('admin.settings.webSearchEmulation.resetUsage') }}
+                    </button>
+                  </div>
+
+                  <!-- Proxy + Test on same row -->
+                  <div class="flex items-end gap-3">
+                    <div class="flex-1">
+                      <label class="text-xs text-gray-500">{{ t('admin.settings.webSearchEmulation.proxy') }}</label>
+                      <ProxySelector v-model="provider.proxy_id" :proxies="webSearchProxies" />
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm whitespace-nowrap"
+                      @click="openTestDialog()"
+                    >
+                      {{ t('admin.settings.webSearchEmulation.test') }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Web Search Test Dialog -->
+        <div v-if="wsTestDialogOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="wsTestDialogOpen = false">
+          <div class="mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-dark-800">
+            <h3 class="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.webSearchEmulation.testResultTitle') }}
+            </h3>
+            <div class="flex items-center gap-2">
+              <input
+                v-model="wsTestQuery"
+                type="text"
+                class="input flex-1 text-sm"
+                :placeholder="t('admin.settings.webSearchEmulation.testDefaultQuery')"
+                @keyup.enter="testWebSearchProvider()"
+              />
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                :disabled="wsTestLoading"
+                @click="testWebSearchProvider()"
+              >
+                {{ wsTestLoading ? t('admin.settings.webSearchEmulation.testing') : t('admin.settings.webSearchEmulation.test') }}
+              </button>
+            </div>
+            <!-- Test results -->
+            <div v-if="wsTestResult" class="mt-4 max-h-80 overflow-y-auto rounded-lg bg-gray-50 p-4 dark:bg-dark-700">
+              <p class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.webSearchEmulation.testResultProvider') }}: {{ wsTestResult.provider }}
+              </p>
+              <div v-if="wsTestResult.results.length === 0" class="text-sm text-gray-400">
+                {{ t('admin.settings.webSearchEmulation.testNoResults') }}
+              </div>
+              <div v-for="(r, rIdx) in wsTestResult.results" :key="rIdx" class="mt-2 border-t border-gray-200 pt-2 first:mt-0 first:border-0 first:pt-0 dark:border-dark-600">
+                <a :href="r.url" target="_blank" class="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">{{ r.title }}</a>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ r.snippet }}</p>
+              </div>
+            </div>
+            <div class="mt-4 flex justify-end">
+              <button type="button" class="btn btn-secondary btn-sm" @click="wsTestDialogOpen = false">
+                {{ t('common.close') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         </div><!-- /Tab: Gateway — Claude Code, Scheduling -->
 
         <!-- Tab: General -->
@@ -2377,6 +2693,73 @@
             </div>
           </div>
         </div>
+        <!-- Balance Low Notification -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white">
+              {{ t('admin.settings.balanceNotify.title') }}
+            </h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.balanceNotify.description') }}
+            </p>
+          </div>
+          <div class="px-6 py-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <label class="mb-0 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.balanceNotify.enabled') }}</label>
+              <Toggle v-model="form.balance_low_notify_enabled" />
+            </div>
+            <div v-if="form.balance_low_notify_enabled">
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.balanceNotify.threshold') }}</label>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                <input v-model.number="form.balance_low_notify_threshold" type="number" min="0" step="0.01" class="input pl-7" />
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.balanceNotify.thresholdHint') }}</p>
+            </div>
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.balanceNotify.rechargeUrl') }}</label>
+              <input v-model="form.balance_low_notify_recharge_url" type="url" class="input" :placeholder="currentOrigin" />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.balanceNotify.rechargeUrlHint') }}</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Account Quota Notification -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white">
+              {{ t('admin.settings.quotaNotify.title') }}
+            </h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.quotaNotify.description') }}
+            </p>
+          </div>
+          <div class="px-6 py-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <label class="mb-0 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.quotaNotify.enabled') }}</label>
+              <Toggle v-model="form.account_quota_notify_enabled" />
+            </div>
+            <div v-if="form.account_quota_notify_enabled">
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.quotaNotify.emails') }}</label>
+              <div class="space-y-2">
+                <div v-for="(entry, index) in (form.account_quota_notify_emails || [])" :key="index" class="flex items-center gap-2">
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input type="checkbox" :checked="!entry.disabled" @change="entry.disabled = !entry.disabled" class="sr-only peer" />
+                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:after:border-gray-500 peer-checked:bg-primary-600"></div>
+                  </label>
+                  <input v-model="entry.email" type="email" class="input flex-1" :placeholder="t('admin.settings.quotaNotify.emailPlaceholder')" />
+                  <button @click="form.account_quota_notify_emails.splice(index, 1)" class="btn btn-secondary px-2" type="button">
+                    <Icon name="x" size="xs" class="h-4 w-4" />
+                  </button>
+                </div>
+                <button @click="addQuotaNotifyEmail" class="btn btn-secondary btn-sm" type="button">
+                  + {{ t('admin.settings.quotaNotify.addEmail') }}
+                </button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.quotaNotify.emailsHint') }}</p>
+            </div>
+          </div>
+        </div>
         </div><!-- /Tab: Email -->
 
         <!-- Tab: Backup -->
@@ -2384,13 +2767,8 @@
           <BackupSettings />
         </div>
 
-        <!-- Tab: Data Management -->
-        <div v-show="activeTab === 'data'">
-          <DataManagementSettings />
-        </div>
-
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup' && activeTab !== 'data'" class="flex justify-end">
+        <div v-show="activeTab !== 'backup'" class="flex justify-end">
           <button type="submit" :disabled="saving || loadFailed" class="btn btn-primary">
             <svg v-if="saving" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
               <circle
@@ -2437,9 +2815,12 @@ import { adminAPI } from '@/api'
 import type {
   SystemSettings,
   UpdateSettingsRequest,
-  DefaultSubscriptionSetting
+  DefaultSubscriptionSetting,
+  WebSearchEmulationConfig,
+  WebSearchProviderConfig,
+  WebSearchTestResult,
 } from '@/api/admin/settings'
-import type { AdminGroup } from '@/types'
+import type { AdminGroup, Proxy, NotifyEmailEntry } from '@/types'
 import type { ProviderInstance } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -2450,9 +2831,9 @@ import PaymentProviderDialog from '@/components/payment/PaymentProviderDialog.vu
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import ProxySelector from '@/components/common/ProxySelector.vue'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import BackupSettings from '@/views/admin/BackupView.vue'
-import DataManagementSettings from '@/views/admin/DataManagementView.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
@@ -2468,7 +2849,7 @@ const { t, locale } = useI18n()
 const appStore = useAppStore()
 const adminSettingsStore = useAdminSettingsStore()
 
-type SettingsTab = 'general' | 'security' | 'users' | 'gateway' | 'payment' | 'email' | 'backup' | 'data'
+type SettingsTab = 'general' | 'security' | 'users' | 'gateway' | 'payment' | 'email' | 'backup'
 const activeTab = ref<SettingsTab>('general')
 const settingsTabs = [
   { key: 'general'  as SettingsTab, icon: 'home'   as const },
@@ -2478,7 +2859,6 @@ const settingsTabs = [
   { key: 'payment'  as SettingsTab, icon: 'creditCard' as const },
   { key: 'email'    as SettingsTab, icon: 'mail'   as const },
   { key: 'backup'   as SettingsTab, icon: 'database' as const },
-  { key: 'data'     as SettingsTab, icon: 'cube'     as const },
 ]
 const { copyToClipboard } = useClipboard()
 
@@ -2540,6 +2920,9 @@ const betaPolicyForm = reactive({
     action: 'pass' | 'filter' | 'block'
     scope: 'all' | 'oauth' | 'apikey' | 'bedrock'
     error_message?: string
+    model_whitelist?: string[]
+    fallback_action?: 'pass' | 'filter' | 'block'
+    fallback_error_message?: string
   }>
 })
 
@@ -2568,6 +2951,7 @@ const form = reactive<SettingsForm>({
   registration_enabled: true,
   email_verify_enabled: false,
   registration_email_suffix_whitelist: [],
+  promo_code_enabled: true,
   invitation_code_enabled: false,
   password_reset_enabled: false,
   totp_enabled: false,
@@ -2637,6 +3021,8 @@ const form = reactive<SettingsForm>({
   enable_model_fallback: false,
   fallback_model_anthropic: 'claude-3-5-sonnet-20241022',
   fallback_model_openai: 'gpt-4o',
+  fallback_model_gemini: 'gemini-2.5-pro',
+  fallback_model_antigravity: 'gemini-2.5-pro',
   // Identity patch (Claude -> Gemini)
   enable_identity_patch: true,
   identity_patch_prompt: '',
@@ -2653,11 +3039,176 @@ const form = reactive<SettingsForm>({
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
-  default_upstream_user_agent: '',
-  force_unified_upstream_user_agent: false,
-  update_github_repo: 'atoz03/sub2api',
   enable_cch_signing: false,
+  // Balance & quota notification
+  balance_low_notify_enabled: false,
+  balance_low_notify_threshold: 0,
+  balance_low_notify_recharge_url: '',
+  account_quota_notify_enabled: false,
+  account_quota_notify_emails: [] as NotifyEmailEntry[]
 })
+
+// Proxies for web search emulation ProxySelector
+const webSearchProxies = ref<Proxy[]>([])
+
+// Web Search Emulation config (loaded/saved separately)
+const DEFAULT_WEB_SEARCH_QUOTA_LIMIT = 1000
+
+const webSearchConfig = reactive<WebSearchEmulationConfig>({
+  enabled: false,
+  providers: [],
+})
+
+const expandedProviders = reactive<Record<number, boolean>>({})
+const apiKeyVisible = reactive<Record<number, boolean>>({})
+const wsTestQuery = ref('')
+const wsTestLoading = ref(false)
+const wsTestResult = ref<WebSearchTestResult | null>(null)
+const wsTestDialogOpen = ref(false)
+
+function openTestDialog() {
+  wsTestResult.value = null
+  wsTestDialogOpen.value = true
+}
+
+function toggleProviderExpand(idx: number) {
+  expandedProviders[idx] = !expandedProviders[idx]
+}
+
+function removeWebSearchProvider(idx: number) {
+  webSearchConfig.providers.splice(idx, 1)
+  // Re-index expandedProviders and apiKeyVisible after removal
+  const newExpanded: Record<number, boolean> = {}
+  const newVisible: Record<number, boolean> = {}
+  for (let i = 0; i < webSearchConfig.providers.length; i++) {
+    const oldIdx = i >= idx ? i + 1 : i
+    newExpanded[i] = expandedProviders[oldIdx] ?? false
+    newVisible[i] = apiKeyVisible[oldIdx] ?? false
+  }
+  Object.keys(expandedProviders).forEach((k) => delete expandedProviders[Number(k)])
+  Object.keys(apiKeyVisible).forEach((k) => delete apiKeyVisible[Number(k)])
+  Object.assign(expandedProviders, newExpanded)
+  Object.assign(apiKeyVisible, newVisible)
+}
+
+function addWebSearchProvider() {
+  const idx = webSearchConfig.providers.length
+  webSearchConfig.providers.push({
+    type: 'brave',
+    api_key: '',
+    api_key_configured: false,
+    quota_limit: DEFAULT_WEB_SEARCH_QUOTA_LIMIT,
+    subscribed_at: null,
+    proxy_id: null,
+    expires_at: null,
+  } as WebSearchProviderConfig)
+  expandedProviders[idx] = true
+}
+
+function formatSubscribedAt(ts: number | null): string {
+  if (!ts) return ''
+  // Use UTC to avoid timezone drift on repeated edits
+  const d = new Date(ts * 1000)
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function parseSubscribedAt(dateStr: string): number | null {
+  if (!dateStr) return null
+  // Parse as UTC to match formatSubscribedAt
+  return Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000)
+}
+
+function quotaPercentage(provider: WebSearchProviderConfig): number {
+  if (!provider.quota_limit || provider.quota_limit <= 0) return 0
+  return ((provider.quota_used ?? 0) / provider.quota_limit) * 100
+}
+
+async function resetWebSearchUsage(idx: number) {
+  const provider = webSearchConfig.providers[idx]
+  if (!provider) return
+  if (!confirm(t('admin.settings.webSearchEmulation.resetUsageConfirm'))) return
+  try {
+    await adminAPI.settings.resetWebSearchUsage({ provider_type: provider.type })
+    provider.quota_used = 0
+    appStore.showSuccess(t('admin.settings.webSearchEmulation.resetUsageSuccess'))
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+  }
+}
+
+async function copyApiKey(idx: number) {
+  const key = webSearchConfig.providers[idx]?.api_key
+  if (!key) {
+    appStore.showError(t('admin.settings.webSearchEmulation.apiKeyPlaceholder'))
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(key)
+    appStore.showSuccess(t('admin.settings.webSearchEmulation.copied'))
+  } catch {
+    appStore.showError(t('common.error'))
+  }
+}
+
+async function testWebSearchProvider() {
+  wsTestLoading.value = true
+  wsTestResult.value = null
+  try {
+    const query = wsTestQuery.value.trim() || t('admin.settings.webSearchEmulation.testDefaultQuery')
+    wsTestResult.value = await adminAPI.settings.testWebSearchEmulation(query)
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+  } finally {
+    wsTestLoading.value = false
+  }
+}
+
+async function loadWebSearchConfig() {
+  try {
+    const [resp, proxiesResp] = await Promise.all([
+      adminAPI.settings.getWebSearchEmulationConfig(),
+      adminAPI.proxies.list().catch(() => ({ items: [] as Proxy[] })),
+    ])
+    if (resp) {
+      webSearchConfig.enabled = resp.enabled || false
+      webSearchConfig.providers = resp.providers || []
+    }
+    webSearchProxies.value = proxiesResp.items || []
+  } catch (err: unknown) {
+    // 404 is expected when config hasn't been created yet; show error for other failures
+    const status = (err as { status?: number })?.status
+    if (status !== 404 && status !== undefined) {
+      appStore.showError(extractApiErrorMessage(err, t('common.error')))
+    }
+  }
+}
+
+async function saveWebSearchConfig(): Promise<boolean> {
+  try {
+    for (const p of webSearchConfig.providers) {
+      const raw = p.quota_limit
+      if (raw != null && Number(raw) !== 0 && Number(raw) < 1) {
+        appStore.showError(t('admin.settings.webSearchEmulation.quotaLimitMustBePositive'))
+        return false
+      }
+    }
+    const providers = webSearchConfig.providers.map((p: WebSearchProviderConfig) => ({
+      ...p,
+      quota_limit: Number(p.quota_limit) > 0 ? Number(p.quota_limit) : null,
+    }))
+    await adminAPI.settings.updateWebSearchEmulationConfig({
+      enabled: webSearchConfig.enabled,
+      providers,
+    })
+    return true
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+    return false
+  }
+}
 
 const defaultSubscriptionGroupOptions = computed<DefaultSubscriptionGroupOption[]>(() =>
   subscriptionGroups.value.map((group) => ({
@@ -2737,6 +3288,16 @@ function handleRegistrationEmailSuffixWhitelistPaste(event: ClipboardEvent) {
     addRegistrationEmailSuffixWhitelistTag(token)
   }
 }
+
+// Quota notify email helpers
+const addQuotaNotifyEmail = () => {
+  if (!form.account_quota_notify_emails) {
+    form.account_quota_notify_emails = []
+  }
+  form.account_quota_notify_emails.push({ email: '', disabled: false, verified: true })
+}
+
+const currentOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 
 // LinuxDo OAuth redirect URL suggestion
 const linuxdoRedirectUrlSuggestion = computed(() => {
@@ -2873,6 +3434,9 @@ async function loadSettings() {
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
     form.oidc_connect_client_secret = ''
+
+    // Load web search emulation config separately
+    await loadWebSearchConfig()
   } catch (error: unknown) {
     loadFailed.value = true
     appStore.showError(extractApiErrorMessage(error, t('admin.settings.failedToLoad')))
@@ -2985,6 +3549,7 @@ async function saveSettings() {
       registration_email_suffix_whitelist: registrationEmailSuffixWhitelistTags.value.map(
         (suffix) => `@${suffix}`
       ),
+      promo_code_enabled: form.promo_code_enabled,
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
       totp_enabled: form.totp_enabled,
@@ -3044,6 +3609,8 @@ async function saveSettings() {
       enable_model_fallback: form.enable_model_fallback,
       fallback_model_anthropic: form.fallback_model_anthropic,
       fallback_model_openai: form.fallback_model_openai,
+      fallback_model_gemini: form.fallback_model_gemini,
+      fallback_model_antigravity: form.fallback_model_antigravity,
       enable_identity_patch: form.enable_identity_patch,
       identity_patch_prompt: form.identity_patch_prompt,
       min_claude_code_version: form.min_claude_code_version,
@@ -3051,9 +3618,6 @@ async function saveSettings() {
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
-      default_upstream_user_agent: form.default_upstream_user_agent,
-      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent,
-      update_github_repo: form.update_github_repo,
       enable_cch_signing: form.enable_cch_signing,
       // Payment configuration
       payment_enabled: form.payment_enabled,
@@ -3074,6 +3638,12 @@ async function saveSettings() {
       payment_cancel_rate_limit_window: Number(form.payment_cancel_rate_limit_window) || 1,
       payment_cancel_rate_limit_unit: form.payment_cancel_rate_limit_unit,
       payment_cancel_rate_limit_window_mode: form.payment_cancel_rate_limit_window_mode,
+      // Balance & quota notification
+      balance_low_notify_enabled: form.balance_low_notify_enabled,
+      balance_low_notify_threshold: Number(form.balance_low_notify_threshold) || 0,
+      balance_low_notify_recharge_url: (form.balance_low_notify_recharge_url = form.balance_low_notify_recharge_url || currentOrigin),
+      account_quota_notify_enabled: form.account_quota_notify_enabled,
+      account_quota_notify_emails: (form.account_quota_notify_emails || []).filter((e) => e.email.trim() !== ''),
     }
 
     const updated = await adminAPI.settings.updateSettings(payload)
@@ -3094,10 +3664,14 @@ async function saveSettings() {
     form.turnstile_secret_key = ''
     form.linuxdo_connect_client_secret = ''
     form.oidc_connect_client_secret = ''
+    // Save web search emulation config separately (errors handled internally)
+    const wsOk = await saveWebSearchConfig()
     // Refresh cached settings so sidebar/header update immediately
     await appStore.fetchPublicSettings(true)
     await adminSettingsStore.fetch(true)
-    appStore.showSuccess(t('admin.settings.settingsSaved'))
+    if (wsOk) {
+      appStore.showSuccess(t('admin.settings.settingsSaved'))
+    }
   } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('admin.settings.failedToSave')))
   } finally {
@@ -3335,8 +3909,46 @@ const betaDisplayNames: Record<string, string> = {
   'context-1m-2025-08-07': 'Context 1M'
 }
 
+// 快捷预设：按 beta_token 定义预设方案
+const betaPresets: Record<string, Array<{
+  label: string
+  description: string
+  action: 'pass' | 'filter' | 'block'
+  model_whitelist: string[]
+  fallback_action: 'pass' | 'filter' | 'block'
+}>> = {
+  'context-1m-2025-08-07': [
+    {
+      label: t('admin.settings.betaPolicy.presetOpusOnly'),
+      description: t('admin.settings.betaPolicy.presetOpusOnlyDesc'),
+      action: 'pass',
+      model_whitelist: ['claude-opus-4-6'],
+      fallback_action: 'filter',
+    },
+  ],
+}
+
+// 常用模型模式（具体 ID + 通配符示例）
+const commonModelPatterns = ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-opus-*', 'claude-sonnet-*']
+
 function getBetaDisplayName(token: string): string {
   return betaDisplayNames[token] || token
+}
+
+function applyBetaPreset(
+  rule: (typeof betaPolicyForm.rules)[number],
+  preset: { action: 'pass' | 'filter' | 'block'; model_whitelist: string[]; fallback_action: 'pass' | 'filter' | 'block' }
+) {
+  rule.action = preset.action
+  rule.model_whitelist = [...preset.model_whitelist]
+  rule.fallback_action = preset.fallback_action
+}
+
+function addQuickPattern(rule: (typeof betaPolicyForm.rules)[number], pattern: string) {
+  if (!rule.model_whitelist) rule.model_whitelist = []
+  if (!rule.model_whitelist.includes(pattern)) {
+    rule.model_whitelist.push(pattern)
+  }
 }
 
 async function loadBetaPolicySettings() {
@@ -3354,8 +3966,22 @@ async function loadBetaPolicySettings() {
 async function saveBetaPolicySettings() {
   betaPolicySaving.value = true
   try {
+    // Clean up empty patterns before saving
+    const cleanedRules = betaPolicyForm.rules.map(rule => {
+      const whitelist = rule.model_whitelist?.filter(p => p.trim() !== '')
+      const hasWhitelist = whitelist && whitelist.length > 0
+      return {
+        beta_token: rule.beta_token,
+        action: rule.action,
+        scope: rule.scope,
+        error_message: rule.error_message,
+        model_whitelist: hasWhitelist ? whitelist : undefined,
+        fallback_action: hasWhitelist ? (rule.fallback_action || 'pass') : undefined,
+        fallback_error_message: hasWhitelist && rule.fallback_action === 'block' ? rule.fallback_error_message : undefined,
+      }
+    })
     const updated = await adminAPI.settings.updateBetaPolicySettings({
-      rules: betaPolicyForm.rules
+      rules: cleanedRules
     })
     betaPolicyForm.rules = updated.rules
     appStore.showSuccess(t('admin.settings.betaPolicy.saved'))
@@ -3485,12 +4111,26 @@ async function handleSaveProvider(payload: Partial<ProviderInstance>) {
   }
 }
 
-async function handleToggleField(provider: ProviderInstance, field: 'enabled' | 'refund_enabled') {
-  const newValue = field === 'enabled' ? !provider.enabled : !provider.refund_enabled
+async function handleToggleField(provider: ProviderInstance, field: 'enabled' | 'refund_enabled' | 'allow_user_refund') {
+  let newValue: boolean
+  if (field === 'enabled') newValue = !provider.enabled
+  else if (field === 'refund_enabled') newValue = !provider.refund_enabled
+  else newValue = !provider.allow_user_refund
+
+  const payload: Record<string, boolean> = { [field]: newValue }
+  // Cascade: turning off refund_enabled also turns off allow_user_refund
+  if (field === 'refund_enabled' && !newValue) {
+    payload.allow_user_refund = false
+  }
   try {
-    await adminAPI.payment.updateProvider(provider.id, { [field]: newValue })
+    await adminAPI.payment.updateProvider(provider.id, payload)
     if (field === 'enabled') provider.enabled = newValue
-    else provider.refund_enabled = newValue
+    else if (field === 'refund_enabled') {
+      provider.refund_enabled = newValue
+      if (!newValue) provider.allow_user_refund = false
+    } else {
+      provider.allow_user_refund = newValue
+    }
   } catch (err: unknown) { appStore.showError(extractApiErrorMessage(err, t('common.error'), paymentErrorMap.value)) }
 }
 
