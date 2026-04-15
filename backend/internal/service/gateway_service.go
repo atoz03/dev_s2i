@@ -2011,27 +2011,12 @@ func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool
 	if account == nil {
 		return false
 	}
-	if account.Platform == PlatformSora {
-		if !account.IsActive() || !account.Schedulable {
-			return false
-		}
-		if account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) {
-			return false
-		}
-		return true
-	}
 	return account.IsSchedulable()
 }
 
 func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Context, account *Account, requestedModel string) bool {
 	if account == nil {
 		return false
-	}
-	if account.Platform == PlatformSora {
-		if !s.isAccountSchedulableForSelection(account) {
-			return false
-		}
-		return account.GetModelRateLimitRemainingTimeWithContext(ctx, requestedModel) <= 0
 	}
 	return account.IsSchedulableForModelWithContext(ctx, requestedModel)
 }
