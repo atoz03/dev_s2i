@@ -271,6 +271,109 @@ var (
 	}
 )
 
+func normalizeSoraModelID(id string) string {
+	return strings.ToLower(strings.TrimSpace(id))
+}
+
+func soraFamilyIDForModel(modelID string) string {
+	modelID = normalizeSoraModelID(modelID)
+	cfg, ok := soraModelConfigs[modelID]
+	if !ok {
+		return ""
+	}
+	switch cfg.Type {
+	case "video":
+		if m := videoSuffixRe.FindStringSubmatch(modelID); m != nil {
+			return modelID[:len(modelID)-len(m[0])]
+		}
+	case "image":
+		if m := imageSuffixRe.FindStringSubmatch(modelID); m != nil {
+			return modelID[:len(modelID)-len(m[0])]
+		}
+		return modelID
+	}
+	return modelID
+}
+
+func isSoraUnderlyingModelID(modelID string) bool {
+	modelID = normalizeSoraModelID(modelID)
+	if modelID == "" {
+		return false
+	}
+	for _, cfg := range soraModelConfigs {
+		if cfg.Model == modelID {
+			return true
+		}
+	}
+	return false
+}
+
+func isSoraSelectorKey(key string) bool {
+	key = normalizeSoraModelID(key)
+	if key == "" {
+		return false
+	}
+	if _, ok := soraModelConfigs[key]; ok {
+		return true
+	}
+	if _, ok := soraFamilyNames[key]; ok {
+		return true
+	}
+	return isSoraUnderlyingModelID(key)
+}
+
+func soraRequestedModelAliases(requestedModel string) ([]string, bool) {
+	requestedModel = normalizeSoraModelID(requestedModel)
+	cfg, ok := soraModelConfigs[requestedModel]
+	if !ok {
+		return nil, false
+	}
+	seen := map[string]struct{}{requestedModel: {}}
+	if familyID := soraFamilyIDForModel(requestedModel); familyID != "" {
+		seen[familyID] = struct{}{}
+	}
+	if cfg.Model != "" {
+		seen[cfg.Model] = struct{}{}
+	}
+	aliases := make([]string, 0, len(seen))
+	for alias := range seen {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	return aliases, true
+}
+
+func soraMappingSupportsRequestedModel(mapping map[string]string, requestedModel string) bool {
+	if len(mapping) == 0 {
+		return true
+	}
+	requestedModel = normalizeSoraModelID(requestedModel)
+	if requestedModel == "" {
+		return false
+	}
+	aliases, isSoraModel := soraRequestedModelAliases(requestedModel)
+	if !isSoraModel {
+		return mappingSupportsRequestedModel(mapping, requestedModel)
+	}
+
+	hasSoraSelector := false
+	for pattern := range mapping {
+		if isSoraSelectorKey(pattern) {
+			hasSoraSelector = true
+			for _, alias := range aliases {
+				if pattern == alias || matchWildcard(pattern, alias) {
+					return true
+				}
+			}
+		}
+	}
+
+	if !hasSoraSelector {
+		return true
+	}
+	return false
+}
+
 // BuildSoraModelFamilies 从 soraModelConfigs 自动聚合模型家族及其支持的方向和时长
 func BuildSoraModelFamilies() []SoraModelFamily {
 	type familyData struct {

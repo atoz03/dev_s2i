@@ -2065,12 +2065,27 @@ func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool
 	if account == nil {
 		return false
 	}
+	if account.Platform == PlatformSora {
+		if !account.IsActive() || !account.Schedulable {
+			return false
+		}
+		if account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) {
+			return false
+		}
+		return true
+	}
 	return account.IsSchedulable()
 }
 
 func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Context, account *Account, requestedModel string) bool {
 	if account == nil {
 		return false
+	}
+	if account.Platform == PlatformSora {
+		if !s.isAccountSchedulableForSelection(account) {
+			return false
+		}
+		return account.GetModelRateLimitRemainingTimeWithContext(ctx, requestedModel) <= 0
 	}
 	return account.IsSchedulableForModelWithContext(ctx, requestedModel)
 }
@@ -3331,7 +3346,7 @@ func (s *GatewayService) diagnoseSelectionFailure(
 		return selectionFailureDiagnosis{Category: "excluded"}
 	}
 	if !s.isAccountSchedulableForSelection(acc) {
-		return selectionFailureDiagnosis{Category: "unschedulable", Detail: "generic_unschedulable"}
+		return selectionFailureDiagnosis{Category: "unschedulable", Detail: selectionUnschedulableDetail(acc)}
 	}
 	if isPlatformFilteredForSelection(acc, platform, allowMixedScheduling) {
 		return selectionFailureDiagnosis{
@@ -3353,6 +3368,38 @@ func (s *GatewayService) diagnoseSelectionFailure(
 		}
 	}
 	return selectionFailureDiagnosis{Category: "eligible"}
+}
+
+func selectionUnschedulableDetail(acc *Account) string {
+	if acc == nil {
+		return "account_nil"
+	}
+	if !acc.IsActive() {
+		return "status_inactive"
+	}
+	if !acc.Schedulable {
+		return "schedulable=false"
+	}
+	now := time.Now()
+	if acc.Platform == PlatformSora {
+		if acc.TempUnschedulableUntil != nil && now.Before(*acc.TempUnschedulableUntil) {
+			return "temp_unschedulable"
+		}
+		return "generic_unschedulable"
+	}
+	if acc.AutoPauseOnExpired && acc.ExpiresAt != nil && !now.Before(*acc.ExpiresAt) {
+		return "expired"
+	}
+	if acc.OverloadUntil != nil && now.Before(*acc.OverloadUntil) {
+		return "overloaded"
+	}
+	if acc.RateLimitResetAt != nil && now.Before(*acc.RateLimitResetAt) {
+		return "rate_limited"
+	}
+	if acc.TempUnschedulableUntil != nil && now.Before(*acc.TempUnschedulableUntil) {
+		return "temp_unschedulable"
+	}
+	return "generic_unschedulable"
 }
 
 func isPlatformFilteredForSelection(acc *Account, platform string, allowMixedScheduling bool) bool {
@@ -3621,6 +3668,27 @@ func hasClaudeCodePrefix(text string) bool {
 	return false
 }
 
+func hasAnthropicBillingHeaderPrefix(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "x-anthropic-billing-header")
+}
+
+func systemIncludesAnthropicBillingHeader(system any) bool {
+	system = normalizeSystemParam(system)
+	switch v := system.(type) {
+	case string:
+		return hasAnthropicBillingHeaderPrefix(v)
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				if text, ok := m["text"].(string); ok && hasAnthropicBillingHeaderPrefix(text) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // injectClaudeCodePrompt 在 system 开头注入 Claude Code 提示词
 // 处理 null、字符串、数组三种格式
 func injectClaudeCodePrompt(body []byte, system any) []byte {
@@ -3648,7 +3716,7 @@ func injectClaudeCodePrompt(body []byte, system any) []byte {
 			// Mirror opencode behavior: keep the banner as a separate system entry,
 			// but also prefix the next system text with the banner.
 			merged := v
-			if !strings.HasPrefix(v, claudeCodePrefix) {
+			if !strings.HasPrefix(v, claudeCodePrefix) && !hasAnthropicBillingHeaderPrefix(v) {
 				merged = claudeCodePrefix + "\n\n" + v
 			}
 			nextBlock, buildErr := marshalAnthropicSystemTextBlock(merged, false)
@@ -3675,7 +3743,7 @@ func injectClaudeCodePrompt(body []byte, system any) []byte {
 				// Prefix the first subsequent text system block once.
 				if !prefixedNext && item.Get("type").String() == "text" && textResult.Exists() && textResult.Type == gjson.String {
 					text := textResult.String()
-					if strings.TrimSpace(text) != "" && !strings.HasPrefix(text, claudeCodePrefix) {
+					if strings.TrimSpace(text) != "" && !strings.HasPrefix(text, claudeCodePrefix) && !hasAnthropicBillingHeaderPrefix(text) {
 						next, setErr := sjson.SetBytes(raw, "text", claudeCodePrefix+"\n\n"+text)
 						if setErr == nil {
 							raw = next
@@ -3701,7 +3769,7 @@ func injectClaudeCodePrompt(body []byte, system any) []byte {
 				}
 				if !prefixedNext {
 					if blockType, _ := m["type"].(string); blockType == "text" {
-						if text, ok := m["text"].(string); ok && strings.TrimSpace(text) != "" && !strings.HasPrefix(text, claudeCodePrefix) {
+						if text, ok := m["text"].(string); ok && strings.TrimSpace(text) != "" && !strings.HasPrefix(text, claudeCodePrefix) && !hasAnthropicBillingHeaderPrefix(text) {
 							m["text"] = claudeCodePrefix + "\n\n" + text
 							prefixedNext = true
 						}
@@ -4006,8 +4074,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		systemRewritten := false
 		if !strings.Contains(strings.ToLower(reqModel), "haiku") &&
 			!systemIncludesClaudeCodePrompt(parsed.System) {
-			body = rewriteSystemForNonClaudeCode(body, parsed.System)
-			systemRewritten = true
+			if systemIncludesAnthropicBillingHeader(parsed.System) {
+				body = injectClaudeCodePrompt(body, parsed.System)
+			} else {
+				body = rewriteSystemForNonClaudeCode(body, parsed.System)
+				systemRewritten = true
+			}
 		}
 
 		// system 被重写时保留 CC prompt 的 cache_control: ephemeral（匹配真实 Claude Code 行为）；

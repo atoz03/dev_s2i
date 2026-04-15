@@ -431,7 +431,6 @@ func TestAPIContracts(t *testing.T) {
 							"first_token_ms": 50,
 							"image_count": 0,
 							"image_size": null,
-							"media_type": null,
 							"cache_ttl_overridden": false,
 							"created_at": "2025-01-02T03:04:05Z",
 							"user_agent": null
@@ -570,11 +569,13 @@ func TestAPIContracts(t *testing.T) {
 					"default_concurrency": 5,
 					"default_balance": 1.25,
 					"default_subscriptions": [],
+					"default_upstream_user_agent": "",
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_antigravity": "gemini-2.5-pro",
 					"fallback_model_gemini": "gemini-2.5-pro",
 						"fallback_model_openai": "gpt-4o",
+						"force_unified_upstream_user_agent": false,
 						"enable_identity_patch": true,
 						"identity_patch_prompt": "",
 						"invitation_code_enabled": false,
@@ -583,6 +584,7 @@ func TestAPIContracts(t *testing.T) {
 					"purchase_subscription_enabled": false,
 					"purchase_subscription_url": "",
 					"table_default_page_size": 20,
+						"sora_client_enabled": false,
 						"table_page_size_options": [10, 20, 50, 100],
 					"min_claude_code_version": "",
 					"max_claude_code_version": "",
@@ -591,6 +593,7 @@ func TestAPIContracts(t *testing.T) {
 					"enable_cch_signing": false,
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
+					"update_github_repo": "",
 					"web_search_emulation_enabled": false,
 					"custom_menu_items": [],
 					"custom_endpoints": [],
@@ -724,12 +727,30 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(
+		userRepo,
+		groupRepo,
+		&accountRepo,
+		nil,
+		proxyRepo,
+		apiKeyRepo,
+		redeemRepo,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		settingService,
+		nil,
+		userSubRepo,
+		nil,
+	)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil)
-	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{
