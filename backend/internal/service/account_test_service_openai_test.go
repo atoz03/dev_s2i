@@ -86,7 +86,7 @@ data: {"type":"response.completed"}
 	require.NotContains(t, recorder.Body.String(), `"type":"test_complete","success":true`)
 }
 
-func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimit(t *testing.T) {
+func TestAccountTestService_OpenAI429PersistsSnapshotWithoutRateLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := newSoraTestContext()
 
@@ -113,10 +113,7 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimit(t *testing.T) 
 	require.Error(t, err)
 	require.NotEmpty(t, repo.updatedExtra)
 	require.Equal(t, 100.0, repo.updatedExtra["codex_5h_used_percent"])
-	require.Equal(t, int64(88), repo.rateLimitedID)
-	require.NotNil(t, repo.rateLimitedAt)
-	require.NotNil(t, account.RateLimitResetAt)
-	if account.RateLimitResetAt != nil && repo.rateLimitedAt != nil {
-		require.WithinDuration(t, *repo.rateLimitedAt, *account.RateLimitResetAt, time.Second)
-	}
+	require.Zero(t, repo.rateLimitedID)
+	require.Nil(t, repo.rateLimitedAt)
+	require.Nil(t, account.RateLimitResetAt)
 }
