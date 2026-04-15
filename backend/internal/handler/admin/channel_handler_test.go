@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -499,4 +500,14 @@ func TestValidatePricingBillingMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func validatePricingBillingMode(pricing []service.ChannelModelPricing) error {
+	for _, p := range pricing {
+		if (p.BillingMode == service.BillingModePerRequest || p.BillingMode == service.BillingModeImage) &&
+			p.PerRequestPrice == nil && len(p.Intervals) == 0 {
+			return errors.New("per-request price or intervals required")
+		}
+	}
+	return nil
 }

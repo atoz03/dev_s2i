@@ -467,6 +467,7 @@ func TestSoraGatewayHandler_ChatCompletions(t *testing.T) {
 		nil, // tlsFPProfileService
 		nil, // channelService
 		nil, // resolver
+		nil, // balanceNotifyService
 	)
 
 	soraClient := &stubSoraClient{imageURLs: []string{"https://example.com/a.png"}}

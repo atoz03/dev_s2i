@@ -368,10 +368,7 @@ func soraMappingSupportsRequestedModel(mapping map[string]string, requestedModel
 		}
 	}
 
-	if !hasSoraSelector {
-		return true
-	}
-	return false
+	return !hasSoraSelector
 }
 
 // BuildSoraModelFamilies 从 soraModelConfigs 自动聚合模型家族及其支持的方向和时长
