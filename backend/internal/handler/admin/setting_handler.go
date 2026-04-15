@@ -50,7 +50,6 @@ type SettingHandler struct {
 	emailService             *service.EmailService
 	turnstileService         *service.TurnstileService
 	opsService               *service.OpsService
-	soraS3Storage            *service.SoraS3Storage
 	endpointProbeService     *service.EndpointProbeService
 	endpointProbePlanService *service.EndpointProbePlanService
 	paymentConfigService     *service.PaymentConfigService
@@ -63,7 +62,6 @@ func NewSettingHandler(
 	emailService *service.EmailService,
 	turnstileService *service.TurnstileService,
 	opsService *service.OpsService,
-	soraS3Storage *service.SoraS3Storage,
 	endpointProbeService *service.EndpointProbeService,
 	endpointProbePlanService *service.EndpointProbePlanService,
 	paymentConfigService *service.PaymentConfigService,
@@ -74,7 +72,6 @@ func NewSettingHandler(
 		emailService:             emailService,
 		turnstileService:         turnstileService,
 		opsService:               opsService,
-		soraS3Storage:            soraS3Storage,
 		endpointProbeService:     endpointProbeService,
 		endpointProbePlanService: endpointProbePlanService,
 		paymentConfigService:     paymentConfigService,
@@ -166,7 +163,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		HideCcsImportButton:                  settings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:          settings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:              settings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                    settings.SoraClientEnabled,
 		TableDefaultPageSize:                 settings.TableDefaultPageSize,
 		TablePageSizeOptions:                 settings.TablePageSizeOptions,
 		CustomMenuItems:                      dto.ParseCustomMenuItems(settings.CustomMenuItems),
@@ -178,7 +174,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		FallbackModelAnthropic:               settings.FallbackModelAnthropic,
 		FallbackModelOpenAI:                  settings.FallbackModelOpenAI,
 		FallbackModelGemini:                  settings.FallbackModelGemini,
-		FallbackModelAntigravity:             settings.FallbackModelAntigravity,
 		EnableIdentityPatch:                  settings.EnableIdentityPatch,
 		IdentityPatchPrompt:                  settings.IdentityPatchPrompt,
 		OpsMonitoringEnabled:                 opsEnabled && settings.OpsMonitoringEnabled,
@@ -289,7 +284,6 @@ type UpdateSettingsRequest struct {
 	HideCcsImportButton         bool                  `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled *bool                 `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
-	SoraClientEnabled           bool                  `json:"sora_client_enabled"`
 	TableDefaultPageSize        int                   `json:"table_default_page_size"`
 	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
@@ -301,11 +295,10 @@ type UpdateSettingsRequest struct {
 	DefaultSubscriptions []dto.DefaultSubscriptionSetting `json:"default_subscriptions"`
 
 	// Model fallback configuration
-	EnableModelFallback      bool   `json:"enable_model_fallback"`
-	FallbackModelAnthropic   string `json:"fallback_model_anthropic"`
-	FallbackModelOpenAI      string `json:"fallback_model_openai"`
-	FallbackModelGemini      string `json:"fallback_model_gemini"`
-	FallbackModelAntigravity string `json:"fallback_model_antigravity"`
+	EnableModelFallback    bool   `json:"enable_model_fallback"`
+	FallbackModelAnthropic string `json:"fallback_model_anthropic"`
+	FallbackModelOpenAI    string `json:"fallback_model_openai"`
+	FallbackModelGemini    string `json:"fallback_model_gemini"`
 
 	// Identity patch configuration (Claude -> Gemini)
 	EnableIdentityPatch bool   `json:"enable_identity_patch"`
@@ -858,7 +851,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:              req.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:      purchaseEnabled,
 		PurchaseSubscriptionURL:          purchaseURL,
-		SoraClientEnabled:                req.SoraClientEnabled,
 		TableDefaultPageSize:             req.TableDefaultPageSize,
 		TablePageSizeOptions:             req.TablePageSizeOptions,
 		CustomMenuItems:                  customMenuJSON,
@@ -870,7 +862,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		FallbackModelAnthropic:           req.FallbackModelAnthropic,
 		FallbackModelOpenAI:              req.FallbackModelOpenAI,
 		FallbackModelGemini:              req.FallbackModelGemini,
-		FallbackModelAntigravity:         req.FallbackModelAntigravity,
 		EnableIdentityPatch:              req.EnableIdentityPatch,
 		IdentityPatchPrompt:              req.IdentityPatchPrompt,
 		MinClaudeCodeVersion:             req.MinClaudeCodeVersion,
@@ -1088,7 +1079,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		HideCcsImportButton:                  updatedSettings.HideCcsImportButton,
 		PurchaseSubscriptionEnabled:          updatedSettings.PurchaseSubscriptionEnabled,
 		PurchaseSubscriptionURL:              updatedSettings.PurchaseSubscriptionURL,
-		SoraClientEnabled:                    updatedSettings.SoraClientEnabled,
 		TableDefaultPageSize:                 updatedSettings.TableDefaultPageSize,
 		TablePageSizeOptions:                 updatedSettings.TablePageSizeOptions,
 		CustomMenuItems:                      dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
@@ -1100,7 +1090,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		FallbackModelAnthropic:               updatedSettings.FallbackModelAnthropic,
 		FallbackModelOpenAI:                  updatedSettings.FallbackModelOpenAI,
 		FallbackModelGemini:                  updatedSettings.FallbackModelGemini,
-		FallbackModelAntigravity:             updatedSettings.FallbackModelAntigravity,
 		EnableIdentityPatch:                  updatedSettings.EnableIdentityPatch,
 		IdentityPatchPrompt:                  updatedSettings.IdentityPatchPrompt,
 		OpsMonitoringEnabled:                 updatedSettings.OpsMonitoringEnabled,
@@ -1354,9 +1343,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.FallbackModelGemini != after.FallbackModelGemini {
 		changed = append(changed, "fallback_model_gemini")
-	}
-	if before.FallbackModelAntigravity != after.FallbackModelAntigravity {
-		changed = append(changed, "fallback_model_antigravity")
 	}
 	if before.EnableIdentityPatch != after.EnableIdentityPatch {
 		changed = append(changed, "enable_identity_patch")
@@ -2034,548 +2020,6 @@ func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {
 	})
 }
 
-func toSoraS3SettingsDTO(settings *service.SoraS3Settings) dto.SoraS3Settings {
-	if settings == nil {
-		return dto.SoraS3Settings{}
-	}
-	return dto.SoraS3Settings{
-		Enabled:                   settings.Enabled,
-		Endpoint:                  settings.Endpoint,
-		Region:                    settings.Region,
-		Bucket:                    settings.Bucket,
-		AccessKeyID:               settings.AccessKeyID,
-		SecretAccessKeyConfigured: settings.SecretAccessKeyConfigured,
-		Prefix:                    settings.Prefix,
-		ForcePathStyle:            settings.ForcePathStyle,
-		CDNURL:                    settings.CDNURL,
-		DefaultStorageQuotaBytes:  settings.DefaultStorageQuotaBytes,
-	}
-}
-
-func toSoraS3ProfileDTO(profile service.SoraS3Profile) dto.SoraS3Profile {
-	return dto.SoraS3Profile{
-		ProfileID:                 profile.ProfileID,
-		Name:                      profile.Name,
-		IsActive:                  profile.IsActive,
-		Enabled:                   profile.Enabled,
-		Endpoint:                  profile.Endpoint,
-		Region:                    profile.Region,
-		Bucket:                    profile.Bucket,
-		AccessKeyID:               profile.AccessKeyID,
-		SecretAccessKeyConfigured: profile.SecretAccessKeyConfigured,
-		Prefix:                    profile.Prefix,
-		ForcePathStyle:            profile.ForcePathStyle,
-		CDNURL:                    profile.CDNURL,
-		DefaultStorageQuotaBytes:  profile.DefaultStorageQuotaBytes,
-		UpdatedAt:                 profile.UpdatedAt,
-	}
-}
-
-func validateSoraS3RequiredWhenEnabled(enabled bool, endpoint, bucket, accessKeyID, secretAccessKey string, hasStoredSecret bool) error {
-	if !enabled {
-		return nil
-	}
-	if strings.TrimSpace(endpoint) == "" {
-		return fmt.Errorf("S3 Endpoint is required when enabled")
-	}
-	if strings.TrimSpace(bucket) == "" {
-		return fmt.Errorf("S3 Bucket is required when enabled")
-	}
-	if strings.TrimSpace(accessKeyID) == "" {
-		return fmt.Errorf("S3 Access Key ID is required when enabled")
-	}
-	if strings.TrimSpace(secretAccessKey) != "" || hasStoredSecret {
-		return nil
-	}
-	return fmt.Errorf("S3 Secret Access Key is required when enabled")
-}
-
-func findSoraS3ProfileByID(items []service.SoraS3Profile, profileID string) *service.SoraS3Profile {
-	for idx := range items {
-		if items[idx].ProfileID == profileID {
-			return &items[idx]
-		}
-	}
-	return nil
-}
-
-// GetSoraS3Settings 获取 Sora S3 存储配置（兼容旧单配置接口）
-// GET /api/v1/admin/settings/sora-s3
-func (h *SettingHandler) GetSoraS3Settings(c *gin.Context) {
-	settings, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3SettingsDTO(settings))
-}
-
-// ListSoraS3Profiles 获取 Sora S3 多配置
-// GET /api/v1/admin/settings/sora-s3/profiles
-func (h *SettingHandler) ListSoraS3Profiles(c *gin.Context) {
-	result, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	items := make([]dto.SoraS3Profile, 0, len(result.Items))
-	for idx := range result.Items {
-		items = append(items, toSoraS3ProfileDTO(result.Items[idx]))
-	}
-	response.Success(c, dto.ListSoraS3ProfilesResponse{
-		ActiveProfileID: result.ActiveProfileID,
-		Items:           items,
-	})
-}
-
-// UpdateSoraS3SettingsRequest 更新/测试 Sora S3 配置请求（兼容旧接口）
-type UpdateSoraS3SettingsRequest struct {
-	ProfileID                string `json:"profile_id"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-type CreateSoraS3ProfileRequest struct {
-	ProfileID                string `json:"profile_id"`
-	Name                     string `json:"name"`
-	SetActive                bool   `json:"set_active"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-type UpdateSoraS3ProfileRequest struct {
-	Name                     string `json:"name"`
-	Enabled                  bool   `json:"enabled"`
-	Endpoint                 string `json:"endpoint"`
-	Region                   string `json:"region"`
-	Bucket                   string `json:"bucket"`
-	AccessKeyID              string `json:"access_key_id"`
-	SecretAccessKey          string `json:"secret_access_key"`
-	Prefix                   string `json:"prefix"`
-	ForcePathStyle           bool   `json:"force_path_style"`
-	CDNURL                   string `json:"cdn_url"`
-	DefaultStorageQuotaBytes int64  `json:"default_storage_quota_bytes"`
-}
-
-// CreateSoraS3Profile 创建 Sora S3 配置
-// POST /api/v1/admin/settings/sora-s3/profiles
-func (h *SettingHandler) CreateSoraS3Profile(c *gin.Context) {
-	var req CreateSoraS3ProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		response.BadRequest(c, "Name is required")
-		return
-	}
-	if strings.TrimSpace(req.ProfileID) == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, false); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	created, err := h.settingService.CreateSoraS3Profile(c.Request.Context(), &service.SoraS3Profile{
-		ProfileID:                req.ProfileID,
-		Name:                     req.Name,
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	}, req.SetActive)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, toSoraS3ProfileDTO(*created))
-}
-
-// UpdateSoraS3Profile 更新 Sora S3 配置
-// PUT /api/v1/admin/settings/sora-s3/profiles/:profile_id
-func (h *SettingHandler) UpdateSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-
-	var req UpdateSoraS3ProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		response.BadRequest(c, "Name is required")
-		return
-	}
-
-	existingList, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	existing := findSoraS3ProfileByID(existingList.Items, profileID)
-	if existing == nil {
-		response.ErrorFrom(c, service.ErrSoraS3ProfileNotFound)
-		return
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, existing.SecretAccessKeyConfigured); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	updated, updateErr := h.settingService.UpdateSoraS3Profile(c.Request.Context(), profileID, &service.SoraS3Profile{
-		Name:                     req.Name,
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	})
-	if updateErr != nil {
-		response.ErrorFrom(c, updateErr)
-		return
-	}
-
-	response.Success(c, toSoraS3ProfileDTO(*updated))
-}
-
-// DeleteSoraS3Profile 删除 Sora S3 配置
-// DELETE /api/v1/admin/settings/sora-s3/profiles/:profile_id
-func (h *SettingHandler) DeleteSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	if err := h.settingService.DeleteSoraS3Profile(c.Request.Context(), profileID); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, gin.H{"deleted": true})
-}
-
-// SetActiveSoraS3Profile 切换激活 Sora S3 配置
-// POST /api/v1/admin/settings/sora-s3/profiles/:profile_id/activate
-func (h *SettingHandler) SetActiveSoraS3Profile(c *gin.Context) {
-	profileID := strings.TrimSpace(c.Param("profile_id"))
-	if profileID == "" {
-		response.BadRequest(c, "Profile ID is required")
-		return
-	}
-	active, err := h.settingService.SetActiveSoraS3Profile(c.Request.Context(), profileID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3ProfileDTO(*active))
-}
-
-// UpdateSoraS3Settings 更新 Sora S3 存储配置（兼容旧单配置接口）
-// PUT /api/v1/admin/settings/sora-s3
-func (h *SettingHandler) UpdateSoraS3Settings(c *gin.Context) {
-	var req UpdateSoraS3SettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	existing, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	if req.DefaultStorageQuotaBytes < 0 {
-		req.DefaultStorageQuotaBytes = 0
-	}
-	if err := validateSoraS3RequiredWhenEnabled(req.Enabled, req.Endpoint, req.Bucket, req.AccessKeyID, req.SecretAccessKey, existing.SecretAccessKeyConfigured); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	settings := &service.SoraS3Settings{
-		Enabled:                  req.Enabled,
-		Endpoint:                 req.Endpoint,
-		Region:                   req.Region,
-		Bucket:                   req.Bucket,
-		AccessKeyID:              req.AccessKeyID,
-		SecretAccessKey:          req.SecretAccessKey,
-		Prefix:                   req.Prefix,
-		ForcePathStyle:           req.ForcePathStyle,
-		CDNURL:                   req.CDNURL,
-		DefaultStorageQuotaBytes: req.DefaultStorageQuotaBytes,
-	}
-	if err := h.settingService.SetSoraS3Settings(c.Request.Context(), settings); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	updatedSettings, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, toSoraS3SettingsDTO(updatedSettings))
-}
-
-// TestSoraS3Connection 测试 Sora S3 连接（HeadBucket）
-// POST /api/v1/admin/settings/sora-s3/test
-func (h *SettingHandler) TestSoraS3Connection(c *gin.Context) {
-	if h.soraS3Storage == nil {
-		response.Error(c, 500, "S3 存储服务未初始化")
-		return
-	}
-
-	var req UpdateSoraS3SettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	if !req.Enabled {
-		response.BadRequest(c, "S3 未启用，无法测试连接")
-		return
-	}
-
-	if req.SecretAccessKey == "" {
-		if req.ProfileID != "" {
-			profiles, err := h.settingService.ListSoraS3Profiles(c.Request.Context())
-			if err == nil {
-				profile := findSoraS3ProfileByID(profiles.Items, req.ProfileID)
-				if profile != nil {
-					req.SecretAccessKey = profile.SecretAccessKey
-				}
-			}
-		}
-		if req.SecretAccessKey == "" {
-			existing, err := h.settingService.GetSoraS3Settings(c.Request.Context())
-			if err == nil {
-				req.SecretAccessKey = existing.SecretAccessKey
-			}
-		}
-	}
-
-	testCfg := &service.SoraS3Settings{
-		Enabled:         true,
-		Endpoint:        req.Endpoint,
-		Region:          req.Region,
-		Bucket:          req.Bucket,
-		AccessKeyID:     req.AccessKeyID,
-		SecretAccessKey: req.SecretAccessKey,
-		Prefix:          req.Prefix,
-		ForcePathStyle:  req.ForcePathStyle,
-		CDNURL:          req.CDNURL,
-	}
-	if err := h.soraS3Storage.TestConnectionWithSettings(c.Request.Context(), testCfg); err != nil {
-		response.Error(c, 400, "S3 连接测试失败: "+err.Error())
-		return
-	}
-	response.Success(c, gin.H{"message": "S3 连接成功"})
-}
-
-// GetRectifierSettings 获取请求整流器配置
-// GET /api/v1/admin/settings/rectifier
-func (h *SettingHandler) GetRectifierSettings(c *gin.Context) {
-	settings, err := h.settingService.GetRectifierSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	patterns := settings.APIKeySignaturePatterns
-	if patterns == nil {
-		patterns = []string{}
-	}
-	response.Success(c, dto.RectifierSettings{
-		Enabled:                  settings.Enabled,
-		ThinkingSignatureEnabled: settings.ThinkingSignatureEnabled,
-		ThinkingBudgetEnabled:    settings.ThinkingBudgetEnabled,
-		APIKeySignatureEnabled:   settings.APIKeySignatureEnabled,
-		APIKeySignaturePatterns:  patterns,
-	})
-}
-
-// UpdateRectifierSettingsRequest 更新整流器配置请求
-type UpdateRectifierSettingsRequest struct {
-	Enabled                  bool     `json:"enabled"`
-	ThinkingSignatureEnabled bool     `json:"thinking_signature_enabled"`
-	ThinkingBudgetEnabled    bool     `json:"thinking_budget_enabled"`
-	APIKeySignatureEnabled   bool     `json:"apikey_signature_enabled"`
-	APIKeySignaturePatterns  []string `json:"apikey_signature_patterns"`
-}
-
-// UpdateRectifierSettings 更新请求整流器配置
-// PUT /api/v1/admin/settings/rectifier
-func (h *SettingHandler) UpdateRectifierSettings(c *gin.Context) {
-	var req UpdateRectifierSettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	// 校验并清理自定义匹配关键词
-	const maxPatterns = 50
-	const maxPatternLen = 500
-	if len(req.APIKeySignaturePatterns) > maxPatterns {
-		response.BadRequest(c, "Too many signature patterns (max 50)")
-		return
-	}
-	var cleanedPatterns []string
-	for _, p := range req.APIKeySignaturePatterns {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if len(p) > maxPatternLen {
-			response.BadRequest(c, "Signature pattern too long (max 500 characters)")
-			return
-		}
-		cleanedPatterns = append(cleanedPatterns, p)
-	}
-
-	settings := &service.RectifierSettings{
-		Enabled:                  req.Enabled,
-		ThinkingSignatureEnabled: req.ThinkingSignatureEnabled,
-		ThinkingBudgetEnabled:    req.ThinkingBudgetEnabled,
-		APIKeySignatureEnabled:   req.APIKeySignatureEnabled,
-		APIKeySignaturePatterns:  cleanedPatterns,
-	}
-
-	if err := h.settingService.SetRectifierSettings(c.Request.Context(), settings); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	// 重新获取设置返回
-	updatedSettings, err := h.settingService.GetRectifierSettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	updatedPatterns := updatedSettings.APIKeySignaturePatterns
-	if updatedPatterns == nil {
-		updatedPatterns = []string{}
-	}
-	response.Success(c, dto.RectifierSettings{
-		Enabled:                  updatedSettings.Enabled,
-		ThinkingSignatureEnabled: updatedSettings.ThinkingSignatureEnabled,
-		ThinkingBudgetEnabled:    updatedSettings.ThinkingBudgetEnabled,
-		APIKeySignatureEnabled:   updatedSettings.APIKeySignatureEnabled,
-		APIKeySignaturePatterns:  updatedPatterns,
-	})
-}
-
-// GetBetaPolicySettings 获取 Beta 策略配置
-// GET /api/v1/admin/settings/beta-policy
-func (h *SettingHandler) GetBetaPolicySettings(c *gin.Context) {
-	settings, err := h.settingService.GetBetaPolicySettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	rules := make([]dto.BetaPolicyRule, len(settings.Rules))
-	for i, r := range settings.Rules {
-		rules[i] = dto.BetaPolicyRule{
-			BetaToken:    r.BetaToken,
-			Action:       r.Action,
-			Scope:        r.Scope,
-			ErrorMessage: r.ErrorMessage,
-		}
-	}
-	response.Success(c, dto.BetaPolicySettings{Rules: rules})
-}
-
-// UpdateBetaPolicySettingsRequest 更新 Beta 策略配置请求
-type UpdateBetaPolicySettingsRequest struct {
-	Rules []dto.BetaPolicyRule `json:"rules"`
-}
-
-// UpdateBetaPolicySettings 更新 Beta 策略配置
-// PUT /api/v1/admin/settings/beta-policy
-func (h *SettingHandler) UpdateBetaPolicySettings(c *gin.Context) {
-	var req UpdateBetaPolicySettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	rules := make([]service.BetaPolicyRule, len(req.Rules))
-	for i, r := range req.Rules {
-		rules[i] = service.BetaPolicyRule{
-			BetaToken:    r.BetaToken,
-			Action:       r.Action,
-			Scope:        r.Scope,
-			ErrorMessage: r.ErrorMessage,
-		}
-	}
-
-	settings := &service.BetaPolicySettings{Rules: rules}
-	if err := h.settingService.SetBetaPolicySettings(c.Request.Context(), settings); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	// Re-fetch to return updated settings
-	updated, err := h.settingService.GetBetaPolicySettings(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	outRules := make([]dto.BetaPolicyRule, len(updated.Rules))
-	for i, r := range updated.Rules {
-		outRules[i] = dto.BetaPolicyRule{
-			BetaToken:    r.BetaToken,
-			Action:       r.Action,
-			Scope:        r.Scope,
-			ErrorMessage: r.ErrorMessage,
-		}
-	}
-	response.Success(c, dto.BetaPolicySettings{Rules: outRules})
-}
-
-// UpdateStreamTimeoutSettingsRequest 更新流超时配置请求
 type UpdateStreamTimeoutSettingsRequest struct {
 	Enabled                bool   `json:"enabled"`
 	Action                 string `json:"action"`
@@ -2584,7 +2028,7 @@ type UpdateStreamTimeoutSettingsRequest struct {
 	ThresholdWindowMinutes int    `json:"threshold_window_minutes"`
 }
 
-// UpdateStreamTimeoutSettings 更新流超时处理配置
+// UpdateStreamTimeoutSettings 更新流超时处理配置。
 // PUT /api/v1/admin/settings/stream-timeout
 func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 	var req UpdateStreamTimeoutSettingsRequest
@@ -2600,29 +2044,67 @@ func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 		ThresholdCount:         req.ThresholdCount,
 		ThresholdWindowMinutes: req.ThresholdWindowMinutes,
 	}
-
 	if err := h.settingService.SetStreamTimeoutSettings(c.Request.Context(), settings); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	// 重新获取设置返回
-	updatedSettings, err := h.settingService.GetStreamTimeoutSettings(c.Request.Context())
+	h.GetStreamTimeoutSettings(c)
+}
+
+// GetRectifierSettings 获取请求整流器配置。
+// GET /api/v1/admin/settings/rectifier
+func (h *SettingHandler) GetRectifierSettings(c *gin.Context) {
+	settings, err := h.settingService.GetRectifierSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-
-	response.Success(c, dto.StreamTimeoutSettings{
-		Enabled:                updatedSettings.Enabled,
-		Action:                 updatedSettings.Action,
-		TempUnschedMinutes:     updatedSettings.TempUnschedMinutes,
-		ThresholdCount:         updatedSettings.ThresholdCount,
-		ThresholdWindowMinutes: updatedSettings.ThresholdWindowMinutes,
-	})
+	response.Success(c, settings)
 }
 
-// GetWebSearchEmulationConfig 获取 Web Search 模拟配置
+// UpdateRectifierSettings 更新请求整流器配置。
+// PUT /api/v1/admin/settings/rectifier
+func (h *SettingHandler) UpdateRectifierSettings(c *gin.Context) {
+	var settings service.RectifierSettings
+	if err := c.ShouldBindJSON(&settings); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := h.settingService.SetRectifierSettings(c.Request.Context(), &settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, settings)
+}
+
+// GetBetaPolicySettings 获取 Beta 策略配置。
+// GET /api/v1/admin/settings/beta-policy
+func (h *SettingHandler) GetBetaPolicySettings(c *gin.Context) {
+	settings, err := h.settingService.GetBetaPolicySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
+}
+
+// UpdateBetaPolicySettings 更新 Beta 策略配置。
+// PUT /api/v1/admin/settings/beta-policy
+func (h *SettingHandler) UpdateBetaPolicySettings(c *gin.Context) {
+	var settings service.BetaPolicySettings
+	if err := c.ShouldBindJSON(&settings); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := h.settingService.SetBetaPolicySettings(c.Request.Context(), &settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, settings)
+}
+
+// GetWebSearchEmulationConfig 获取 Web Search 模拟配置。
 // GET /api/v1/admin/settings/web-search-emulation
 func (h *SettingHandler) GetWebSearchEmulationConfig(c *gin.Context) {
 	cfg, err := h.settingService.GetWebSearchEmulationConfig(c.Request.Context())
@@ -2630,10 +2112,10 @@ func (h *SettingHandler) GetWebSearchEmulationConfig(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, service.PopulateWebSearchUsage(c.Request.Context(), cfg))
+	response.Success(c, service.SanitizeWebSearchConfig(c.Request.Context(), cfg))
 }
 
-// UpdateWebSearchEmulationConfig 更新 Web Search 模拟配置
+// UpdateWebSearchEmulationConfig 更新 Web Search 模拟配置。
 // PUT /api/v1/admin/settings/web-search-emulation
 func (h *SettingHandler) UpdateWebSearchEmulationConfig(c *gin.Context) {
 	var cfg service.WebSearchEmulationConfig
@@ -2641,60 +2123,48 @@ func (h *SettingHandler) UpdateWebSearchEmulationConfig(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-
 	if err := h.settingService.SaveWebSearchEmulationConfig(c.Request.Context(), &cfg); err != nil {
-		response.ErrorFrom(c, err)
+		response.BadRequest(c, err.Error())
 		return
 	}
-
-	// Re-read (with sanitized api keys) to return current state
-	updated, err := h.settingService.GetWebSearchEmulationConfig(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, service.PopulateWebSearchUsage(c.Request.Context(), updated))
+	response.Success(c, service.SanitizeWebSearchConfig(c.Request.Context(), &cfg))
 }
 
-// ResetWebSearchUsage 重置指定 provider 的配额用量
-// POST /api/v1/admin/settings/web-search-emulation/reset-usage
-func (h *SettingHandler) ResetWebSearchUsage(c *gin.Context) {
-	var req struct {
-		ProviderType string `json:"provider_type"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-	if req.ProviderType == "" {
-		response.BadRequest(c, "provider_type is required")
-		return
-	}
-	if err := service.ResetWebSearchUsage(c.Request.Context(), req.ProviderType); err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, nil)
+type testWebSearchEmulationRequest struct {
+	Query string `json:"query"`
 }
 
-// TestWebSearchEmulation 测试 Web Search 搜索
+// TestWebSearchEmulation 使用当前配置执行一次测试检索。
 // POST /api/v1/admin/settings/web-search-emulation/test
 func (h *SettingHandler) TestWebSearchEmulation(c *gin.Context) {
-	var req struct {
-		Query string `json:"query"`
-	}
+	var req testWebSearchEmulationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if strings.TrimSpace(req.Query) == "" {
-		req.Query = "搜索今年世界大事件"
-	}
-
-	result, err := service.TestWebSearch(c.Request.Context(), req.Query)
+	result, err := service.TestWebSearch(c.Request.Context(), strings.TrimSpace(req.Query))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 	response.Success(c, result)
+}
+
+type resetWebSearchUsageRequest struct {
+	ProviderType string `json:"provider_type"`
+}
+
+// ResetWebSearchUsage 重置指定 provider 的额度统计。
+// POST /api/v1/admin/settings/web-search-emulation/reset-usage
+func (h *SettingHandler) ResetWebSearchUsage(c *gin.Context) {
+	var req resetWebSearchUsageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := service.ResetWebSearchUsage(c.Request.Context(), strings.TrimSpace(req.ProviderType)); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"provider_type": strings.TrimSpace(req.ProviderType), "reset": true})
 }

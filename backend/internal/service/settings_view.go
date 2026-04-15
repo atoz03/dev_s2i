@@ -76,11 +76,10 @@ type SystemSettings struct {
 	DefaultSubscriptions []DefaultSubscriptionSetting
 
 	// Model fallback configuration
-	EnableModelFallback      bool   `json:"enable_model_fallback"`
-	FallbackModelAnthropic   string `json:"fallback_model_anthropic"`
-	FallbackModelOpenAI      string `json:"fallback_model_openai"`
-	FallbackModelGemini      string `json:"fallback_model_gemini"`
-	FallbackModelAntigravity string `json:"fallback_model_antigravity"`
+	EnableModelFallback    bool   `json:"enable_model_fallback"`
+	FallbackModelAnthropic string `json:"fallback_model_anthropic"`
+	FallbackModelOpenAI    string `json:"fallback_model_openai"`
+	FallbackModelGemini    string `json:"fallback_model_gemini"`
 
 	// Identity patch configuration (Claude -> Gemini)
 	EnableIdentityPatch bool   `json:"enable_identity_patch"`
@@ -109,9 +108,6 @@ type SystemSettings struct {
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
-
-	// Sora Client 开关
-	SoraClientEnabled bool
 
 	// Upstream User-Agent 统一配置
 	DefaultUpstreamUserAgent      string
@@ -167,8 +163,6 @@ type PublicSettings struct {
 	OIDCOAuthEnabled      bool
 	OIDCOAuthProviderName string
 	Version               string
-
-	SoraClientEnabled bool
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool

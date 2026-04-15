@@ -268,9 +268,6 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		}
 	}
 
-	// 收集需要异步设置隐私的 Antigravity OAuth 账号
-	var privacyAccounts []*service.Account
-
 	for i := range dataPayload.Accounts {
 		item := dataPayload.Accounts[i]
 		if err := validateDataAccount(item); err != nil {
@@ -318,7 +315,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			SkipDefaultGroupBind: skipDefaultGroupBind,
 		}
 
-		created, err := h.adminService.CreateAccount(ctx, accountInput)
+		_, err := h.adminService.CreateAccount(ctx, accountInput)
 		if err != nil {
 			result.AccountFailed++
 			result.Errors = append(result.Errors, DataImportError{
@@ -328,28 +325,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			})
 			continue
 		}
-		// 收集 Antigravity OAuth 账号，稍后异步设置隐私
-		if created.Platform == service.PlatformAntigravity && created.Type == service.AccountTypeOAuth {
-			privacyAccounts = append(privacyAccounts, created)
-		}
 		result.AccountCreated++
-	}
-
-	// 异步设置 Antigravity 隐私，避免大量导入时阻塞请求
-	if len(privacyAccounts) > 0 {
-		adminSvc := h.adminService
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("import_antigravity_privacy_panic", "recover", r)
-				}
-			}()
-			bgCtx := context.Background()
-			for _, acc := range privacyAccounts {
-				adminSvc.ForceAntigravityPrivacy(bgCtx, acc)
-			}
-			slog.Info("import_antigravity_privacy_done", "count", len(privacyAccounts))
-		}()
 	}
 
 	return result, nil
@@ -585,15 +561,15 @@ func defaultProxyName(name string) string {
 
 // enrichCredentialsFromIDToken performs best-effort extraction of user info fields
 // (email, plan_type, chatgpt_account_id, etc.) from id_token in credentials.
-// Only applies to OpenAI/Sora OAuth accounts. Skips expired token errors silently.
+// Only applies to OpenAI OAuth accounts. Skips expired token errors silently.
 // Existing credential values are never overwritten — only missing fields are filled.
 func enrichCredentialsFromIDToken(item *DataAccount) {
 	if item.Credentials == nil {
 		return
 	}
-	// Only enrich OpenAI/Sora OAuth accounts
+	// 仅处理 OpenAI OAuth 账号
 	platform := strings.ToLower(strings.TrimSpace(item.Platform))
-	if platform != service.PlatformOpenAI && platform != service.PlatformSora {
+	if platform != service.PlatformOpenAI {
 		return
 	}
 	if strings.ToLower(strings.TrimSpace(item.Type)) != service.AccountTypeOAuth {

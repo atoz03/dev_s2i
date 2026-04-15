@@ -84,7 +84,6 @@ type SystemSettings struct {
 	HideCcsImportButton         bool             `json:"hide_ccs_import_button"`
 	PurchaseSubscriptionEnabled bool             `json:"purchase_subscription_enabled"`
 	PurchaseSubscriptionURL     string           `json:"purchase_subscription_url"`
-	SoraClientEnabled           bool             `json:"sora_client_enabled"`
 	TableDefaultPageSize        int              `json:"table_default_page_size"`
 	TablePageSizeOptions        []int            `json:"table_page_size_options"`
 	CustomMenuItems             []CustomMenuItem `json:"custom_menu_items"`
@@ -95,11 +94,10 @@ type SystemSettings struct {
 	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
 
 	// Model fallback configuration
-	EnableModelFallback      bool   `json:"enable_model_fallback"`
-	FallbackModelAnthropic   string `json:"fallback_model_anthropic"`
-	FallbackModelOpenAI      string `json:"fallback_model_openai"`
-	FallbackModelGemini      string `json:"fallback_model_gemini"`
-	FallbackModelAntigravity string `json:"fallback_model_antigravity"`
+	EnableModelFallback    bool   `json:"enable_model_fallback"`
+	FallbackModelAnthropic string `json:"fallback_model_anthropic"`
+	FallbackModelOpenAI    string `json:"fallback_model_openai"`
+	FallbackModelGemini    string `json:"fallback_model_gemini"`
 
 	// Identity patch configuration (Claude -> Gemini)
 	EnableIdentityPatch bool   `json:"enable_identity_patch"`
@@ -193,7 +191,6 @@ type PublicSettings struct {
 	LinuxDoOAuthEnabled              bool             `json:"linuxdo_oauth_enabled"`
 	OIDCOAuthEnabled                 bool             `json:"oidc_oauth_enabled"`
 	OIDCOAuthProviderName            string           `json:"oidc_oauth_provider_name"`
-	SoraClientEnabled                bool             `json:"sora_client_enabled"`
 	BackendModeEnabled               bool             `json:"backend_mode_enabled"`
 	PaymentEnabled                   bool             `json:"payment_enabled"`
 	Version                          string           `json:"version"`
@@ -203,51 +200,11 @@ type PublicSettings struct {
 	BalanceLowNotifyRechargeURL      string           `json:"balance_low_notify_recharge_url"`
 }
 
-// SoraS3Settings Sora S3 存储配置 DTO（响应用，不含敏感字段）
-type SoraS3Settings struct {
-	Enabled                   bool   `json:"enabled"`
-	Endpoint                  string `json:"endpoint"`
-	Region                    string `json:"region"`
-	Bucket                    string `json:"bucket"`
-	AccessKeyID               string `json:"access_key_id"`
-	SecretAccessKeyConfigured bool   `json:"secret_access_key_configured"`
-	Prefix                    string `json:"prefix"`
-	ForcePathStyle            bool   `json:"force_path_style"`
-	CDNURL                    string `json:"cdn_url"`
-	DefaultStorageQuotaBytes  int64  `json:"default_storage_quota_bytes"`
-}
-
-// SoraS3Profile Sora S3 存储配置项 DTO（响应用，不含敏感字段）
-type SoraS3Profile struct {
-	ProfileID                 string `json:"profile_id"`
-	Name                      string `json:"name"`
-	IsActive                  bool   `json:"is_active"`
-	Enabled                   bool   `json:"enabled"`
-	Endpoint                  string `json:"endpoint"`
-	Region                    string `json:"region"`
-	Bucket                    string `json:"bucket"`
-	AccessKeyID               string `json:"access_key_id"`
-	SecretAccessKeyConfigured bool   `json:"secret_access_key_configured"`
-	Prefix                    string `json:"prefix"`
-	ForcePathStyle            bool   `json:"force_path_style"`
-	CDNURL                    string `json:"cdn_url"`
-	DefaultStorageQuotaBytes  int64  `json:"default_storage_quota_bytes"`
-	UpdatedAt                 string `json:"updated_at"`
-}
-
-// ListSoraS3ProfilesResponse Sora S3 配置列表响应
-type ListSoraS3ProfilesResponse struct {
-	ActiveProfileID string          `json:"active_profile_id"`
-	Items           []SoraS3Profile `json:"items"`
-}
-
-// OverloadCooldownSettings 529过载冷却配置 DTO
 type OverloadCooldownSettings struct {
 	Enabled         bool `json:"enabled"`
 	CooldownMinutes int  `json:"cooldown_minutes"`
 }
 
-// StreamTimeoutSettings 流超时处理配置 DTO
 type StreamTimeoutSettings struct {
 	Enabled                bool   `json:"enabled"`
 	Action                 string `json:"action"`
@@ -256,33 +213,9 @@ type StreamTimeoutSettings struct {
 	ThresholdWindowMinutes int    `json:"threshold_window_minutes"`
 }
 
-// RectifierSettings 请求整流器配置 DTO
-type RectifierSettings struct {
-	Enabled                  bool     `json:"enabled"`
-	ThinkingSignatureEnabled bool     `json:"thinking_signature_enabled"`
-	ThinkingBudgetEnabled    bool     `json:"thinking_budget_enabled"`
-	APIKeySignatureEnabled   bool     `json:"apikey_signature_enabled"`
-	APIKeySignaturePatterns  []string `json:"apikey_signature_patterns"`
-}
-
-// BetaPolicyRule Beta 策略规则 DTO
-type BetaPolicyRule struct {
-	BetaToken    string `json:"beta_token"`
-	Action       string `json:"action"`
-	Scope        string `json:"scope"`
-	ErrorMessage string `json:"error_message,omitempty"`
-}
-
-// BetaPolicySettings Beta 策略配置 DTO
-type BetaPolicySettings struct {
-	Rules []BetaPolicyRule `json:"rules"`
-}
-
-// ParseCustomMenuItems parses a JSON string into a slice of CustomMenuItem.
-// Returns empty slice on empty/invalid input.
+// ParseCustomMenuItems 将服务层保存的 JSON 字符串解析为 DTO 列表。
 func ParseCustomMenuItems(raw string) []CustomMenuItem {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "[]" {
+	if strings.TrimSpace(raw) == "" {
 		return []CustomMenuItem{}
 	}
 	var items []CustomMenuItem
@@ -292,28 +225,27 @@ func ParseCustomMenuItems(raw string) []CustomMenuItem {
 	return items
 }
 
-// ParseUserVisibleMenuItems parses custom menu items and filters out admin-only entries.
+// ParseUserVisibleMenuItems 解析并仅保留用户可见菜单项。
 func ParseUserVisibleMenuItems(raw string) []CustomMenuItem {
 	items := ParseCustomMenuItems(raw)
 	filtered := make([]CustomMenuItem, 0, len(items))
 	for _, item := range items {
-		if item.Visibility != "admin" {
+		visibility := strings.ToLower(strings.TrimSpace(item.Visibility))
+		if visibility == "" || visibility == "user" {
 			filtered = append(filtered, item)
 		}
 	}
 	return filtered
 }
 
-// ParseCustomEndpoints parses a JSON string into a slice of CustomEndpoint.
-// Returns empty slice on empty/invalid input.
+// ParseCustomEndpoints 将服务层保存的 JSON 字符串解析为 DTO 列表。
 func ParseCustomEndpoints(raw string) []CustomEndpoint {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "[]" {
+	if strings.TrimSpace(raw) == "" {
 		return []CustomEndpoint{}
 	}
-	var items []CustomEndpoint
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+	var endpoints []CustomEndpoint
+	if err := json.Unmarshal([]byte(raw), &endpoints); err != nil {
 		return []CustomEndpoint{}
 	}
-	return items
+	return endpoints
 }
