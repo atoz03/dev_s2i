@@ -1064,8 +1064,6 @@ func resolveOpsPlatform(apiKey *service.APIKey, fallback string) string {
 func guessPlatformFromPath(path string) string {
 	p := strings.ToLower(path)
 	switch {
-	case strings.HasPrefix(p, "/antigravity/"):
-		return service.PlatformAntigravity
 	case strings.HasPrefix(p, "/v1beta/"):
 		return service.PlatformGemini
 	case strings.Contains(p, "/responses"):

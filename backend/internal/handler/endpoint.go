@@ -61,9 +61,7 @@ func NormalizeInboundEndpoint(path string) string {
 //     such as /v1/responses/compact preserved from the raw URL).
 //   - Anthropic  → /v1/messages
 //   - Gemini     → /v1beta/models
-//   - Sora       → /v1/chat/completions
-//   - Antigravity routes may target either Claude or Gemini, so the
-//     inbound endpoint is used to distinguish.
+//   - Unknown    → keep the normalized inbound endpoint
 func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	inbound = strings.TrimSpace(inbound)
 
@@ -82,15 +80,6 @@ func DeriveUpstreamEndpoint(inbound, rawRequestPath, platform string) string {
 	case service.PlatformGemini:
 		return EndpointGeminiModels
 
-	case service.PlatformSora:
-		return EndpointChatCompletions
-
-	case service.PlatformAntigravity:
-		// Antigravity accounts serve both Claude and Gemini.
-		if inbound == EndpointGeminiModels {
-			return EndpointGeminiModels
-		}
-		return EndpointMessages
 	}
 
 	// Unknown platform — fall back to inbound.
