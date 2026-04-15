@@ -1697,6 +1697,33 @@
               <Toggle v-model="form.enable_metadata_passthrough" />
             </div>
 
+            <div>
+              <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.gatewayForwarding.defaultUpstreamUserAgent') }}
+              </label>
+              <input
+                v-model="form.default_upstream_user_agent"
+                type="text"
+                class="input font-mono text-sm"
+                :placeholder="t('admin.settings.gatewayForwarding.defaultUpstreamUserAgentPlaceholder')"
+              />
+              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.gatewayForwarding.defaultUpstreamUserAgentHint') }}
+              </p>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.gatewayForwarding.forceUnifiedUpstreamUserAgent') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.gatewayForwarding.forceUnifiedUpstreamUserAgentHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.force_unified_upstream_user_agent" />
+            </div>
+
             <!-- CCH Signing -->
             <div class="flex items-center justify-between">
               <div>
@@ -3053,6 +3080,8 @@ const form = reactive<SettingsForm>({
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
+  default_upstream_user_agent: '',
+  force_unified_upstream_user_agent: false,
   enable_cch_signing: false,
   // Balance & quota notification
   balance_low_notify_enabled: false,
@@ -3631,6 +3660,8 @@ async function saveSettings() {
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
+      default_upstream_user_agent: form.default_upstream_user_agent,
+      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent,
       enable_cch_signing: form.enable_cch_signing,
       // Payment configuration
       payment_enabled: form.payment_enabled,

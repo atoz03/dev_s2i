@@ -35,6 +35,47 @@ type snapshotUpdateAccountRepo struct {
 	updateExtraCalls chan map[string]any
 }
 
+type upstreamUASettingRepoStub struct {
+	values map[string]string
+}
+
+func (s *upstreamUASettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (s *upstreamUASettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if v, ok := s.values[key]; ok {
+		return v, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (s *upstreamUASettingRepoStub) Set(ctx context.Context, key, value string) error {
+	panic("unexpected Set call")
+}
+
+func (s *upstreamUASettingRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
+	result := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if v, ok := s.values[key]; ok {
+			result[key] = v
+		}
+	}
+	return result, nil
+}
+
+func (s *upstreamUASettingRepoStub) SetMultiple(ctx context.Context, settings map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (s *upstreamUASettingRepoStub) GetAll(ctx context.Context) (map[string]string, error) {
+	panic("unexpected GetAll call")
+}
+
+func (s *upstreamUASettingRepoStub) Delete(ctx context.Context, key string) error {
+	panic("unexpected Delete call")
+}
+
 func (r *snapshotUpdateAccountRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	if r.updateExtraCalls != nil {
 		copied := make(map[string]any, len(updates))
@@ -342,6 +383,101 @@ func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughInjectsPromptCacheK
 	require.False(t, gjson.GetBytes(upstreamBody, "safety_identifier").Exists())
 	require.Equal(t, expectedSessionKey, req.Header.Get("session_id"))
 	require.Equal(t, expectedSessionKey, req.Header.Get("conversation_id"))
+}
+
+func TestOpenAIGatewayService_ResolveUpstreamUserAgentPriority(t *testing.T) {
+	ctx := context.Background()
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"user_agent": "account-ua/2.0"},
+	}
+
+	svc := &OpenAIGatewayService{}
+	require.Equal(t, "account-ua/2.0", svc.resolveUpstreamUserAgent(ctx, account))
+
+	svc.settingService = NewSettingService(&upstreamUASettingRepoStub{values: map[string]string{
+		SettingKeyDefaultUpstreamUserAgent:      "default-ua/1.0",
+		SettingKeyForceUnifiedUpstreamUserAgent: "false",
+	}}, &config.Config{})
+	require.Equal(t, "account-ua/2.0", svc.resolveUpstreamUserAgent(ctx, account))
+
+	svc.settingService = NewSettingService(&upstreamUASettingRepoStub{values: map[string]string{
+		SettingKeyDefaultUpstreamUserAgent:      "default-ua/1.0",
+		SettingKeyForceUnifiedUpstreamUserAgent: "true",
+	}}, &config.Config{})
+	require.Equal(t, "default-ua/1.0", svc.resolveUpstreamUserAgent(ctx, account))
+
+	account.Credentials = map[string]any{}
+	svc.settingService = NewSettingService(&upstreamUASettingRepoStub{values: map[string]string{
+		SettingKeyDefaultUpstreamUserAgent:      "default-ua/1.0",
+		SettingKeyForceUnifiedUpstreamUserAgent: "false",
+	}}, &config.Config{})
+	require.Equal(t, "default-ua/1.0", svc.resolveUpstreamUserAgent(ctx, account))
+}
+
+func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughUsesUnifiedUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "client-ua/9.9")
+	c.Set("api_key", &APIKey{ID: 12})
+
+	body := []byte(`{"model":"gpt-5"}`)
+	svc := &OpenAIGatewayService{
+		cfg: &config.Config{
+			Security: config.SecurityConfig{
+				URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+			},
+		},
+		settingService: NewSettingService(&upstreamUASettingRepoStub{values: map[string]string{
+			SettingKeyDefaultUpstreamUserAgent:      "unified-ua/1.1",
+			SettingKeyForceUnifiedUpstreamUserAgent: "true",
+		}}, &config.Config{}),
+	}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"api_key": "sk-upstream", "user_agent": "account-ua/2.0"},
+	}
+
+	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "sk-upstream")
+	require.NoError(t, err)
+	require.Equal(t, "unified-ua/1.1", req.Header.Get("user-agent"))
+}
+
+func TestOpenAIGatewayService_BuildOpenAIWSHeadersUsesUnifiedUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+	c.Request.Header.Set("User-Agent", "client-ua/9.9")
+
+	svc := &OpenAIGatewayService{
+		settingService: NewSettingService(&upstreamUASettingRepoStub{values: map[string]string{
+			SettingKeyDefaultUpstreamUserAgent:      "unified-ws-ua/3.0",
+			SettingKeyForceUnifiedUpstreamUserAgent: "true",
+		}}, &config.Config{}),
+	}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"user_agent": "account-ua/2.0"},
+	}
+
+	headers, _ := svc.buildOpenAIWSHeaders(
+		c,
+		account,
+		"test-token",
+		OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2},
+		false,
+		"",
+		"",
+		"prompt-cache-key",
+	)
+
+	require.Equal(t, "unified-ws-ua/3.0", headers.Get("user-agent"))
 }
 
 func (c stubConcurrencyCache) GetAccountWaitingCount(ctx context.Context, accountID int64) (int, error) {
