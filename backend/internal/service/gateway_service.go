@@ -7630,6 +7630,37 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 	}
 }
 
+func finalizeUsageRecord(
+	ctx context.Context,
+	usageLog *UsageLog,
+	params *postUsageBillingParams,
+	deps *billingDeps,
+	usageBillingRepo UsageBillingRepository,
+	usageLogRepo UsageLogRepository,
+	runMode string,
+	logKey string,
+) error {
+	if usageLog == nil || params == nil || deps == nil {
+		return nil
+	}
+
+	if runMode == config.RunModeSimple {
+		writeUsageLogBestEffort(ctx, usageLogRepo, usageLog, logKey)
+		logger.LegacyPrintf(logKey, "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
+		if deps.deferredService != nil && params.Account != nil {
+			deps.deferredService.ScheduleLastUsedUpdate(params.Account.ID)
+		}
+		return nil
+	}
+
+	if _, err := applyUsageBilling(ctx, usageLog.RequestID, usageLog, params, deps, usageBillingRepo); err != nil {
+		return err
+	}
+
+	writeUsageLogBestEffort(ctx, usageLogRepo, usageLog, logKey)
+	return nil
+}
+
 // recordUsageOpts 内部选项，参数化 RecordUsage 与 RecordUsageWithLongContext 的差异点。
 type recordUsageOpts struct {
 	// Claude Max 策略所需的 ParsedRequest（可选，仅 Claude 路径传入）
@@ -7808,15 +7839,12 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		)
 	}
 
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
-		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
-		s.deferredService.ScheduleLastUsedUpdate(account.ID)
-		return nil
+	runMode := ""
+	if s.cfg != nil {
+		runMode = s.cfg.RunMode
 	}
 
-	requestID := usageLog.RequestID
-	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	return finalizeUsageRecord(ctx, usageLog, &postUsageBillingParams{
 		Cost:                  cost,
 		User:                  user,
 		APIKey:                apiKey,
@@ -7826,14 +7854,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		IsSubscriptionBill:    isSubscriptionBilling,
 		AccountRateMultiplier: accountRateMultiplier,
 		APIKeyService:         input.APIKeyService,
-	}, s.billingDeps(), s.usageBillingRepo)
-
-	if billingErr != nil {
-		return billingErr
-	}
-	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
-
-	return nil
+	}, s.billingDeps(), s.usageBillingRepo, s.usageLogRepo, runMode, "service.gateway")
 }
 
 // calculateRecordUsageCost 根据请求类型和选项计算费用。
