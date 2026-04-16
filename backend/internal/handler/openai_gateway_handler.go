@@ -226,8 +226,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
-	// Generate session hash (header first; fallback to prompt_cache_key)
-	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
+	// 为 HTTP Responses 入站生成稳定 fallback，会在缺少 session_id /
+	// conversation_id / prompt_cache_key 时用于：
+	// 1) 粘性会话路由（sessionHash） 2) 上游 prompt_cache_key 注入。
+	fallbackPromptCacheKey := service.GenerateSessionUUID(
+		openAIHTTPIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID, reqModel),
+	)
+	service.SetOpenAIResponsesFallbackPromptCacheKey(c, fallbackPromptCacheKey)
+
+	// Generate session hash (header/body first; fallback to handler seed)
+	sessionHash := h.gatewayService.GenerateSessionHashWithKeyFallback(c, sessionHashBody, fallbackPromptCacheKey)
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -1512,6 +1520,18 @@ func openAIWSIngressFallbackSessionSeed(userID, apiKeyID int64, groupID *int64) 
 		gid = *groupID
 	}
 	return fmt.Sprintf("openai_ws_ingress:%d:%d:%d", gid, userID, apiKeyID)
+}
+
+func openAIHTTPIngressFallbackSessionSeed(userID, apiKeyID int64, groupID *int64, model string) string {
+	gid := int64(0)
+	if groupID != nil {
+		gid = *groupID
+	}
+	normalizedModel := strings.TrimSpace(model)
+	if normalizedModel == "" {
+		normalizedModel = "unknown"
+	}
+	return fmt.Sprintf("openai_http_ingress:%d:%d:%d:%s", gid, userID, apiKeyID, normalizedModel)
 }
 
 func isOpenAIWSUpgradeRequest(r *http.Request) bool {

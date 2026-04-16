@@ -613,6 +613,19 @@ func TestSetOpenAIClientTransportWS(t *testing.T) {
 	require.Equal(t, service.OpenAIClientTransportWS, service.GetOpenAIClientTransport(c))
 }
 
+func TestOpenAIHTTPIngressFallbackSessionSeed(t *testing.T) {
+	groupID := int64(9)
+	seed := openAIHTTPIngressFallbackSessionSeed(100, 200, &groupID, " gpt-5.4 ")
+	require.Equal(t, "openai_http_ingress:9:100:200:gpt-5.4", seed)
+
+	fallbackKey := service.GenerateSessionUUID(seed)
+	require.NotEmpty(t, fallbackKey)
+	require.Equal(t, fallbackKey, service.GenerateSessionUUID(seed))
+
+	seedNoModel := openAIHTTPIngressFallbackSessionSeed(1, 2, nil, "   ")
+	require.Equal(t, "openai_http_ingress:0:1:2:unknown", seedNoModel)
+}
+
 // TestOpenAIHandler_GjsonExtraction 验证 gjson 从请求体中提取 model/stream 的正确性
 func TestOpenAIHandler_GjsonExtraction(t *testing.T) {
 	tests := []struct {

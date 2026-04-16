@@ -16,13 +16,46 @@ var openAIResponsesSessionConflictFields = []string{
 	"safety_identifier",
 }
 
+const openAIResponsesFallbackPromptCacheKeyContextKey = "openai_responses_fallback_prompt_cache_key"
+
+// SetOpenAIResponsesFallbackPromptCacheKey stores a handler-computed fallback
+// prompt cache key for later service-side resolution.
+func SetOpenAIResponsesFallbackPromptCacheKey(c *gin.Context, key string) {
+	if c == nil {
+		return
+	}
+	normalized := strings.TrimSpace(key)
+	if normalized == "" {
+		return
+	}
+	c.Set(openAIResponsesFallbackPromptCacheKeyContextKey, normalized)
+}
+
+func getOpenAIResponsesFallbackPromptCacheKey(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	raw, ok := c.Get(openAIResponsesFallbackPromptCacheKeyContextKey)
+	if !ok {
+		return ""
+	}
+	key, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(key)
+}
+
 // ResolveSessionIDWithFallback 按统一优先级解析原始会话键：
 // session_id > conversation_id > body.prompt_cache_key > fallback。
 func (s *OpenAIGatewayService) ResolveSessionIDWithFallback(c *gin.Context, body []byte, fallback string) string {
 	if sessionID := s.ExtractSessionID(c, body); sessionID != "" {
 		return sessionID
 	}
-	return strings.TrimSpace(fallback)
+	if resolved := strings.TrimSpace(fallback); resolved != "" {
+		return resolved
+	}
+	return getOpenAIResponsesFallbackPromptCacheKey(c)
 }
 
 // GenerateSessionHashWithKeyFallback 在常规信号缺失时，使用 fallbackKey 生成稳定粘性会话哈希。

@@ -314,6 +314,12 @@ func TestOpenAIGatewayService_ResolveSessionIDWithFallback(t *testing.T) {
 
 	c.Request.Header.Set("session_id", "sess-456")
 	require.Equal(t, "sess-456", svc.ResolveSessionIDWithFallback(c, []byte(`{"prompt_cache_key":"body-key"}`), "fallback-key"))
+
+	c.Request.Header.Del("session_id")
+	c.Request.Header.Del("conversation_id")
+	SetOpenAIResponsesFallbackPromptCacheKey(c, "ctx-fallback")
+	require.Equal(t, "ctx-fallback", svc.ResolveSessionIDWithFallback(c, []byte(`{}`), ""))
+	require.Equal(t, "explicit-fallback", svc.ResolveSessionIDWithFallback(c, []byte(`{}`), " explicit-fallback "))
 }
 
 func TestOpenAIGatewayService_BuildUpstreamRequestInjectsPromptCacheKeyForAPIKey(t *testing.T) {
@@ -381,6 +387,38 @@ func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughInjectsPromptCacheK
 	require.False(t, gjson.GetBytes(upstreamBody, "previous_response_id").Exists())
 	require.False(t, gjson.GetBytes(upstreamBody, "prompt_cache_retention").Exists())
 	require.False(t, gjson.GetBytes(upstreamBody, "safety_identifier").Exists())
+	require.Equal(t, expectedSessionKey, req.Header.Get("session_id"))
+	require.Equal(t, expectedSessionKey, req.Header.Get("conversation_id"))
+}
+
+func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughInjectsPromptCacheKeyFromContextFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Set("api_key", &APIKey{ID: 91})
+	SetOpenAIResponsesFallbackPromptCacheKey(c, "ctx-session")
+
+	body := []byte(`{"model":"gpt-5"}`)
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"api_key": "sk-upstream"},
+	}
+
+	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "sk-upstream")
+	require.NoError(t, err)
+
+	upstreamBody, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+
+	expectedSessionKey := isolateOpenAISessionID(91, "ctx-session")
+	require.Equal(t, expectedSessionKey, gjson.GetBytes(upstreamBody, "prompt_cache_key").String())
 	require.Equal(t, expectedSessionKey, req.Header.Get("session_id"))
 	require.Equal(t, expectedSessionKey, req.Header.Get("conversation_id"))
 }
