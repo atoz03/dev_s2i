@@ -140,4 +140,41 @@ describe('admin DashboardView', () => {
       granularity: 'hour'
     }))
   })
+
+  it('renders cache hit rate card based on cache token stats', async () => {
+    const stats = createDashboardStats()
+    stats.today_input_tokens = 50
+    stats.today_cache_creation_tokens = 10
+    stats.today_cache_read_tokens = 40 // 40 / (50 + 10 + 40) = 40.0%
+    stats.total_input_tokens = 100
+    stats.total_cache_creation_tokens = 20
+    stats.total_cache_read_tokens = 30 // 30 / (100 + 20 + 30) = 20.0%
+
+    getSnapshotV2.mockResolvedValueOnce({
+      stats,
+      trend: [],
+      models: []
+    })
+
+    const wrapper = mount(DashboardView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          LoadingSpinner: true,
+          Icon: true,
+          DateRangePicker: true,
+          Select: true,
+          ModelDistributionChart: true,
+          TokenUsageTrend: true,
+          Line: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.dashboard.cacheHitRate')
+    expect(wrapper.text()).toContain('40.0%')
+    expect(wrapper.text()).toContain('20.0%')
+  })
 })

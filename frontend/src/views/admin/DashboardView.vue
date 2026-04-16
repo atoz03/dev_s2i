@@ -74,21 +74,38 @@
             </div>
           </div>
 
-          <!-- New Users Today -->
+          <!-- Cache Hit Rate -->
           <div class="card p-4">
             <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
-                <Icon name="userPlus" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
+              <div class="rounded-lg bg-cyan-100 p-2 dark:bg-cyan-900/30">
+                <Icon name="badge" size="md" class="text-cyan-600 dark:text-cyan-400" :stroke-width="2" />
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.users') }}
+                  {{ t('admin.dashboard.cacheHitRate') }}
                 </p>
-                <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                  +{{ stats.today_new_users }}
+                <p class="text-xl font-bold text-cyan-600 dark:text-cyan-400">
+                  {{
+                    formatPercentage(
+                      calcCacheHitRate(
+                        stats.today_input_tokens,
+                        stats.today_cache_creation_tokens,
+                        stats.today_cache_read_tokens
+                      )
+                    )
+                  }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('common.total') }}: {{ formatNumber(stats.total_users) }}
+                  {{ t('common.total') }}:
+                  {{
+                    formatPercentage(
+                      calcCacheHitRate(
+                        stats.total_input_tokens,
+                        stats.total_cache_creation_tokens,
+                        stats.total_cache_read_tokens
+                      )
+                    )
+                  }}
                 </p>
               </div>
             </div>
@@ -530,6 +547,20 @@ const formatDuration = (ms: number): string => {
   }
   return `${Math.round(ms)}ms`
 }
+
+// 缓存命中率口径与 claude-code-hub 一致：
+// cache_read_tokens / (input_tokens + cache_creation_tokens + cache_read_tokens)
+const calcCacheHitRate = (
+  inputTokens: number,
+  cacheCreationTokens: number,
+  cacheReadTokens: number
+): number => {
+  const totalInputSideTokens = inputTokens + cacheCreationTokens + cacheReadTokens
+  if (totalInputSideTokens <= 0) return 0
+  return (cacheReadTokens / totalInputSideTokens) * 100
+}
+
+const formatPercentage = (value: number): string => `${value.toFixed(1)}%`
 
 const goToUserUsage = (item: UserSpendingRankingItem) => {
   void router.push({

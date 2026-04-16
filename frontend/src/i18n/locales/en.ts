@@ -1011,6 +1011,7 @@ export default {
       apiKeys: 'API Keys',
       accounts: 'Accounts',
       users: 'Users',
+      cacheHitRate: 'Cache Hit Rate',
       todayRequests: 'Today Requests',
       newUsersToday: 'New Users Today',
       todayTokens: 'Today Tokens',

@@ -1016,6 +1016,7 @@ export default {
       totalApiKeys: 'API 密钥总数',
       activeApiKeys: '活跃密钥',
       users: '用户',
+      cacheHitRate: '缓存命中率',
       totalUsers: '用户总数',
       activeUsers: '活跃用户',
       accounts: '账号',
