@@ -68,6 +68,7 @@ type SystemSettings struct {
 	PurchaseSubscriptionURL     string
 	TableDefaultPageSize        int
 	TablePageSizeOptions        []int
+	HiddenAdminMenuItems        string // JSON array of hidden admin builtin menu keys
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 

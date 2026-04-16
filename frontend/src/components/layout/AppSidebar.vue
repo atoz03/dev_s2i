@@ -185,7 +185,9 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
+import { filterHiddenAdminMenuItems } from '@/constants/adminMenu'
 import { sanitizeSvg } from '@/utils/sanitize'
+import type { AdminBuiltinMenuItemKey } from '@/types'
 
 interface NavItem {
   path: string
@@ -193,6 +195,7 @@ interface NavItem {
   icon: unknown
   iconSvg?: string
   hideInSimpleMode?: boolean
+  menuKey?: AdminBuiltinMenuItemKey
   children?: NavItem[]
 }
 
@@ -217,6 +220,9 @@ const siteName = computed(() => appStore.siteName)
 const siteLogo = computed(() => appStore.siteLogo)
 const siteVersion = computed(() => appStore.siteVersion)
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
+const hiddenAdminMenuKeySet = computed(
+  () => new Set<AdminBuiltinMenuItemKey>(adminSettingsStore.hiddenAdminMenuItems)
+)
 
 // SVG Icon Components
 const DashboardIcon = {
@@ -660,16 +666,16 @@ const adminNavItems = computed((): NavItem[] => {
   const baseItems: NavItem[] = [
     { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
     ...(adminSettingsStore.opsMonitoringEnabled
-      ? [{ path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon }]
+      ? [{ path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, menuKey: 'ops' as const }]
       : []),
-    { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
-    { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true },
-    { path: '/admin/channels', label: t('nav.channels', '渠道管理'), icon: ChannelIcon, hideInSimpleMode: true },
-    { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
-    { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
-    { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
-    { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
-    { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true },
+    { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true, menuKey: 'users' as const },
+    { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon, hideInSimpleMode: true, menuKey: 'groups' as const },
+    { path: '/admin/channels', label: t('nav.channels', '渠道管理'), icon: ChannelIcon, hideInSimpleMode: true, menuKey: 'channels' as const },
+    { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, menuKey: 'subscriptions' as const },
+    { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon, menuKey: 'accounts' as const },
+    { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon, menuKey: 'announcements' as const },
+    { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon, menuKey: 'proxies' as const },
+    { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true, menuKey: 'redeem' as const },
     ...(adminSettingsStore.paymentEnabled
       ? [
           {
@@ -678,19 +684,20 @@ const adminNavItems = computed((): NavItem[] => {
             icon: OrderIcon,
             hideInSimpleMode: true,
             children: [
-              { path: '/admin/orders/dashboard', label: t('nav.paymentDashboard'), icon: ChartIcon },
-              { path: '/admin/orders', label: t('nav.orderManagement'), icon: OrderIcon },
-              { path: '/admin/orders/plans', label: t('nav.paymentPlans'), icon: CreditCardIcon },
+              { path: '/admin/orders/dashboard', label: t('nav.paymentDashboard'), icon: ChartIcon, menuKey: 'paymentDashboard' as const },
+              { path: '/admin/orders', label: t('nav.orderManagement'), icon: OrderIcon, menuKey: 'paymentOrders' as const },
+              { path: '/admin/orders/plans', label: t('nav.paymentPlans'), icon: CreditCardIcon, menuKey: 'paymentPlans' as const },
             ],
           },
         ]
       : []),
-    { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon }
+    { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon, menuKey: 'usage' as const }
   ]
+  const visibleBaseItems = filterHiddenAdminMenuItems(baseItems, hiddenAdminMenuKeySet.value)
 
   // 简单模式下，在系统设置前插入 API密钥
   if (authStore.isSimpleMode) {
-    const filtered = baseItems.filter(item => !item.hideInSimpleMode)
+    const filtered = visibleBaseItems.filter(item => !item.hideInSimpleMode)
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     // Add admin custom menu items after settings
@@ -700,12 +707,12 @@ const adminNavItems = computed((): NavItem[] => {
     return filtered
   }
 
-  baseItems.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
+  visibleBaseItems.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
   // Add admin custom menu items after settings
   for (const cm of customMenuItemsForAdmin.value) {
-    baseItems.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+    visibleBaseItems.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
   }
-  return baseItems
+  return visibleBaseItems
 })
 
 function toggleSidebar() {

@@ -1652,10 +1652,7 @@
                   {{ t('admin.settings.scheduling.allowUngroupedKeyHint') }}
                 </p>
               </div>
-              <label class="toggle">
-                <input v-model="form.allow_ungrouped_key_scheduling" type="checkbox" />
-                <span class="toggle-slider"></span>
-              </label>
+              <Toggle v-model="form.allow_ungrouped_key_scheduling" />
             </div>
           </div>
         </div>
@@ -2241,6 +2238,35 @@
           </div>
         </div>
 
+
+        <!-- Hidden Admin Menu Items -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.hiddenAdminMenus.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.hiddenAdminMenus.description') }}
+            </p>
+          </div>
+          <div class="grid grid-cols-1 gap-3 p-6 lg:grid-cols-2">
+            <div
+              v-for="option in adminMenuVisibilityOptions"
+              :key="option.key"
+              class="rounded-xl border border-gray-200 bg-gray-50/80 p-4 dark:border-dark-600 dark:bg-dark-800/70"
+            >
+              <div class="flex items-center justify-between gap-4">
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t(option.labelKey) }}
+                </div>
+                <Toggle
+                  :model-value="isAdminMenuHidden(option.key)"
+                  @update:model-value="(hidden: boolean) => setAdminMenuHidden(option.key, hidden)"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Custom Menu Items -->
         <div class="card">
@@ -2873,6 +2899,7 @@ import PaymentProviderDialog from '@/components/payment/PaymentProviderDialog.vu
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import { ADMIN_MENU_VISIBILITY_OPTIONS } from '@/constants/adminMenu'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ImageUpload from '@/components/common/ImageUpload.vue'
 import BackupSettings from '@/views/admin/BackupView.vue'
@@ -2880,6 +2907,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
+import type { AdminBuiltinMenuItemKey } from '@/types'
 import {
   isRegistrationEmailSuffixDomainValid,
   normalizeRegistrationEmailSuffixDomain,
@@ -2914,6 +2942,7 @@ const testEmailAddress = ref('')
 const registrationEmailSuffixWhitelistTags = ref<string[]>([])
 const registrationEmailSuffixWhitelistDraft = ref('')
 const tablePageSizeOptionsInput = ref('10, 20, 50, 100')
+const adminMenuVisibilityOptions = ADMIN_MENU_VISIBILITY_OPTIONS
 
 // Admin API Key 状态
 const adminApiKeyLoading = ref(true)
@@ -3013,6 +3042,7 @@ const form = reactive<SettingsForm>({
   payment_enabled: false,  payment_min_amount: 1,  payment_max_amount: 10000,  payment_daily_limit: 50000,  payment_max_pending_orders: 3,  payment_order_timeout_minutes: 30,  payment_balance_disabled: false,  payment_balance_recharge_multiplier: 1,  payment_recharge_fee_rate: 0,  payment_enabled_types: [],  payment_help_image_url: '',  payment_help_text: '',  payment_product_name_prefix: '',  payment_product_name_suffix: '',  payment_load_balance_strategy: 'round-robin',  payment_cancel_rate_limit_enabled: false,  payment_cancel_rate_limit_max: 10,  payment_cancel_rate_limit_window: 1,  payment_cancel_rate_limit_unit: 'day',  payment_cancel_rate_limit_window_mode: 'rolling',
   table_default_page_size: tablePageSizeDefault,
   table_page_size_options: [10, 20, 50, 100],
+  hidden_admin_menu_items: [] as AdminBuiltinMenuItemKey[],
   custom_menu_items: [] as Array<{id: string; label: string; icon_svg: string; url: string; visibility: 'user' | 'admin'; sort_order: number}>,
   custom_endpoints: [] as Array<{name: string; endpoint: string; description: string}>,
   frontend_url: '',
@@ -3373,6 +3403,22 @@ async function setAndCopyOIDCRedirectUrl() {
   await copyToClipboard(url, t('admin.settings.oidc.redirectUrlSetAndCopied'))
 }
 
+function isAdminMenuHidden(key: AdminBuiltinMenuItemKey): boolean {
+  return form.hidden_admin_menu_items.includes(key)
+}
+
+function setAdminMenuHidden(key: AdminBuiltinMenuItemKey, hidden: boolean) {
+  const nextHidden = new Set(form.hidden_admin_menu_items)
+  if (hidden) {
+    nextHidden.add(key)
+  } else {
+    nextHidden.delete(key)
+  }
+  form.hidden_admin_menu_items = adminMenuVisibilityOptions
+    .map((option) => option.key)
+    .filter((itemKey) => nextHidden.has(itemKey))
+}
+
 // Custom menu item management
 function addMenuItem() {
   form.custom_menu_items.push({
@@ -3610,6 +3656,7 @@ async function saveSettings() {
       hide_ccs_import_button: form.hide_ccs_import_button,
       table_default_page_size: form.table_default_page_size,
       table_page_size_options: form.table_page_size_options,
+      hidden_admin_menu_items: form.hidden_admin_menu_items,
       custom_menu_items: form.custom_menu_items,
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,

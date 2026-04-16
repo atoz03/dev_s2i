@@ -581,6 +581,7 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 		return fmt.Errorf("marshal table page size options: %w", err)
 	}
 	updates[SettingKeyTablePageSizeOptions] = string(tablePageSizeOptionsJSON)
+	updates[SettingKeyHiddenAdminMenuItems] = settings.HiddenAdminMenuItems
 	updates[SettingKeyCustomMenuItems] = settings.CustomMenuItems
 	updates[SettingKeyCustomEndpoints] = settings.CustomEndpoints
 
@@ -624,6 +625,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// Gateway forwarding behavior
 	updates[SettingKeyEnableFingerprintUnification] = strconv.FormatBool(settings.EnableFingerprintUnification)
 	updates[SettingKeyEnableMetadataPassthrough] = strconv.FormatBool(settings.EnableMetadataPassthrough)
+	updates[SettingKeyDefaultUpstreamUserAgent] = strings.TrimSpace(settings.DefaultUpstreamUserAgent)
+	updates[SettingKeyForceUnifiedUpstreamUserAgent] = strconv.FormatBool(settings.ForceUnifiedUpstreamUserAgent)
+	updates[SettingKeyUpdateGitHubRepo] = strings.TrimSpace(settings.UpdateGitHubRepo)
 	updates[SettingKeyEnableCCHSigning] = strconv.FormatBool(settings.EnableCCHSigning)
 
 	// Balance low notification
@@ -942,6 +946,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyPurchaseSubscriptionURL:          "",
 		SettingKeyTableDefaultPageSize:             "20",
 		SettingKeyTablePageSizeOptions:             "[10,20,50,100]",
+		SettingKeyHiddenAdminMenuItems:             "[]",
 		SettingKeyCustomMenuItems:                  "[]",
 		SettingKeyCustomEndpoints:                  "[]",
 		SettingKeyOIDCConnectEnabled:               "false",
@@ -1008,6 +1013,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		HideCcsImportButton:              settings[SettingKeyHideCcsImportButton] == "true",
 		PurchaseSubscriptionEnabled:      settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
 		PurchaseSubscriptionURL:          strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
+		HiddenAdminMenuItems:             settings[SettingKeyHiddenAdminMenuItems],
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
@@ -1251,6 +1257,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.EnableFingerprintUnification = true // default: enabled (current behavior)
 	}
 	result.EnableMetadataPassthrough = settings[SettingKeyEnableMetadataPassthrough] == "true"
+	result.DefaultUpstreamUserAgent = strings.TrimSpace(settings[SettingKeyDefaultUpstreamUserAgent])
+	result.ForceUnifiedUpstreamUserAgent = settings[SettingKeyForceUnifiedUpstreamUserAgent] == "true"
+	result.UpdateGitHubRepo = strings.TrimSpace(settings[SettingKeyUpdateGitHubRepo])
 	result.EnableCCHSigning = settings[SettingKeyEnableCCHSigning] == "true"
 
 	// Web search emulation: quick enabled check from the JSON config

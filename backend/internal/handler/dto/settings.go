@@ -86,6 +86,7 @@ type SystemSettings struct {
 	PurchaseSubscriptionURL     string           `json:"purchase_subscription_url"`
 	TableDefaultPageSize        int              `json:"table_default_page_size"`
 	TablePageSizeOptions        []int            `json:"table_page_size_options"`
+	HiddenAdminMenuItems        []string         `json:"hidden_admin_menu_items"`
 	CustomMenuItems             []CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             []CustomEndpoint `json:"custom_endpoints"`
 
@@ -250,4 +251,16 @@ func ParseCustomEndpoints(raw string) []CustomEndpoint {
 		return []CustomEndpoint{}
 	}
 	return endpoints
+}
+
+// ParseHiddenAdminMenuItems 将服务层保存的 JSON 字符串解析为隐藏菜单 key 列表。
+func ParseHiddenAdminMenuItems(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []string{}
+	}
+	return items
 }

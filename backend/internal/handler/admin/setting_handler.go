@@ -26,6 +26,22 @@ var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 // menuItemIDPattern validates custom menu item IDs: alphanumeric, hyphens, underscores only.
 var menuItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
+var allowedHiddenAdminMenuItemKeys = map[string]struct{}{
+	"ops":              {},
+	"users":            {},
+	"groups":           {},
+	"channels":         {},
+	"subscriptions":    {},
+	"accounts":         {},
+	"announcements":    {},
+	"proxies":          {},
+	"redeem":           {},
+	"paymentDashboard": {},
+	"paymentOrders":    {},
+	"paymentPlans":     {},
+	"usage":            {},
+}
+
 // generateMenuItemID generates a short random hex ID for a custom menu item.
 func generateMenuItemID() (string, error) {
 	b := make([]byte, 8)
@@ -165,6 +181,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		PurchaseSubscriptionURL:              settings.PurchaseSubscriptionURL,
 		TableDefaultPageSize:                 settings.TableDefaultPageSize,
 		TablePageSizeOptions:                 settings.TablePageSizeOptions,
+		HiddenAdminMenuItems:                 dto.ParseHiddenAdminMenuItems(settings.HiddenAdminMenuItems),
 		CustomMenuItems:                      dto.ParseCustomMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                      dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                   settings.DefaultConcurrency,
@@ -288,6 +305,7 @@ type UpdateSettingsRequest struct {
 	PurchaseSubscriptionURL     *string               `json:"purchase_subscription_url"`
 	TableDefaultPageSize        int                   `json:"table_default_page_size"`
 	TablePageSizeOptions        []int                 `json:"table_page_size_options"`
+	HiddenAdminMenuItems        *[]string             `json:"hidden_admin_menu_items"`
 	CustomMenuItems             *[]dto.CustomMenuItem `json:"custom_menu_items"`
 	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
@@ -640,6 +658,34 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	)
 
 	customMenuJSON := previousSettings.CustomMenuItems
+	hiddenAdminMenuItemsJSON := previousSettings.HiddenAdminMenuItems
+	if req.HiddenAdminMenuItems != nil {
+		items := *req.HiddenAdminMenuItems
+		seen := make(map[string]struct{}, len(items))
+		normalized := make([]string, 0, len(items))
+		for _, item := range items {
+			key := strings.TrimSpace(item)
+			if key == "" {
+				continue
+			}
+			if _, ok := allowedHiddenAdminMenuItemKeys[key]; !ok {
+				response.BadRequest(c, "Invalid hidden admin menu item key: "+key)
+				return
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			normalized = append(normalized, key)
+		}
+		hiddenMenuBytes, err := json.Marshal(normalized)
+		if err != nil {
+			response.BadRequest(c, "Failed to serialize hidden admin menu items")
+			return
+		}
+		hiddenAdminMenuItemsJSON = string(hiddenMenuBytes)
+	}
+
 	if req.CustomMenuItems != nil {
 		items := *req.CustomMenuItems
 		if len(items) > maxCustomMenuItems {
@@ -857,6 +903,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PurchaseSubscriptionURL:          purchaseURL,
 		TableDefaultPageSize:             req.TableDefaultPageSize,
 		TablePageSizeOptions:             req.TablePageSizeOptions,
+		HiddenAdminMenuItems:             hiddenAdminMenuItemsJSON,
 		CustomMenuItems:                  customMenuJSON,
 		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
@@ -1087,6 +1134,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PurchaseSubscriptionURL:              updatedSettings.PurchaseSubscriptionURL,
 		TableDefaultPageSize:                 updatedSettings.TableDefaultPageSize,
 		TablePageSizeOptions:                 updatedSettings.TablePageSizeOptions,
+		HiddenAdminMenuItems:                 dto.ParseHiddenAdminMenuItems(updatedSettings.HiddenAdminMenuItems),
 		CustomMenuItems:                      dto.ParseCustomMenuItems(updatedSettings.CustomMenuItems),
 		CustomEndpoints:                      dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                   updatedSettings.DefaultConcurrency,
@@ -1394,6 +1442,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if !equalIntSlice(before.TablePageSizeOptions, after.TablePageSizeOptions) {
 		changed = append(changed, "table_page_size_options")
+	}
+	if before.HiddenAdminMenuItems != after.HiddenAdminMenuItems {
+		changed = append(changed, "hidden_admin_menu_items")
 	}
 	if before.CustomMenuItems != after.CustomMenuItems {
 		changed = append(changed, "custom_menu_items")

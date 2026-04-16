@@ -32,6 +32,21 @@ export interface NotifyEmailEntry {
   verified: boolean
 }
 
+export type AdminBuiltinMenuItemKey =
+  | 'ops'
+  | 'users'
+  | 'groups'
+  | 'channels'
+  | 'subscriptions'
+  | 'accounts'
+  | 'announcements'
+  | 'proxies'
+  | 'redeem'
+  | 'paymentDashboard'
+  | 'paymentOrders'
+  | 'paymentPlans'
+  | 'usage'
+
 // ==================== User & Auth Types ====================
 
 export interface User {

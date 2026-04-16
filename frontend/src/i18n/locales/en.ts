@@ -4450,6 +4450,10 @@ export default {
         allowUngroupedKey: 'Allow Ungrouped Key Scheduling',
         allowUngroupedKeyHint: 'When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.'
       },
+      hiddenAdminMenus: {
+        title: 'Hide Admin Menu Items',
+        description: 'Selected built-in items are hidden from the admin sidebar. If a group only has one visible child left, that child is shown directly.'
+      },
       gatewayForwarding: {
         title: 'Request Forwarding',
         description: 'Control how requests are forwarded to upstream OAuth accounts',
