@@ -317,10 +317,6 @@ func schedulerLastUsedKey(id string) string {
 	return schedulerAccountLastUsedKey + id
 }
 
-func ptrTime(t time.Time) *time.Time {
-	return &t
-}
-
 func (c *schedulerCache) applySchedulerLastUsedFromKey(ctx context.Context, account *service.Account, key string) error {
 	val, err := c.rdb.Get(ctx, key).Result()
 	switch {
