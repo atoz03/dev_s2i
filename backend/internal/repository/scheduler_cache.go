@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -16,6 +17,7 @@ const (
 	schedulerOutboxWatermarkKey = "sched:outbox:watermark"
 	schedulerAccountPrefix      = "sched:acc:"
 	schedulerAccountFullPrefix  = "sched:acc:full:"
+	schedulerAccountLastUsedKey = "sched:acc:last_used:"
 	schedulerActivePrefix       = "sched:active:"
 	schedulerReadyPrefix        = "sched:ready:"
 	schedulerVersionPrefix      = "sched:ver:"
@@ -82,21 +84,31 @@ func (c *schedulerCache) GetSnapshot(ctx context.Context, bucket service.Schedul
 	}
 
 	keys := make([]string, 0, len(ids))
+	lastUsedKeys := make([]string, 0, len(ids))
 	for _, id := range ids {
 		keys = append(keys, schedulerAccountKey(id))
+		lastUsedKeys = append(lastUsedKeys, schedulerLastUsedKey(id))
 	}
 	values, err := c.rdb.MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, false, err
 	}
+	lastUsedValues, err := c.rdb.MGet(ctx, lastUsedKeys...).Result()
+	if err != nil {
+		return nil, false, err
+	}
 
 	accounts := make([]*service.Account, 0, len(values))
-	for _, val := range values {
+	for i, val := range values {
 		if val == nil {
 			return nil, false, nil
 		}
 		account, err := decodeCachedAccount(val)
 		if err != nil {
+			return nil, false, err
+		}
+		// LastUsedAt 属于高频更新字段，读取时以独立 key 为准覆盖缓存对象中的同名字段。
+		if err := applySchedulerLastUsed(account, lastUsedValues[i]); err != nil {
 			return nil, false, err
 		}
 		accounts = append(accounts, account)
@@ -127,6 +139,7 @@ func (c *schedulerCache) SetSnapshot(ctx context.Context, bucket service.Schedul
 		accountID := strconv.FormatInt(account.ID, 10)
 		pipe.Set(ctx, schedulerAccountKey(accountID), slimPayload, 0)
 		pipe.Set(ctx, schedulerAccountFullKey(accountID), fullPayload, 0)
+		writeSchedulerLastUsed(pipe, ctx, accountID, account.LastUsedAt)
 	}
 	if len(accounts) > 0 {
 		// 使用序号作为 score，保持数据库返回的排序语义。
@@ -157,11 +170,19 @@ func (c *schedulerCache) SetSnapshot(ctx context.Context, bucket service.Schedul
 
 func (c *schedulerCache) GetAccount(ctx context.Context, accountID int64) (*service.Account, error) {
 	id := strconv.FormatInt(accountID, 10)
+	lastUsedKey := schedulerLastUsedKey(id)
 	fullKey := schedulerAccountFullKey(id)
 	val, err := c.rdb.Get(ctx, fullKey).Result()
 	switch {
 	case err == nil:
-		return decodeCachedAccount(val)
+		account, decodeErr := decodeCachedAccount(val)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if err := c.applySchedulerLastUsedFromKey(ctx, account, lastUsedKey); err != nil {
+			return nil, err
+		}
+		return account, nil
 	case err != redis.Nil:
 		return nil, err
 	}
@@ -174,7 +195,14 @@ func (c *schedulerCache) GetAccount(ctx context.Context, accountID int64) (*serv
 	if err != nil {
 		return nil, err
 	}
-	return decodeCachedAccount(val)
+	account, err := decodeCachedAccount(val)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.applySchedulerLastUsedFromKey(ctx, account, lastUsedKey); err != nil {
+		return nil, err
+	}
+	return account, nil
 }
 
 func (c *schedulerCache) SetAccount(ctx context.Context, account *service.Account) error {
@@ -189,6 +217,7 @@ func (c *schedulerCache) SetAccount(ctx context.Context, account *service.Accoun
 	pipe := c.rdb.Pipeline()
 	pipe.Set(ctx, schedulerAccountKey(id), slimPayload, 0)
 	pipe.Set(ctx, schedulerAccountFullKey(id), fullPayload, 0)
+	writeSchedulerLastUsed(pipe, ctx, id, account.LastUsedAt)
 	_, err = pipe.Exec(ctx)
 	return err
 }
@@ -198,7 +227,7 @@ func (c *schedulerCache) DeleteAccount(ctx context.Context, accountID int64) err
 		return nil
 	}
 	id := strconv.FormatInt(accountID, 10)
-	return c.rdb.Del(ctx, schedulerAccountKey(id), schedulerAccountFullKey(id)).Err()
+	return c.rdb.Del(ctx, schedulerAccountKey(id), schedulerAccountFullKey(id), schedulerLastUsedKey(id)).Err()
 }
 
 func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]time.Time) error {
@@ -206,46 +235,25 @@ func (c *schedulerCache) UpdateLastUsed(ctx context.Context, updates map[int64]t
 		return nil
 	}
 
-	slimKeys := make([]string, 0, len(updates))
-	fullKeys := make([]string, 0, len(updates))
-	ids := make([]int64, 0, len(updates))
-	for id := range updates {
-		accountID := strconv.FormatInt(id, 10)
-		slimKeys = append(slimKeys, schedulerAccountKey(accountID))
-		fullKeys = append(fullKeys, schedulerAccountFullKey(accountID))
-		ids = append(ids, id)
-	}
-
-	fullValues, err := c.rdb.MGet(ctx, fullKeys...).Result()
-	if err != nil {
-		return err
-	}
-	slimValues, err := c.rdb.MGet(ctx, slimKeys...).Result()
-	if err != nil {
-		return err
-	}
-
 	pipe := c.rdb.Pipeline()
-	for i, val := range fullValues {
-		if val == nil {
-			val = slimValues[i]
-		}
-		if val == nil {
+	queuedCommands := 0
+	for id, usedAt := range updates {
+		if id <= 0 {
 			continue
 		}
-		account, err := decodeCachedAccount(val)
-		if err != nil {
-			return err
+		key := schedulerLastUsedKey(strconv.FormatInt(id, 10))
+		// 热路径只写 last_used 子 key，避免反序列化并重写整块账号 JSON。
+		if usedAt.IsZero() {
+			pipe.Del(ctx, key)
+		} else {
+			pipe.Set(ctx, key, strconv.FormatInt(usedAt.UTC().UnixNano(), 10), 0)
 		}
-		account.LastUsedAt = ptrTime(updates[ids[i]])
-		slimPayload, fullPayload, err := marshalSchedulerCachedAccounts(*account)
-		if err != nil {
-			return err
-		}
-		pipe.Set(ctx, slimKeys[i], slimPayload, 0)
-		pipe.Set(ctx, fullKeys[i], fullPayload, 0)
+		queuedCommands++
 	}
-	_, err = pipe.Exec(ctx)
+	if queuedCommands == 0 {
+		return nil
+	}
+	_, err := pipe.Exec(ctx)
 	return err
 }
 
@@ -305,8 +313,78 @@ func schedulerAccountFullKey(id string) string {
 	return schedulerAccountFullPrefix + id
 }
 
+func schedulerLastUsedKey(id string) string {
+	return schedulerAccountLastUsedKey + id
+}
+
 func ptrTime(t time.Time) *time.Time {
 	return &t
+}
+
+func (c *schedulerCache) applySchedulerLastUsedFromKey(ctx context.Context, account *service.Account, key string) error {
+	val, err := c.rdb.Get(ctx, key).Result()
+	switch {
+	case err == redis.Nil:
+		return nil
+	case err != nil:
+		return err
+	}
+	return applySchedulerLastUsed(account, val)
+}
+
+func applySchedulerLastUsed(account *service.Account, val any) error {
+	if account == nil || val == nil {
+		return nil
+	}
+	lastUsedAt, err := decodeSchedulerLastUsed(val)
+	if err != nil {
+		return err
+	}
+	if lastUsedAt == nil {
+		return nil
+	}
+	account.LastUsedAt = lastUsedAt
+	return nil
+}
+
+func decodeSchedulerLastUsed(val any) (*time.Time, error) {
+	var raw string
+	switch typed := val.(type) {
+	case string:
+		raw = typed
+	case []byte:
+		raw = string(typed)
+	default:
+		return nil, fmt.Errorf("unexpected last_used cache type: %T", val)
+	}
+
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	nanos, err := strconv.ParseInt(raw, 10, 64)
+	if err == nil {
+		parsed := time.Unix(0, nanos).UTC()
+		if nanos > -1000000000000 && nanos < 1000000000000 {
+			parsed = time.Unix(nanos, 0).UTC()
+		}
+		return &parsed, nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err == nil {
+		utc := parsed.UTC()
+		return &utc, nil
+	}
+	return nil, fmt.Errorf("invalid last_used cache value: %q", raw)
+}
+
+func writeSchedulerLastUsed(pipe redis.Pipeliner, ctx context.Context, id string, lastUsedAt *time.Time) {
+	key := schedulerLastUsedKey(id)
+	if lastUsedAt == nil {
+		pipe.Del(ctx, key)
+		return
+	}
+	pipe.Set(ctx, key, strconv.FormatInt(lastUsedAt.UTC().UnixNano(), 10), 0)
 }
 
 func decodeCachedAccount(val any) (*service.Account, error) {
