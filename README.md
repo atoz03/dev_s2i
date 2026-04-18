@@ -14,20 +14,6 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
-> **Sub2API officially uses only the domains `sub2api.org` and `pincc.ai`. Other websites using the Sub2API name may be third-party deployments or services and are not affiliated with this project. Please verify and exercise your own judgment.**
-
----
-
-## Demo
-
-Try Sub2API online: **[https://demo.sub2api.org/](https://demo.sub2api.org/)**
-
-Demo credentials (shared demo environment; **not** created automatically for self-hosted installs):
-
-| Email | Password |
-|-------|----------|
-| admin@sub2api.org | admin123 |
-
 ## Overview
 
 Sub2API is an AI API gateway platform designed to distribute and manage API quotas from AI product subscriptions. Users can access upstream AI services through platform-generated API Keys, while the platform handles authentication, billing, load balancing, and request forwarding.
@@ -42,15 +28,6 @@ Sub2API is an AI API gateway platform designed to distribute and manage API quot
 - **Rate Limiting** - Configurable request and token rate limits
 - **Admin Dashboard** - Web interface for monitoring and management
 - **External System Integration** - Embed external systems (e.g. payment, ticketing) via iframe to extend the admin dashboard
-
-## Ecosystem
-
-Community projects that extend or integrate with Sub2API:
-
-| Project | Description | Features |
-|---------|-------------|----------|
-| [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) | Self-service payment system | Self-service top-up and subscription purchase; supports YiPay protocol, WeChat Pay, Alipay, Stripe; embeddable via iframe |
-| [sub2api-mobile](https://github.com/ckken/sub2api-mobile) | Mobile admin console | Cross-platform app (iOS/Android/Web) for user management, account management, monitoring dashboard, and multi-backend switching; built with Expo + React Native |
 
 ## Tech Stack
 
@@ -552,4 +529,3 @@ sub2api/
 ## License
 
 MIT License
-
