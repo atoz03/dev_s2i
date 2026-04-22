@@ -88,8 +88,8 @@ type OpenAIImagesRequest struct {
 }
 
 type openAIImageResponseItem struct {
-	B64JSON       string
-	RevisedPrompt string
+	B64JSON       string `json:"b64_json"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
 }
 
 func (r *OpenAIImagesRequest) IsEdits() bool {
@@ -804,19 +804,12 @@ func dedupeOpenAIImageResponseItems(items []openAIImageResponseItem) []openAIIma
 }
 
 func buildOpenAIImagesResponsePayload(items []openAIImageResponseItem) ([]byte, int, error) {
-	type responseItem struct {
-		B64JSON       string `json:"b64_json"`
-		RevisedPrompt string `json:"revised_prompt,omitempty"`
-	}
-	normalized := make([]responseItem, 0, len(items))
+	normalized := make([]openAIImageResponseItem, 0, len(items))
 	for _, item := range items {
 		if strings.TrimSpace(item.B64JSON) == "" {
 			continue
 		}
-		normalized = append(normalized, responseItem{
-			B64JSON:       item.B64JSON,
-			RevisedPrompt: item.RevisedPrompt,
-		})
+		normalized = append(normalized, item)
 	}
 	if len(normalized) == 0 {
 		return nil, 0, fmt.Errorf("no image content found in responses payload")
