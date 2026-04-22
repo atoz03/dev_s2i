@@ -1980,11 +1980,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	responseID := ""
 	var finalResponse []byte
 	wroteDownstream := false
-	needModelReplace := originalModel != mappedModel
-	var mappedModelBytes []byte
-	if needModelReplace && mappedModel != "" {
-		mappedModelBytes = []byte(mappedModel)
-	}
+	upstreamPayloadModel := strings.TrimSpace(openAIWSPayloadString(payload, "model"))
+	modelRewriteCandidates := collectOpenAIWSModelRewriteCandidates(originalModel, mappedModel, upstreamPayloadModel)
+	needModelReplace := len(modelRewriteCandidates) > 0
 	bufferedStreamEvents := make([][]byte, 0, 4)
 	eventCount := 0
 	tokenEventCount := 0
@@ -2145,8 +2143,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 
 		if !clientDisconnected {
-			if needModelReplace && len(mappedModelBytes) > 0 && openAIWSEventMayContainModel(eventType) && bytes.Contains(message, mappedModelBytes) {
-				message = replaceOpenAIWSMessageModel(message, mappedModel, originalModel)
+			if needModelReplace && openAIWSEventMayContainModel(eventType) {
+				message = replaceOpenAIWSMessageModelByCandidates(message, originalModel, modelRewriteCandidates...)
 			}
 			if openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(message) {
 				if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(message); changed {
@@ -2328,7 +2326,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		RequestID:       responseID,
 		Usage:           *usage,
 		Model:           originalModel,
-		UpstreamModel:   mappedModel,
+		UpstreamModel:   coalesceOpenAIWSUpstreamModel(upstreamPayloadModel, mappedModel),
 		ServiceTier:     extractOpenAIServiceTier(reqBody),
 		ReasoningEffort: extractOpenAIReasoningEffort(reqBody, originalModel),
 		Stream:          reqStream,
@@ -2337,6 +2335,52 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		Duration:        time.Since(startTime),
 		FirstTokenMs:    firstTokenMs,
 	}, nil
+}
+
+func collectOpenAIWSModelRewriteCandidates(originalModel string, candidates ...string) []string {
+	originalModel = strings.TrimSpace(originalModel)
+	if originalModel == "" {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == originalModel {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func replaceOpenAIWSMessageModelByCandidates(message []byte, originalModel string, candidates ...string) []byte {
+	if len(message) == 0 || strings.TrimSpace(originalModel) == "" {
+		return message
+	}
+	updated := message
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == originalModel {
+			continue
+		}
+		if !bytes.Contains(updated, []byte(candidate)) {
+			continue
+		}
+		updated = replaceOpenAIWSMessageModel(updated, candidate, originalModel)
+	}
+	return updated
+}
+
+func coalesceOpenAIWSUpstreamModel(primary, fallback string) string {
+	if primary = strings.TrimSpace(primary); primary != "" {
+		return primary
+	}
+	return strings.TrimSpace(fallback)
 }
 
 // ProxyResponsesWebSocketFromClient 处理客户端入站 WebSocket（OpenAI Responses WS Mode）并转发到上游。

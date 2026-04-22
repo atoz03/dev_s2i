@@ -2008,9 +2008,18 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
-  webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
-}).catch(() => { webSearchGlobalEnabled.value = false })
+const loadWebSearchGlobalState = adminAPI.settings?.getWebSearchEmulationConfig
+if (typeof loadWebSearchGlobalState === 'function') {
+  loadWebSearchGlobalState()
+    .then(cfg => {
+      webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
+    })
+    .catch(() => {
+      webSearchGlobalEnabled.value = false
+    })
+} else {
+  webSearchGlobalEnabled.value = false
+}
 
 loadQuotaNotifyGlobal()
 const editQuotaLimit = ref<number | null>(null)

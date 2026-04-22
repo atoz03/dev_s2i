@@ -74,13 +74,14 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 	// behavior for groups that relied on DefaultMappedModel as a catch-all before
 	// per-family MessagesDispatchModelConfig was introduced.
 	groupDefault := strings.TrimSpace(g.DefaultMappedModel)
+	allowGroupDefaultFallback := shouldFallbackToGroupDefaultMessagesDispatchModel(groupDefault)
 
 	switch claudeMessagesDispatchFamily(requestedModel) {
 	case "opus":
 		if mappedModel := strings.TrimSpace(cfg.OpusMappedModel); mappedModel != "" {
 			return mappedModel
 		}
-		if groupDefault != "" {
+		if allowGroupDefaultFallback {
 			return groupDefault
 		}
 		return defaultOpenAIMessagesDispatchOpusMappedModel
@@ -88,7 +89,7 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 		if mappedModel := strings.TrimSpace(cfg.SonnetMappedModel); mappedModel != "" {
 			return mappedModel
 		}
-		if groupDefault != "" {
+		if allowGroupDefaultFallback {
 			return groupDefault
 		}
 		return defaultOpenAIMessagesDispatchSonnetMappedModel
@@ -96,13 +97,23 @@ func (g *Group) ResolveMessagesDispatchModel(requestedModel string) string {
 		if mappedModel := strings.TrimSpace(cfg.HaikuMappedModel); mappedModel != "" {
 			return mappedModel
 		}
-		if groupDefault != "" {
+		if allowGroupDefaultFallback {
 			return groupDefault
 		}
 		return defaultOpenAIMessagesDispatchHaikuMappedModel
 	default:
 		return ""
 	}
+}
+
+func shouldFallbackToGroupDefaultMessagesDispatchModel(groupDefault string) bool {
+	normalized := normalizeOpenAIMessagesDispatchMappedModel(groupDefault)
+	if normalized == "" {
+		return false
+	}
+	// 仅在 group default 本身是 Codex 家族时才兜底，避免把 /v1/messages 的 Claude
+	// 家族请求整体压到通用模型（例如 gpt-5.4）导致路由行为突变。
+	return strings.HasPrefix(normalized, "gpt-5.3-codex")
 }
 
 func sanitizeGroupMessagesDispatchFields(g *Group) {

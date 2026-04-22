@@ -32,11 +32,11 @@ func TestNormalizeInboundEndpoint(t *testing.T) {
 		// Prefixed paths (antigravity, openai, sora).
 		{"/antigravity/v1/messages", EndpointMessages},
 		{"/openai/v1/responses", EndpointResponses},
-			{"/openai/v1/responses/compact", EndpointResponses},
-			{"/sora/v1/chat/completions", EndpointChatCompletions},
-			{"/openai/v1/images/generations", EndpointImagesGenerations},
-			{"/openai/v1/images/edits", EndpointImagesEdits},
-			{"/antigravity/v1beta/models/gemini:generateContent", EndpointGeminiModels},
+		{"/openai/v1/responses/compact", EndpointResponses},
+		{"/sora/v1/chat/completions", EndpointChatCompletions},
+		{"/openai/v1/images/generations", EndpointImagesGenerations},
+		{"/openai/v1/images/edits", EndpointImagesEdits},
+		{"/antigravity/v1beta/models/gemini:generateContent", EndpointGeminiModels},
 
 		// Gin route patterns with wildcards.
 		{"/v1beta/models/*modelAction", EndpointGeminiModels},

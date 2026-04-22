@@ -110,6 +110,13 @@ type SystemSettings struct {
 	DefaultConcurrency   int                          `json:"default_concurrency"`
 	DefaultBalance       float64                      `json:"default_balance"`
 	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
+	// 第三方登录默认赠送配置（Email 来源）
+	AuthSourceDefaultEmailBalance          float64                      `json:"auth_source_default_email_balance"`
+	AuthSourceDefaultEmailConcurrency      int                          `json:"auth_source_default_email_concurrency"`
+	AuthSourceDefaultEmailSubscriptions    []DefaultSubscriptionSetting `json:"auth_source_default_email_subscriptions"`
+	AuthSourceDefaultEmailGrantOnSignup    bool                         `json:"auth_source_default_email_grant_on_signup"`
+	AuthSourceDefaultEmailGrantOnFirstBind bool                         `json:"auth_source_default_email_grant_on_first_bind"`
+	ForceEmailOnThirdPartySignup           bool                         `json:"force_email_on_third_party_signup"`
 
 	// Model fallback configuration
 	EnableModelFallback    bool   `json:"enable_model_fallback"`

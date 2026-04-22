@@ -203,6 +203,11 @@ func normalizeCodexModel(model string) string {
 
 	normalized := strings.ToLower(modelID)
 
+	// 兼容旧路由口径：当上游前向模型仍是 Claude 标识时，优先回落到 gpt-5.1。
+	if strings.HasPrefix(normalized, "claude-") || strings.HasPrefix(normalized, "claude ") {
+		return "gpt-5.1"
+	}
+
 	if strings.Contains(normalized, "gpt-5.4-mini") || strings.Contains(normalized, "gpt 5.4 mini") {
 		return "gpt-5.4-mini"
 	}

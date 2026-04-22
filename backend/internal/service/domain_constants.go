@@ -206,10 +206,10 @@ const (
 	SettingKeyGeminiQuotaPolicy = "gemini_quota_policy"
 
 	// Model fallback settings
-	SettingKeyEnableModelFallback    = "enable_model_fallback"
-	SettingKeyFallbackModelAnthropic = "fallback_model_anthropic"
-	SettingKeyFallbackModelOpenAI    = "fallback_model_openai"
-	SettingKeyFallbackModelGemini    = "fallback_model_gemini"
+	SettingKeyEnableModelFallback      = "enable_model_fallback"
+	SettingKeyFallbackModelAnthropic   = "fallback_model_anthropic"
+	SettingKeyFallbackModelOpenAI      = "fallback_model_openai"
+	SettingKeyFallbackModelGemini      = "fallback_model_gemini"
 	SettingKeyFallbackModelAntigravity = "fallback_model_antigravity"
 
 	// Request identity patch (Claude -> Gemini systemInstruction injection)
