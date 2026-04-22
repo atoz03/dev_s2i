@@ -961,7 +961,7 @@ func NormalizeClaudeOutputEffort(raw string) *string {
 		return nil
 	}
 	switch value {
-	case "low", "medium", "high", "max":
+	case "low", "medium", "high", "xhigh", "max":
 		return &value
 	default:
 		return nil

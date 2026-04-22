@@ -42,10 +42,13 @@ Sub2API は、AI 製品のサブスクリプションから API クォータを�
 - **スマートスケジューリング** - スティッキーセッション付きのインテリジェントなアカウント選択
 - **同時実行制御** - ユーザーごと・アカウントごとの同時実行数制限
 - **レート制限** - 設定可能なリクエスト数およびトークンレート制限
+- **内蔵決済システム** - EasyPay、Alipay、WeChat Pay、Stripe に対応。ユーザーのセルフサービスチャージが可能で、別途決済サービスのデプロイは不要（[設定ガイド](docs/PAYMENT.md)）
 - **管理ダッシュボード** - 監視・管理のための Web インターフェース
-- **外部システム連携** - 外部システム（決済、チケット管理など）を iframe 経由で管理ダッシュボードに埋め込み可能
+- **外部システム連携** - 外部システム（チケット管理など）を iframe 経由で管理ダッシュボードに埋め込み可能
 
-## セルフホストが不要な方へ
+## ❤️ スポンサー
+
+> [こちらに掲載しませんか？](mailto:support@pincc.ai)
 
 <table>
 <tr>
@@ -56,6 +59,7 @@ Sub2API は、AI 製品のサブスクリプションから API クォータを�
 <td width="180"><a href="https://www.packyapi.com/register?aff=sub2api"><img src="assets/partners/logos/packycode.png" alt="PackyCode" width="150"></a></td>
 <td>PackyCode のご支援に感謝します！PackyCode は Claude Code、Codex、Gemini などのリレーサービスを提供する信頼性の高い API 中継プラットフォームです。本ソフト利用者向けに特別割引があります：<a href="https://www.packyapi.com/register?aff=sub2api">このリンク</a>で登録し、チャージ時に「sub2api」クーポンを入力すると 10% オフになります。</td>
 </tr>
+
 <tr>
 <td width="180"><a href="https://poixe.com/i/sub2api"><img src="assets/partners/logos/poixe.png" alt="PoixeAi" width="150"></a></td>
 <td>Poixe AI のご支援に感謝します！Poixe AI は信頼性の高い LLM API サービスを提供しています。プラットフォームの API エンドポイントを活用して、AI 搭載プロダクトをシームレスに構築できます。また、ベンダーとして AI API リソースをプラットフォームに提供し、収益を得ることも可能です。専用の <a href="https://poixe.com/i/sub2api">sub2api</a> 紹介リンクから登録すると、初回チャージ時に $5 USD のボーナスがもらえます。</td>
@@ -90,6 +94,12 @@ Sub2API は、AI 製品のサブスクリプションから API クォータを�
 <td width="180"><a href="https://shop.bmoplus.com/?utm_source=github"><img src="assets/partners/logos/bmoplus.jpg" alt="bmoplus" width="150"></a></td>
 <td>本プロジェクトにご支援いただいた BmoPlus に感謝いたします！BmoPlusは、AIサブスクリプションのヘビーユーザー向けに特化した信頼性の高いAIアカウントサービスプロバイダーであり、安定した ChatGPT Plus / ChatGPT Pro (完全保証) / Claude Pro / Super Grok / Gemini Pro の公式代行チャージおよび即納アカウントを提供しています。こちらの<a href="https://shop.bmoplus.com/?utm_source=github">BmoPlus AIアカウント専門店/代行チャージ</a>経由でご登録・ご注文いただいたユーザー様は、GPTを 公式サイト価格の約1割（90% OFF） という驚異的な価格でご利用いただけます！</td>
 </tr>
+
+<tr>
+<td width="180"><a href="https://bestproxy.com/?keyword=a2e8iuol"><img src="assets/partners/logos/bestproxy.png" alt="bestproxy" width="150"></a></td>
+<td>Bestproxy のご支援に感謝します！<a href="https://bestproxy.com/?keyword=a2e8iuol">Bestproxy</a> は高純度の住宅IPを提供し、1アカウント1IP専有をサポートしています。実際の家庭ネットワークとフィンガープリント分離を組み合わせることで、リンク環境の分離を実現し、関連付けによるリスク管理の確率を低減します。</td>
+</tr>
+
 </table>
 
 ## エコシステム
@@ -98,7 +108,7 @@ Sub2API を拡張・統合するコミュニティプロジェクト:
 
 | プロジェクト | 説明 | 機能 |
 |---------|-------------|----------|
-| [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) | セルフサービス決済システム | セルフサービスによるチャージおよびサブスクリプション購入。YiPay プロトコル、WeChat Pay、Alipay、Stripe 対応。iframe での埋め込み可能 |
+| ~~[Sub2ApiPay](https://github.com/touwaeriol/sub2apipay)~~ | ~~セルフサービス決済システム~~ | **内蔵済み** — 決済機能は Sub2API に統合されました。別途デプロイは不要です。[決済設定ガイド](docs/PAYMENT.md)をご参照ください |
 | [sub2api-mobile](https://github.com/ckken/sub2api-mobile) | モバイル管理コンソール | ユーザー管理、アカウント管理、監視ダッシュボード、マルチバックエンド切り替えが可能なクロスプラットフォームアプリ（iOS/Android/Web）。Expo + React Native で構築 |
 
 ## 技術スタック
@@ -612,7 +622,9 @@ sub2api/
 
 ## ライセンス
 
-MIT License
+本プロジェクトは [GNU Lesser General Public License v3.0](LICENSE)（またはそれ以降のバージョン）の下でライセンスされています。
+
+Copyright (c) 2026 Wesley Liddick
 
 ---
 
