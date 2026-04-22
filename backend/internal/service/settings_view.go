@@ -77,10 +77,11 @@ type SystemSettings struct {
 	DefaultSubscriptions []DefaultSubscriptionSetting
 
 	// Model fallback configuration
-	EnableModelFallback    bool   `json:"enable_model_fallback"`
-	FallbackModelAnthropic string `json:"fallback_model_anthropic"`
-	FallbackModelOpenAI    string `json:"fallback_model_openai"`
-	FallbackModelGemini    string `json:"fallback_model_gemini"`
+	EnableModelFallback      bool   `json:"enable_model_fallback"`
+	FallbackModelAnthropic   string `json:"fallback_model_anthropic"`
+	FallbackModelOpenAI      string `json:"fallback_model_openai"`
+	FallbackModelGemini      string `json:"fallback_model_gemini"`
+	FallbackModelAntigravity string `json:"fallback_model_antigravity"`
 
 	// Identity patch configuration (Claude -> Gemini)
 	EnableIdentityPatch bool   `json:"enable_identity_patch"`
@@ -109,6 +110,13 @@ type SystemSettings struct {
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
+
+	// 支付可见方式来源与高级调度开关
+	PaymentVisibleMethodAlipaySource  string
+	PaymentVisibleMethodWxpaySource   string
+	PaymentVisibleMethodAlipayEnabled bool
+	PaymentVisibleMethodWxpayEnabled  bool
+	OpenAIAdvancedSchedulerEnabled    bool
 
 	// Upstream User-Agent 统一配置
 	DefaultUpstreamUserAgent      string
@@ -158,12 +166,17 @@ type PublicSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	LinuxDoOAuthEnabled   bool
-	BackendModeEnabled    bool
-	PaymentEnabled        bool
-	OIDCOAuthEnabled      bool
-	OIDCOAuthProviderName string
-	Version               string
+	LinuxDoOAuthEnabled          bool
+	WeChatOAuthEnabled           bool
+	WeChatOAuthOpenEnabled       bool
+	WeChatOAuthMPEnabled         bool
+	WeChatOAuthMobileEnabled     bool
+	BackendModeEnabled           bool
+	PaymentEnabled               bool
+	OIDCOAuthEnabled             bool
+	OIDCOAuthProviderName        string
+	Version                      string
+	ForceEmailOnThirdPartySignup bool
 
 	BalanceLowNotifyEnabled     bool
 	AccountQuotaNotifyEnabled   bool
