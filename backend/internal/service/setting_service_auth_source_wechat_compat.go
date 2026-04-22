@@ -422,6 +422,12 @@ func defaultWeChatConnectScopeForMode(mode string) string {
 	}
 }
 
+// DefaultWeChatConnectScopesForMode 提供按模式返回默认 scope 的兼容导出函数。
+// 供跨包测试/调用复用，内部仍走统一的默认值逻辑。
+func DefaultWeChatConnectScopesForMode(mode string) string {
+	return defaultWeChatConnectScopeForMode(mode)
+}
+
 func normalizeWeChatConnectScopeSetting(raw, mode string) string {
 	switch normalizeWeChatConnectModeSetting(mode) {
 	case "mp":

@@ -111,12 +111,27 @@ type SystemSettings struct {
 	DefaultBalance       float64                      `json:"default_balance"`
 	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
 	// 第三方登录默认赠送配置（Email 来源）
-	AuthSourceDefaultEmailBalance          float64                      `json:"auth_source_default_email_balance"`
-	AuthSourceDefaultEmailConcurrency      int                          `json:"auth_source_default_email_concurrency"`
-	AuthSourceDefaultEmailSubscriptions    []DefaultSubscriptionSetting `json:"auth_source_default_email_subscriptions"`
-	AuthSourceDefaultEmailGrantOnSignup    bool                         `json:"auth_source_default_email_grant_on_signup"`
-	AuthSourceDefaultEmailGrantOnFirstBind bool                         `json:"auth_source_default_email_grant_on_first_bind"`
-	ForceEmailOnThirdPartySignup           bool                         `json:"force_email_on_third_party_signup"`
+	AuthSourceDefaultEmailBalance            float64                      `json:"auth_source_default_email_balance"`
+	AuthSourceDefaultEmailConcurrency        int                          `json:"auth_source_default_email_concurrency"`
+	AuthSourceDefaultEmailSubscriptions      []DefaultSubscriptionSetting `json:"auth_source_default_email_subscriptions"`
+	AuthSourceDefaultEmailGrantOnSignup      bool                         `json:"auth_source_default_email_grant_on_signup"`
+	AuthSourceDefaultEmailGrantOnFirstBind   bool                         `json:"auth_source_default_email_grant_on_first_bind"`
+	AuthSourceDefaultLinuxDoBalance          float64                      `json:"auth_source_default_linuxdo_balance"`
+	AuthSourceDefaultLinuxDoConcurrency      int                          `json:"auth_source_default_linuxdo_concurrency"`
+	AuthSourceDefaultLinuxDoSubscriptions    []DefaultSubscriptionSetting `json:"auth_source_default_linuxdo_subscriptions"`
+	AuthSourceDefaultLinuxDoGrantOnSignup    bool                         `json:"auth_source_default_linuxdo_grant_on_signup"`
+	AuthSourceDefaultLinuxDoGrantOnFirstBind bool                         `json:"auth_source_default_linuxdo_grant_on_first_bind"`
+	AuthSourceDefaultOIDCBalance             float64                      `json:"auth_source_default_oidc_balance"`
+	AuthSourceDefaultOIDCConcurrency         int                          `json:"auth_source_default_oidc_concurrency"`
+	AuthSourceDefaultOIDCSubscriptions       []DefaultSubscriptionSetting `json:"auth_source_default_oidc_subscriptions"`
+	AuthSourceDefaultOIDCGrantOnSignup       bool                         `json:"auth_source_default_oidc_grant_on_signup"`
+	AuthSourceDefaultOIDCGrantOnFirstBind    bool                         `json:"auth_source_default_oidc_grant_on_first_bind"`
+	AuthSourceDefaultWeChatBalance           float64                      `json:"auth_source_default_wechat_balance"`
+	AuthSourceDefaultWeChatConcurrency       int                          `json:"auth_source_default_wechat_concurrency"`
+	AuthSourceDefaultWeChatSubscriptions     []DefaultSubscriptionSetting `json:"auth_source_default_wechat_subscriptions"`
+	AuthSourceDefaultWeChatGrantOnSignup     bool                         `json:"auth_source_default_wechat_grant_on_signup"`
+	AuthSourceDefaultWeChatGrantOnFirstBind  bool                         `json:"auth_source_default_wechat_grant_on_first_bind"`
+	ForceEmailOnThirdPartySignup             bool                         `json:"force_email_on_third_party_signup"`
 
 	// Model fallback configuration
 	EnableModelFallback    bool   `json:"enable_model_fallback"`

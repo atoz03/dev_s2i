@@ -31,6 +31,28 @@ type SystemSettings struct {
 	LinuxDoConnectClientSecretConfigured bool
 	LinuxDoConnectRedirectURL            string
 
+	// WeChat Connect OAuth 登录
+	WeChatConnectEnabled                   bool
+	WeChatConnectAppID                     string
+	WeChatConnectAppSecret                 string
+	WeChatConnectAppSecretConfigured       bool
+	WeChatConnectOpenAppID                 string
+	WeChatConnectOpenAppSecret             string
+	WeChatConnectOpenAppSecretConfigured   bool
+	WeChatConnectMPAppID                   string
+	WeChatConnectMPAppSecret               string
+	WeChatConnectMPAppSecretConfigured     bool
+	WeChatConnectMobileAppID               string
+	WeChatConnectMobileAppSecret           string
+	WeChatConnectMobileAppSecretConfigured bool
+	WeChatConnectOpenEnabled               bool
+	WeChatConnectMPEnabled                 bool
+	WeChatConnectMobileEnabled             bool
+	WeChatConnectMode                      string
+	WeChatConnectScopes                    string
+	WeChatConnectRedirectURL               string
+	WeChatConnectFrontendRedirectURL       string
+
 	// Generic OIDC OAuth 登录
 	OIDCConnectEnabled                bool
 	OIDCConnectProviderName           string
