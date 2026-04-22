@@ -187,13 +187,15 @@ func parseProviderDefaultGrantSettings(settings map[string]string, keys authSour
 
 func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettings, providerDefaults ProviderDefaultGrantSettings) ProviderDefaultGrantSettings {
 	result := globalDefaults
-	if providerDefaults.Concurrency > 0 {
+	// balance=0 / concurrency=5 / subscriptions=[] 视为“沿用全局默认”，
+	// 仅当来源配置给出明确的覆盖值时才覆盖全局默认。
+	if providerDefaults.Concurrency > 0 && providerDefaults.Concurrency != defaultAuthSourceConcurrency {
 		result.Concurrency = providerDefaults.Concurrency
 	}
-	if providerDefaults.Balance >= 0 {
+	if providerDefaults.Balance > defaultAuthSourceBalance {
 		result.Balance = providerDefaults.Balance
 	}
-	if providerDefaults.Subscriptions != nil {
+	if len(providerDefaults.Subscriptions) > 0 {
 		result.Subscriptions = providerDefaults.Subscriptions
 	}
 	return result
