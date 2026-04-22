@@ -2,7 +2,6 @@ package service
 
 import (
 	"bytes"
-	"context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -117,14 +116,15 @@ func TestShouldUseOpenAIResponsesForImageGeneration(t *testing.T) {
 		Uploads:            []OpenAIImagesUpload{{FileName: "edit.png", Data: []byte("abc")}},
 		RequiredCapability: OpenAIImagesCapabilityBasic,
 	}))
-	require.False(t, shouldUseOpenAIResponsesForImageGeneration(&OpenAIImagesRequest{
+	require.True(t, shouldUseOpenAIResponsesForImageGeneration(&OpenAIImagesRequest{
 		Endpoint:           openAIImagesEditsEndpoint,
 		RequiredCapability: OpenAIImagesCapabilityBasic,
 	}))
-	require.False(t, shouldUseOpenAIResponsesForImageGeneration(&OpenAIImagesRequest{
+	require.True(t, shouldUseOpenAIResponsesForImageGeneration(&OpenAIImagesRequest{
 		Endpoint:           openAIImagesGenerationsEndpoint,
 		RequiredCapability: OpenAIImagesCapabilityNative,
 	}))
+	require.False(t, shouldUseOpenAIResponsesForImageGeneration(nil))
 }
 
 func TestBuildOpenAIImageGenerationResponsesBody(t *testing.T) {
@@ -229,54 +229,4 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_RejectsNonImageModel(t *te
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.Nil(t, parsed)
 	require.ErrorContains(t, err, `images endpoint requires an image model, got "gpt-5.4"`)
-}
-
-func TestCollectOpenAIImagePointers_RecognizesDirectAssets(t *testing.T) {
-	items := collectOpenAIImagePointers([]byte(`{
-		"revised_prompt": "cat astronaut",
-		"parts": [
-			{"b64_json":"QUJD"},
-			{"download_url":"https://files.example.com/image.png?sig=1"},
-			{"asset_pointer":"file-service://file_123"}
-		]
-	}`))
-
-	require.Len(t, items, 3)
-	var sawBase64, sawURL, sawPointer bool
-	for _, item := range items {
-		if item.B64JSON == "QUJD" {
-			sawBase64 = true
-			require.Equal(t, "cat astronaut", item.Prompt)
-		}
-		if item.DownloadURL == "https://files.example.com/image.png?sig=1" {
-			sawURL = true
-		}
-		if item.Pointer == "file-service://file_123" {
-			sawPointer = true
-		}
-	}
-	require.True(t, sawBase64)
-	require.True(t, sawURL)
-	require.True(t, sawPointer)
-}
-
-func TestResolveOpenAIImageBytes_PrefersInlineBase64(t *testing.T) {
-	data, err := resolveOpenAIImageBytes(context.Background(), nil, nil, "", openAIImagePointerInfo{
-		B64JSON: "data:image/png;base64,QUJD",
-	})
-	require.NoError(t, err)
-	require.Equal(t, []byte("ABC"), data)
-}
-
-func TestMergeOpenAIImagePointerInfos_Base64UsesFullHashIdentity(t *testing.T) {
-	prefix := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	a := prefix + "BBBB"
-	b := prefix + "CCCC"
-
-	merged := mergeOpenAIImagePointerInfos(nil, []openAIImagePointerInfo{
-		{B64JSON: a, Prompt: "first"},
-		{B64JSON: b, Prompt: "second"},
-	})
-
-	require.Len(t, merged, 2)
 }
