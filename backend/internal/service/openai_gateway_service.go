@@ -2011,6 +2011,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("instructions", "You are a helpful coding assistant.")
 	}
 
+	if normalizeOpenAIResponsesImageGenerationTools(reqBody) {
+		bodyModified = true
+		disablePatch()
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized /responses image_generation tool payload")
+	}
+
 	// 对所有请求执行模型映射（包含 Codex CLI）。
 	billingModel := account.GetMappedModel(reqModel)
 	if billingModel != reqModel {
@@ -2020,6 +2026,26 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("model", billingModel)
 	}
 	upstreamModel := billingModel
+	if err := validateOpenAIResponsesImageModel(reqBody, upstreamModel); err != nil {
+		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"type":    "invalid_request_error",
+				"message": err.Error(),
+				"param":   "model",
+			},
+		})
+		return nil, err
+	}
+	if hasOpenAIImageGenerationTool(reqBody) {
+		logger.LegacyPrintf(
+			"service.openai_gateway",
+			"[OpenAI] /responses image_generation request inbound_model=%s mapped_model=%s account_type=%s",
+			reqModel,
+			upstreamModel,
+			account.Type,
+		)
+	}
 
 	// 针对所有 OpenAI 账号执行 Codex 模型名规范化，确保上游识别一致。
 	if model, ok := reqBody["model"].(string); ok {
