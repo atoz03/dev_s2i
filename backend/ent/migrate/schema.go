@@ -361,7 +361,7 @@ var (
 				Symbol:     "auth_identities_users_auth_identities",
 				Columns:    []*schema.Column{AuthIdentitiesColumns[9]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -405,7 +405,7 @@ var (
 				Symbol:     "auth_identity_channels_auth_identities_channels",
 				Columns:    []*schema.Column{AuthIdentityChannelsColumns[9]},
 				RefColumns: []*schema.Column{AuthIdentitiesColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -491,6 +491,7 @@ var (
 		{Name: "require_privacy_set", Type: field.TypeBool, Default: false},
 		{Name: "default_mapped_model", Type: field.TypeString, Size: 100, Default: ""},
 		{Name: "messages_dispatch_model_config", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{
@@ -595,7 +596,7 @@ var (
 				Symbol:     "identity_adoption_decisions_pending_auth_sessions_adoption_decision",
 				Columns:    []*schema.Column{IdentityAdoptionDecisionsColumns[7]},
 				RefColumns: []*schema.Column{PendingAuthSessionsColumns[0]},
-				OnDelete:   schema.NoAction,
+				OnDelete:   schema.Cascade,
 			},
 		},
 		Indexes: []*schema.Index{
@@ -692,8 +693,11 @@ var (
 		Indexes: []*schema.Index{
 			{
 				Name:    "paymentorder_out_trade_no",
-				Unique:  false,
+				Unique:  true,
 				Columns: []*schema.Column{PaymentOrdersColumns[8]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "out_trade_no <> ''",
+				},
 			},
 			{
 				Name:    "paymentorder_user_id",
@@ -1273,7 +1277,7 @@ var (
 		{Name: "totp_secret_encrypted", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "totp_enabled", Type: field.TypeBool, Default: false},
 		{Name: "totp_enabled_at", Type: field.TypeTime, Nullable: true},
-		{Name: "signup_source", Type: field.TypeString, Size: 20, Default: "email"},
+		{Name: "signup_source", Type: field.TypeString, Default: "email"},
 		{Name: "last_login_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "last_active_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "balance_notify_enabled", Type: field.TypeBool, Default: true},
@@ -1281,6 +1285,7 @@ var (
 		{Name: "balance_notify_threshold", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "balance_notify_extra_emails", Type: field.TypeString, Default: "[]", SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "total_recharged", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
 	}
 	// UsersTable holds the schema information for the "users" table.
 	UsersTable = &schema.Table{

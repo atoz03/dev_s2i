@@ -792,6 +792,35 @@ func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
+// OIDCSecurityWriteDefaults 返回 OIDC 安全字段在写入时应采用的默认值。
+// 仅根据数据库原始键值判断；键缺失时返回 false，避免把配置层隐式默认值固化写回数据库。
+func (s *SettingService) OIDCSecurityWriteDefaults(ctx context.Context) (usePKCE bool, validateIDToken bool) {
+	values, err := s.settingRepo.GetMultiple(ctx, []string{
+		SettingKeyOIDCConnectUsePKCE,
+		SettingKeyOIDCConnectValidateIDToken,
+	})
+	if err != nil {
+		return false, false
+	}
+	usePKCE = strings.EqualFold(strings.TrimSpace(values[SettingKeyOIDCConnectUsePKCE]), "true")
+	validateIDToken = strings.EqualFold(strings.TrimSpace(values[SettingKeyOIDCConnectValidateIDToken]), "true")
+	return usePKCE, validateIDToken
+}
+
+// GetDefaultUserRPMLimit 获取新用户默认 RPM 限制（0 = 不限制）。
+// 设置缺失、解析失败或值为负数时，统一回退为 0。
+func (s *SettingService) GetDefaultUserRPMLimit(ctx context.Context) int {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyDefaultUserRPMLimit)
+	if err != nil {
+		return 0
+	}
+	limit, convErr := strconv.Atoi(strings.TrimSpace(value))
+	if convErr != nil || limit < 0 {
+		return 0
+	}
+	return limit
+}
+
 // IsBackendModeEnabled checks if backend mode is enabled
 // Uses in-process atomic.Value cache with 60s TTL, zero-lock hot path
 func (s *SettingService) IsBackendModeEnabled(ctx context.Context) bool {
@@ -1437,12 +1466,8 @@ func isFalseSettingValue(value string) bool {
 func normalizeVisibleMethodSettingSource(method, source string, enabled bool) (string, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
-		if enabled {
-			return "", infraerrors.BadRequest(
-				"INVALID_PAYMENT_VISIBLE_METHOD_SOURCE",
-				fmt.Sprintf("%s source is required when the visible method is enabled", method),
-			)
-		}
+		// 兼容历史配置：旧版本可能在 visible method 启用时留下空 source。
+		// 这里保留空值，避免仅更新无关设置时触发 400 并阻断保存。
 		return "", nil
 	}
 

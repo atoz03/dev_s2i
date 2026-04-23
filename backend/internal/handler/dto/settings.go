@@ -109,6 +109,7 @@ type SystemSettings struct {
 
 	DefaultConcurrency   int                          `json:"default_concurrency"`
 	DefaultBalance       float64                      `json:"default_balance"`
+	DefaultUserRPMLimit  int                          `json:"default_user_rpm_limit"`
 	DefaultSubscriptions []DefaultSubscriptionSetting `json:"default_subscriptions"`
 	// 第三方登录默认赠送配置（Email 来源）
 	AuthSourceDefaultEmailBalance            float64                      `json:"auth_source_default_email_balance"`

@@ -217,21 +217,6 @@ func TestApplyCodexOAuthTransform_NormalizeCodexTools_PreservesResponsesFunction
 	require.Equal(t, "bash", first["name"])
 }
 
-func TestApplyCodexOAuthTransform_EmptyInput(t *testing.T) {
-	// 空 input 应保持为空且不触发异常。
-
-	reqBody := map[string]any{
-		"model": "gpt-5.1",
-		"input": []any{},
-	}
-
-	applyCodexOAuthTransform(reqBody, false, false)
-
-	input, ok := reqBody["input"].([]any)
-	require.True(t, ok)
-	require.Len(t, input, 0)
-}
-
 func TestNormalizeOpenAIResponsesImageGenerationTools_RewritesLegacyFields(t *testing.T) {
 	reqBody := map[string]any{
 		"tools": []any{
@@ -266,6 +251,21 @@ func TestValidateOpenAIResponsesImageModel_RejectsImageOnlyModel(t *testing.T) {
 	}, "gpt-image-2")
 
 	require.ErrorContains(t, err, `/v1/responses image_generation requests require a Responses-capable text model`)
+}
+
+func TestApplyCodexOAuthTransform_EmptyInput(t *testing.T) {
+	// 空 input 应保持为空且不触发异常。
+
+	reqBody := map[string]any{
+		"model": "gpt-5.1",
+		"input": []any{},
+	}
+
+	applyCodexOAuthTransform(reqBody, false, false)
+
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 0)
 }
 
 func TestNormalizeCodexModel_Gpt53(t *testing.T) {

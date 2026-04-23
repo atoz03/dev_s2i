@@ -226,7 +226,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	subscription, err := h.openAISubscriptionAndBillingEligibility(c.Request.Context(), c, apiKey)
 	if err != nil {
 		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message := billingErrorDetails(err)
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
@@ -579,7 +582,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	subscription, err := h.openAISubscriptionAndBillingEligibility(c.Request.Context(), c, apiKey)
 	if err != nil {
 		reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message := billingErrorDetails(err)
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
 		h.anthropicStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}

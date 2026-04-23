@@ -419,10 +419,10 @@ type UpdateSettingsRequest struct {
 	OIDCConnectRedirectURL          string `json:"oidc_connect_redirect_url"`
 	OIDCConnectFrontendRedirectURL  string `json:"oidc_connect_frontend_redirect_url"`
 	OIDCConnectTokenAuthMethod      string `json:"oidc_connect_token_auth_method"`
-	OIDCConnectUsePKCE              bool   `json:"oidc_connect_use_pkce"`
-	OIDCConnectValidateIDToken      bool   `json:"oidc_connect_validate_id_token"`
+	OIDCConnectUsePKCE              *bool  `json:"oidc_connect_use_pkce"`
+	OIDCConnectValidateIDToken      *bool  `json:"oidc_connect_validate_id_token"`
 	OIDCConnectAllowedSigningAlgs   string `json:"oidc_connect_allowed_signing_algs"`
-	OIDCConnectClockSkewSeconds     int    `json:"oidc_connect_clock_skew_seconds"`
+	OIDCConnectClockSkewSeconds     *int   `json:"oidc_connect_clock_skew_seconds"`
 	OIDCConnectRequireEmailVerified bool   `json:"oidc_connect_require_email_verified"`
 	OIDCConnectUserInfoEmailPath    string `json:"oidc_connect_userinfo_email_path"`
 	OIDCConnectUserInfoIDPath       string `json:"oidc_connect_userinfo_id_path"`
@@ -663,6 +663,28 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	oidcUsePKCE := previousSettings.OIDCConnectUsePKCE
+	if req.OIDCConnectUsePKCE != nil {
+		oidcUsePKCE = *req.OIDCConnectUsePKCE
+	}
+	oidcValidateIDToken := previousSettings.OIDCConnectValidateIDToken
+	if req.OIDCConnectValidateIDToken != nil {
+		oidcValidateIDToken = *req.OIDCConnectValidateIDToken
+	}
+	if req.OIDCConnectUsePKCE == nil || req.OIDCConnectValidateIDToken == nil {
+		defaultUsePKCE, defaultValidateIDToken := h.settingService.OIDCSecurityWriteDefaults(c.Request.Context())
+		if req.OIDCConnectUsePKCE == nil {
+			oidcUsePKCE = defaultUsePKCE
+		}
+		if req.OIDCConnectValidateIDToken == nil {
+			oidcValidateIDToken = defaultValidateIDToken
+		}
+	}
+	oidcClockSkewSeconds := previousSettings.OIDCConnectClockSkewSeconds
+	if req.OIDCConnectClockSkewSeconds != nil {
+		oidcClockSkewSeconds = *req.OIDCConnectClockSkewSeconds
+	}
+
 	// Generic OIDC 参数验证
 	if req.OIDCConnectEnabled {
 		req.OIDCConnectProviderName = strings.TrimSpace(req.OIDCConnectProviderName)
@@ -682,6 +704,55 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		req.OIDCConnectUserInfoEmailPath = strings.TrimSpace(req.OIDCConnectUserInfoEmailPath)
 		req.OIDCConnectUserInfoIDPath = strings.TrimSpace(req.OIDCConnectUserInfoIDPath)
 		req.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(req.OIDCConnectUserInfoUsernamePath)
+
+		if req.OIDCConnectProviderName == "" {
+			req.OIDCConnectProviderName = strings.TrimSpace(previousSettings.OIDCConnectProviderName)
+		}
+		if req.OIDCConnectClientID == "" {
+			req.OIDCConnectClientID = strings.TrimSpace(previousSettings.OIDCConnectClientID)
+		}
+		if req.OIDCConnectIssuerURL == "" {
+			req.OIDCConnectIssuerURL = strings.TrimSpace(previousSettings.OIDCConnectIssuerURL)
+		}
+		if req.OIDCConnectDiscoveryURL == "" {
+			req.OIDCConnectDiscoveryURL = strings.TrimSpace(previousSettings.OIDCConnectDiscoveryURL)
+		}
+		if req.OIDCConnectAuthorizeURL == "" {
+			req.OIDCConnectAuthorizeURL = strings.TrimSpace(previousSettings.OIDCConnectAuthorizeURL)
+		}
+		if req.OIDCConnectTokenURL == "" {
+			req.OIDCConnectTokenURL = strings.TrimSpace(previousSettings.OIDCConnectTokenURL)
+		}
+		if req.OIDCConnectUserInfoURL == "" {
+			req.OIDCConnectUserInfoURL = strings.TrimSpace(previousSettings.OIDCConnectUserInfoURL)
+		}
+		if req.OIDCConnectJWKSURL == "" {
+			req.OIDCConnectJWKSURL = strings.TrimSpace(previousSettings.OIDCConnectJWKSURL)
+		}
+		if req.OIDCConnectScopes == "" {
+			req.OIDCConnectScopes = strings.TrimSpace(previousSettings.OIDCConnectScopes)
+		}
+		if req.OIDCConnectRedirectURL == "" {
+			req.OIDCConnectRedirectURL = strings.TrimSpace(previousSettings.OIDCConnectRedirectURL)
+		}
+		if req.OIDCConnectFrontendRedirectURL == "" {
+			req.OIDCConnectFrontendRedirectURL = strings.TrimSpace(previousSettings.OIDCConnectFrontendRedirectURL)
+		}
+		if req.OIDCConnectTokenAuthMethod == "" {
+			req.OIDCConnectTokenAuthMethod = strings.ToLower(strings.TrimSpace(previousSettings.OIDCConnectTokenAuthMethod))
+		}
+		if req.OIDCConnectAllowedSigningAlgs == "" {
+			req.OIDCConnectAllowedSigningAlgs = strings.TrimSpace(previousSettings.OIDCConnectAllowedSigningAlgs)
+		}
+		if req.OIDCConnectUserInfoEmailPath == "" {
+			req.OIDCConnectUserInfoEmailPath = strings.TrimSpace(previousSettings.OIDCConnectUserInfoEmailPath)
+		}
+		if req.OIDCConnectUserInfoIDPath == "" {
+			req.OIDCConnectUserInfoIDPath = strings.TrimSpace(previousSettings.OIDCConnectUserInfoIDPath)
+		}
+		if req.OIDCConnectUserInfoUsernamePath == "" {
+			req.OIDCConnectUserInfoUsernamePath = strings.TrimSpace(previousSettings.OIDCConnectUserInfoUsernamePath)
+		}
 
 		if req.OIDCConnectProviderName == "" {
 			req.OIDCConnectProviderName = "OIDC"
@@ -748,15 +819,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			response.BadRequest(c, "OIDC Token Auth Method must be one of client_secret_post/client_secret_basic/none")
 			return
 		}
-		if req.OIDCConnectTokenAuthMethod == "none" && !req.OIDCConnectUsePKCE {
+		if req.OIDCConnectTokenAuthMethod == "none" && !oidcUsePKCE {
 			response.BadRequest(c, "OIDC PKCE must be enabled when token_auth_method=none")
 			return
 		}
-		if req.OIDCConnectClockSkewSeconds < 0 || req.OIDCConnectClockSkewSeconds > 600 {
+		if oidcClockSkewSeconds < 0 || oidcClockSkewSeconds > 600 {
 			response.BadRequest(c, "OIDC clock skew seconds must be between 0 and 600")
 			return
 		}
-		if req.OIDCConnectValidateIDToken {
+		if oidcValidateIDToken {
 			if req.OIDCConnectAllowedSigningAlgs == "" {
 				response.BadRequest(c, "OIDC Allowed Signing Algs is required when validate_id_token=true")
 				return
@@ -1135,10 +1206,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OIDCConnectRedirectURL:           req.OIDCConnectRedirectURL,
 		OIDCConnectFrontendRedirectURL:   req.OIDCConnectFrontendRedirectURL,
 		OIDCConnectTokenAuthMethod:       req.OIDCConnectTokenAuthMethod,
-		OIDCConnectUsePKCE:               req.OIDCConnectUsePKCE,
-		OIDCConnectValidateIDToken:       req.OIDCConnectValidateIDToken,
+		OIDCConnectUsePKCE:               oidcUsePKCE,
+		OIDCConnectValidateIDToken:       oidcValidateIDToken,
 		OIDCConnectAllowedSigningAlgs:    req.OIDCConnectAllowedSigningAlgs,
-		OIDCConnectClockSkewSeconds:      req.OIDCConnectClockSkewSeconds,
+		OIDCConnectClockSkewSeconds:      oidcClockSkewSeconds,
 		OIDCConnectRequireEmailVerified:  req.OIDCConnectRequireEmailVerified,
 		OIDCConnectUserInfoEmailPath:     req.OIDCConnectUserInfoEmailPath,
 		OIDCConnectUserInfoIDPath:        req.OIDCConnectUserInfoIDPath,

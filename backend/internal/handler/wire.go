@@ -74,6 +74,30 @@ func ProvideSettingHandler(settingService *service.SettingService, buildInfo Bui
 	return NewSettingHandler(settingService, buildInfo.Version)
 }
 
+// ProvideAdminSettingHandler 为 Wire 提供固定签名的 SettingHandler 构造函数，
+// 避免 admin.NewSettingHandler 的可变参数导致 []any 依赖无法解析。
+func ProvideAdminSettingHandler(
+	settingService *service.SettingService,
+	emailService *service.EmailService,
+	turnstileService *service.TurnstileService,
+	opsService *service.OpsService,
+	endpointProbeService *service.EndpointProbeService,
+	endpointProbePlanService *service.EndpointProbePlanService,
+	paymentConfigService *service.PaymentConfigService,
+	paymentService *service.PaymentService,
+) *admin.SettingHandler {
+	return admin.NewSettingHandler(
+		settingService,
+		emailService,
+		turnstileService,
+		opsService,
+		endpointProbeService,
+		endpointProbePlanService,
+		paymentConfigService,
+		paymentService,
+	)
+}
+
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -142,7 +166,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewProxyHandler,
 	admin.NewRedeemHandler,
 	admin.NewPromoHandler,
-	admin.NewSettingHandler,
+	ProvideAdminSettingHandler,
 	admin.NewOpsHandler,
 	ProvideSystemHandler,
 	admin.NewSubscriptionHandler,
