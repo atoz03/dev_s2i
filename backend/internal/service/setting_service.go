@@ -233,6 +233,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
 		balanceLowNotifyThreshold = v
 	}
+	weChatCfg := s.buildWeChatConnectOAuthConfig(settings)
+	weChatWebOAuthEnabled := weChatCfg.Enabled && (weChatCfg.OpenEnabled || weChatCfg.MPEnabled)
 
 	return &PublicSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
@@ -259,10 +261,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
-		WeChatOAuthEnabled:               settings[SettingKeyWeChatConnectEnabled] == "true",
-		WeChatOAuthOpenEnabled:           settings[SettingKeyWeChatConnectOpenEnabled] == "true",
-		WeChatOAuthMPEnabled:             settings[SettingKeyWeChatConnectMPEnabled] == "true",
-		WeChatOAuthMobileEnabled:         settings[SettingKeyWeChatConnectMobileEnabled] == "true",
+		WeChatOAuthEnabled:               weChatWebOAuthEnabled,
+		WeChatOAuthOpenEnabled:           weChatCfg.Enabled && weChatCfg.OpenEnabled,
+		WeChatOAuthMPEnabled:             weChatCfg.Enabled && weChatCfg.MPEnabled,
+		WeChatOAuthMobileEnabled:         weChatCfg.Enabled && weChatCfg.MobileEnabled,
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
 		OIDCOAuthEnabled:                 oidcEnabled,
@@ -1209,36 +1211,30 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.LinuxDoConnectClientSecretConfigured = result.LinuxDoConnectClientSecret != ""
 
 	// WeChat Connect 设置：
+	// - 兼容 config.yaml/env 的兜底值
 	// - 兼容旧版单 app_id/app_secret 字段
 	// - mode/scopes/frontend_redirect 提供稳定默认值，避免接口返回空值
-	result.WeChatConnectEnabled = settings[SettingKeyWeChatConnectEnabled] == "true"
-	result.WeChatConnectMode = normalizeWeChatConnectModeSetting(settings[SettingKeyWeChatConnectMode])
-	result.WeChatConnectOpenEnabled, result.WeChatConnectMPEnabled, result.WeChatConnectMobileEnabled = parseWeChatConnectCapabilitySettings(
-		settings,
-		result.WeChatConnectEnabled,
-		result.WeChatConnectMode,
-	)
-
-	legacyAppID := strings.TrimSpace(settings[SettingKeyWeChatConnectAppID])
-	legacyAppSecret := strings.TrimSpace(settings[SettingKeyWeChatConnectAppSecret])
-	result.WeChatConnectAppID = legacyAppID
-	result.WeChatConnectAppSecret = legacyAppSecret
-	result.WeChatConnectAppSecretConfigured = legacyAppSecret != ""
-	result.WeChatConnectOpenAppID = strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectOpenAppID], legacyAppID))
-	result.WeChatConnectOpenAppSecret = strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectOpenAppSecret], legacyAppSecret))
-	result.WeChatConnectOpenAppSecretConfigured = result.WeChatConnectOpenAppSecret != ""
-	result.WeChatConnectMPAppID = strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMPAppID], legacyAppID))
-	result.WeChatConnectMPAppSecret = strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMPAppSecret], legacyAppSecret))
-	result.WeChatConnectMPAppSecretConfigured = result.WeChatConnectMPAppSecret != ""
-	result.WeChatConnectMobileAppID = strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMobileAppID], legacyAppID))
-	result.WeChatConnectMobileAppSecret = strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMobileAppSecret], legacyAppSecret))
-	result.WeChatConnectMobileAppSecretConfigured = result.WeChatConnectMobileAppSecret != ""
-	result.WeChatConnectScopes = normalizeWeChatConnectScopeSetting(settings[SettingKeyWeChatConnectScopes], result.WeChatConnectMode)
-	result.WeChatConnectRedirectURL = strings.TrimSpace(settings[SettingKeyWeChatConnectRedirectURL])
-	result.WeChatConnectFrontendRedirectURL = strings.TrimSpace(settings[SettingKeyWeChatConnectFrontendRedirectURL])
-	if result.WeChatConnectFrontendRedirectURL == "" {
-		result.WeChatConnectFrontendRedirectURL = defaultWeChatConnectFrontend
-	}
+	weChatCfg := s.buildWeChatConnectOAuthConfig(settings)
+	result.WeChatConnectEnabled = weChatCfg.Enabled
+	result.WeChatConnectMode = weChatCfg.Mode
+	result.WeChatConnectOpenEnabled = weChatCfg.OpenEnabled
+	result.WeChatConnectMPEnabled = weChatCfg.MPEnabled
+	result.WeChatConnectMobileEnabled = weChatCfg.MobileEnabled
+	result.WeChatConnectAppID = weChatCfg.LegacyAppID
+	result.WeChatConnectAppSecret = weChatCfg.LegacyAppSecret
+	result.WeChatConnectAppSecretConfigured = weChatCfg.LegacyAppSecret != ""
+	result.WeChatConnectOpenAppID = weChatCfg.OpenAppID
+	result.WeChatConnectOpenAppSecret = weChatCfg.OpenAppSecret
+	result.WeChatConnectOpenAppSecretConfigured = weChatCfg.OpenAppSecret != ""
+	result.WeChatConnectMPAppID = weChatCfg.MPAppID
+	result.WeChatConnectMPAppSecret = weChatCfg.MPAppSecret
+	result.WeChatConnectMPAppSecretConfigured = weChatCfg.MPAppSecret != ""
+	result.WeChatConnectMobileAppID = weChatCfg.MobileAppID
+	result.WeChatConnectMobileAppSecret = weChatCfg.MobileAppSecret
+	result.WeChatConnectMobileAppSecretConfigured = weChatCfg.MobileAppSecret != ""
+	result.WeChatConnectScopes = weChatCfg.Scopes
+	result.WeChatConnectRedirectURL = weChatCfg.RedirectURL
+	result.WeChatConnectFrontendRedirectURL = weChatCfg.FrontendRedirectURL
 
 	// Generic OIDC 设置：
 	// - 兼容 config.yaml/env

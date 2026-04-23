@@ -664,10 +664,11 @@ func (s *RateLimitService) handleAuthError(ctx context.Context, account *Account
 }
 
 func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	_ = responseBody
 	msg := "Access forbidden (403): account may be suspended or lack permissions"
 	if upstreamMsg != "" {
 		msg = "Access forbidden (403): " + upstreamMsg
+	} else if fallback := strings.TrimSpace(truncateForLog(responseBody, 512)); fallback != "" {
+		msg = "Access forbidden (403): " + fallback
 	}
 
 	if account != nil && account.Platform == PlatformOpenAI && s.openAI403CounterCache != nil {
@@ -681,6 +682,8 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 				slog.Warn("openai_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", setErr)
 			}
 			return true
+		} else {
+			msg = msg + " (consecutive_403=" + strconv.FormatInt(count, 10) + "/" + strconv.Itoa(openAI403DisableThreshold) + ")"
 		}
 	}
 

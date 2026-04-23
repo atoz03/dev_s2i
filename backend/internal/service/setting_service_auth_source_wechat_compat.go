@@ -337,28 +337,7 @@ func (s *SettingService) GetWeChatConnectOAuthConfig(ctx context.Context) (WeCha
 }
 
 func (s *SettingService) parseWeChatConnectOAuthConfig(settings map[string]string) (WeChatConnectOAuthConfig, error) {
-	enabled := parseBool(settings[SettingKeyWeChatConnectEnabled])
-	mode := normalizeWeChatConnectModeSetting(settings[SettingKeyWeChatConnectMode])
-	openEnabled, mpEnabled, mobileEnabled := parseWeChatConnectCapabilitySettings(settings, enabled, mode)
-
-	cfg := WeChatConnectOAuthConfig{
-		Enabled:             enabled,
-		LegacyAppID:         strings.TrimSpace(settings[SettingKeyWeChatConnectAppID]),
-		LegacyAppSecret:     strings.TrimSpace(settings[SettingKeyWeChatConnectAppSecret]),
-		OpenAppID:           strings.TrimSpace(settings[SettingKeyWeChatConnectOpenAppID]),
-		OpenAppSecret:       strings.TrimSpace(settings[SettingKeyWeChatConnectOpenAppSecret]),
-		MPAppID:             strings.TrimSpace(settings[SettingKeyWeChatConnectMPAppID]),
-		MPAppSecret:         strings.TrimSpace(settings[SettingKeyWeChatConnectMPAppSecret]),
-		MobileAppID:         strings.TrimSpace(settings[SettingKeyWeChatConnectMobileAppID]),
-		MobileAppSecret:     strings.TrimSpace(settings[SettingKeyWeChatConnectMobileAppSecret]),
-		OpenEnabled:         openEnabled,
-		MPEnabled:           mpEnabled,
-		MobileEnabled:       mobileEnabled,
-		Mode:                mode,
-		Scopes:              normalizeWeChatConnectScopeSetting(settings[SettingKeyWeChatConnectScopes], mode),
-		RedirectURL:         strings.TrimSpace(settings[SettingKeyWeChatConnectRedirectURL]),
-		FrontendRedirectURL: strings.TrimSpace(settings[SettingKeyWeChatConnectFrontendRedirectURL]),
-	}
+	cfg := s.buildWeChatConnectOAuthConfig(settings)
 
 	if cfg.Enabled && !cfg.SupportsMode(cfg.Mode) {
 		return WeChatConnectOAuthConfig{}, fmt.Errorf("wechat connect mode %s is disabled", cfg.Mode)
@@ -380,6 +359,124 @@ func (s *SettingService) parseWeChatConnectOAuthConfig(settings map[string]strin
 		cfg.FrontendRedirectURL = defaultWeChatConnectFrontend
 	}
 	return cfg, nil
+}
+
+func (s *SettingService) buildWeChatConnectOAuthConfig(settings map[string]string) WeChatConnectOAuthConfig {
+	base := config.WeChatConnectConfig{}
+	if s != nil && s.cfg != nil {
+		base = s.cfg.WeChat
+	}
+
+	enabled := base.Enabled
+	if raw, ok := settings[SettingKeyWeChatConnectEnabled]; ok {
+		enabled = parseBool(raw)
+	}
+
+	mode := normalizeWeChatConnectModeSetting(base.Mode)
+	if raw, ok := settings[SettingKeyWeChatConnectMode]; ok && strings.TrimSpace(raw) != "" {
+		mode = normalizeWeChatConnectModeSetting(raw)
+	}
+
+	openEnabled := base.OpenEnabled
+	mpEnabled := base.MPEnabled
+	mobileEnabled := base.MobileEnabled
+	ignoreSyntheticDisabledCaps := shouldIgnoreSyntheticWeChatCapabilityOverrides(settings)
+	if !ignoreSyntheticDisabledCaps {
+		if raw, ok := settings[SettingKeyWeChatConnectOpenEnabled]; ok {
+			openEnabled = parseBool(raw)
+		}
+		if raw, ok := settings[SettingKeyWeChatConnectMPEnabled]; ok {
+			mpEnabled = parseBool(raw)
+		}
+		if raw, ok := settings[SettingKeyWeChatConnectMobileEnabled]; ok {
+			mobileEnabled = parseBool(raw)
+		}
+	}
+	openEnabled, mpEnabled, mobileEnabled = normalizeWeChatConnectCapabilityFlags(enabled, mode, openEnabled, mpEnabled, mobileEnabled)
+
+	legacyAppID := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectAppID], base.AppID))
+	legacyAppSecret := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectAppSecret], base.AppSecret))
+
+	openAppID := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectOpenAppID], base.OpenAppID, legacyAppID))
+	openAppSecret := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectOpenAppSecret], base.OpenAppSecret, legacyAppSecret))
+	mpAppID := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMPAppID], base.MPAppID, legacyAppID))
+	mpAppSecret := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMPAppSecret], base.MPAppSecret, legacyAppSecret))
+	mobileAppID := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMobileAppID], base.MobileAppID, legacyAppID))
+	mobileAppSecret := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectMobileAppSecret], base.MobileAppSecret, legacyAppSecret))
+
+	scopes := normalizeWeChatConnectScopeSetting(firstNonEmpty(settings[SettingKeyWeChatConnectScopes], base.Scopes), mode)
+	redirectURL := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectRedirectURL], base.RedirectURL))
+	frontendRedirectURL := strings.TrimSpace(firstNonEmpty(settings[SettingKeyWeChatConnectFrontendRedirectURL], base.FrontendRedirectURL))
+	if frontendRedirectURL == "" {
+		frontendRedirectURL = defaultWeChatConnectFrontend
+	}
+
+	return WeChatConnectOAuthConfig{
+		Enabled:             enabled,
+		LegacyAppID:         legacyAppID,
+		LegacyAppSecret:     legacyAppSecret,
+		OpenAppID:           openAppID,
+		OpenAppSecret:       openAppSecret,
+		MPAppID:             mpAppID,
+		MPAppSecret:         mpAppSecret,
+		MobileAppID:         mobileAppID,
+		MobileAppSecret:     mobileAppSecret,
+		OpenEnabled:         openEnabled,
+		MPEnabled:           mpEnabled,
+		MobileEnabled:       mobileEnabled,
+		Mode:                mode,
+		Scopes:              scopes,
+		RedirectURL:         redirectURL,
+		FrontendRedirectURL: frontendRedirectURL,
+	}
+}
+
+func shouldIgnoreSyntheticWeChatCapabilityOverrides(settings map[string]string) bool {
+	if settings == nil {
+		return false
+	}
+	if _, ok := settings[SettingKeyWeChatConnectEnabled]; ok {
+		return false
+	}
+	if _, ok := settings[SettingKeyWeChatConnectMode]; ok {
+		return false
+	}
+	meaningfulKeys := []string{
+		SettingKeyWeChatConnectAppID,
+		SettingKeyWeChatConnectAppSecret,
+		SettingKeyWeChatConnectOpenAppID,
+		SettingKeyWeChatConnectOpenAppSecret,
+		SettingKeyWeChatConnectMPAppID,
+		SettingKeyWeChatConnectMPAppSecret,
+		SettingKeyWeChatConnectMobileAppID,
+		SettingKeyWeChatConnectMobileAppSecret,
+		SettingKeyWeChatConnectScopes,
+		SettingKeyWeChatConnectRedirectURL,
+		SettingKeyWeChatConnectFrontendRedirectURL,
+	}
+	for _, key := range meaningfulKeys {
+		if v, ok := settings[key]; ok && strings.TrimSpace(v) != "" {
+			return false
+		}
+	}
+
+	capKeys := []string{
+		SettingKeyWeChatConnectOpenEnabled,
+		SettingKeyWeChatConnectMPEnabled,
+		SettingKeyWeChatConnectMobileEnabled,
+	}
+	hasCapOverride := false
+	for _, key := range capKeys {
+		v, ok := settings[key]
+		if !ok {
+			continue
+		}
+		hasCapOverride = true
+		if parseBool(v) {
+			return false
+		}
+	}
+	return hasCapOverride
 }
 
 func parseWeChatConnectCapabilitySettings(settings map[string]string, enabled bool, mode string) (bool, bool, bool) {
