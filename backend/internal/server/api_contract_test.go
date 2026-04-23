@@ -77,7 +77,8 @@ func TestAPIContracts(t *testing.T) {
 							"can_unbind": false,
 							"display_name": "alice@example.com",
 							"subject_hint": "a***e@example.com",
-							"note": "Primary account email is managed from the profile form."
+							"note": "Primary account email is managed from the profile form.",
+							"note_key": "profile.authBindings.notes.emailManagedFromProfile"
 						},
 						"linuxdo": {
 							"provider": "linuxdo",
@@ -85,7 +86,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/linuxdo/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						},
 						"oidc": {
 							"provider": "oidc",
@@ -93,7 +94,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						},
 						"wechat": {
 							"provider": "wechat",
@@ -101,7 +102,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"identity_bindings": {
@@ -114,7 +115,8 @@ func TestAPIContracts(t *testing.T) {
 							"can_unbind": false,
 							"display_name": "alice@example.com",
 							"subject_hint": "a***e@example.com",
-							"note": "Primary account email is managed from the profile form."
+							"note": "Primary account email is managed from the profile form.",
+							"note_key": "profile.authBindings.notes.emailManagedFromProfile"
 						},
 						"linuxdo": {
 							"provider": "linuxdo",
@@ -122,7 +124,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/linuxdo/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						},
 						"oidc": {
 							"provider": "oidc",
@@ -130,7 +132,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						},
 						"wechat": {
 							"provider": "wechat",
@@ -138,7 +140,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
 					"auth_bindings": {
@@ -151,7 +153,8 @@ func TestAPIContracts(t *testing.T) {
 							"can_unbind": false,
 							"display_name": "alice@example.com",
 							"subject_hint": "a***e@example.com",
-							"note": "Primary account email is managed from the profile form."
+							"note": "Primary account email is managed from the profile form.",
+							"note_key": "profile.authBindings.notes.emailManagedFromProfile"
 						},
 						"linuxdo": {
 							"provider": "linuxdo",
@@ -159,7 +162,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/linuxdo/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						},
 						"oidc": {
 							"provider": "oidc",
@@ -167,7 +170,7 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						},
 						"wechat": {
 							"provider": "wechat",
@@ -175,9 +178,10 @@ func TestAPIContracts(t *testing.T) {
 							"bound_count": 0,
 							"can_bind": true,
 							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
+					"rpm_limit": 0,
 					"run_mode": "standard"
 				}
 			}`,
@@ -330,6 +334,7 @@ func TestAPIContracts(t *testing.T) {
 						"fallback_group_id_on_invalid_request": null,
 						"require_oauth_only": false,
 						"require_privacy_set": false,
+						"rpm_limit": 0,
 						"created_at": "2025-01-02T03:04:05Z",
 						"updated_at": "2025-01-02T03:04:05Z"
 					}
@@ -711,6 +716,7 @@ func TestAPIContracts(t *testing.T) {
 					"default_balance": 1.25,
 					"default_subscriptions": [],
 					"default_upstream_user_agent": "",
+					"default_user_rpm_limit": 0,
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
 					"fallback_model_gemini": "gemini-2.5-pro",
