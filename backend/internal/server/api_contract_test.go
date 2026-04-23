@@ -903,6 +903,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 		nil,
 		nil,
 		nil,
+		nil,
 		settingService,
 		nil,
 		userSubRepo,
