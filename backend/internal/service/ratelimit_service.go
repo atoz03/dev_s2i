@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -51,10 +53,12 @@ type geminiUsageTotalsBatchProvider interface {
 	GetGeminiUsageTotalsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]GeminiUsageTotals, error)
 }
 
-const geminiPrecheckCacheTTL = time.Minute
-const openAI403CooldownMinutesDefault = 10
-const openAI403DisableThreshold = 3
-const openAI403CounterWindowMinutes = 180
+const (
+	geminiPrecheckCacheTTL          = time.Minute
+	openAI403CooldownMinutesDefault = 10
+	openAI403DisableThreshold       = 3
+	openAI403CounterWindowMinutes   = 180
+)
 
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
@@ -663,42 +667,90 @@ func (s *RateLimitService) handleAuthError(ctx context.Context, account *Account
 	slog.Warn("account_disabled_auth_error", "account_id", account.ID, "error", errorMsg)
 }
 
-func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
-	msg := "Access forbidden (403): account may be suspended or lack permissions"
-	if upstreamMsg != "" {
-		msg = "Access forbidden (403): " + upstreamMsg
-	} else if fallback := strings.TrimSpace(truncateForLog(responseBody, 512)); fallback != "" {
-		msg = "Access forbidden (403): " + fallback
+func buildForbiddenErrorMessage(prefix string, upstreamMsg string, responseBody []byte, fallback string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix != "" && !strings.HasSuffix(prefix, " ") {
+		prefix += " "
 	}
 
-	if account != nil && account.Platform == PlatformOpenAI && s.openAI403CounterCache != nil {
-		count, err := s.openAI403CounterCache.IncrementOpenAI403Count(ctx, account.ID, openAI403CounterWindowMinutes)
-		if err != nil {
-			slog.Warn("openai_403_increment_failed", "account_id", account.ID, "error", err)
-		} else if count < openAI403DisableThreshold {
-			until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
-			reason := "OpenAI 403 temporary cooldown (" + strconv.FormatInt(count, 10) + "/" + strconv.Itoa(openAI403DisableThreshold) + "): " + msg
-			if setErr := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); setErr != nil {
-				slog.Warn("openai_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", setErr)
+	if msg := strings.TrimSpace(upstreamMsg); msg != "" {
+		return prefix + msg
+	}
+
+	rawBody := bytes.TrimSpace(responseBody)
+	if len(rawBody) > 0 {
+		if json.Valid(rawBody) {
+			var compact bytes.Buffer
+			if err := json.Compact(&compact, rawBody); err == nil {
+				return prefix + truncateForLog(compact.Bytes(), 512)
 			}
-			return true
-		} else {
-			msg = msg + " (consecutive_403=" + strconv.FormatInt(count, 10) + "/" + strconv.Itoa(openAI403DisableThreshold) + ")"
 		}
+		return prefix + truncateForLog(rawBody, 512)
 	}
 
+	return prefix + fallback
+}
+
+// handle403 处理 403 Forbidden 错误
+// Antigravity 平台区分 validation/violation/generic 三种类型，均 SetError 永久禁用；
+// 其他平台保持原有 SetError 行为。
+func (s *RateLimitService) handle403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	if account.Platform == PlatformOpenAI {
+		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
+	}
+	// 非 Antigravity 平台：保持原有行为
+	msg := buildForbiddenErrorMessage(
+		"Access forbidden (403):",
+		upstreamMsg,
+		responseBody,
+		"account may be suspended or lack permissions",
+	)
 	s.handleAuthError(ctx, account, msg)
 	return true
 }
 
-// ResetOpenAI403Counter 在账号恢复正常后清理 OpenAI 403 连续失败计数。
-func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID int64) {
-	if s == nil || s.openAI403CounterCache == nil || accountID <= 0 {
-		return
+func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	msg := buildForbiddenErrorMessage(
+		"Access forbidden (403):",
+		upstreamMsg,
+		responseBody,
+		"account may be suspended or lack permissions",
+	)
+
+	if s.openAI403CounterCache == nil {
+		s.handleAuthError(ctx, account, msg)
+		return true
 	}
-	if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
-		slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
+
+	count, err := s.openAI403CounterCache.IncrementOpenAI403Count(ctx, account.ID, openAI403CounterWindowMinutes)
+	if err != nil {
+		slog.Warn("openai_403_increment_failed", "account_id", account.ID, "error", err)
+		s.handleAuthError(ctx, account, msg)
+		return true
 	}
+
+	if count >= openAI403DisableThreshold {
+		msg = fmt.Sprintf("%s | consecutive_403=%d/%d", msg, count, openAI403DisableThreshold)
+		s.handleAuthError(ctx, account, msg)
+		return true
+	}
+
+	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
+	reason := fmt.Sprintf("OpenAI 403 temporary cooldown (%d/%d): %s", count, openAI403DisableThreshold, msg)
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		slog.Warn("openai_403_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+		s.handleAuthError(ctx, account, msg)
+		return true
+	}
+
+	slog.Warn(
+		"openai_403_temp_unschedulable",
+		"account_id", account.ID,
+		"until", until,
+		"count", count,
+		"threshold", openAI403DisableThreshold,
+	)
+	return true
 }
 
 // handleCustomErrorCode 处理自定义错误码，停止账号调度
@@ -1211,7 +1263,17 @@ func (s *RateLimitService) ClearRateLimit(ctx context.Context, accountID int64) 
 			slog.Warn("temp_unsched_cache_delete_failed", "account_id", accountID, "error", err)
 		}
 	}
+	s.ResetOpenAI403Counter(ctx, accountID)
 	return nil
+}
+
+func (s *RateLimitService) ResetOpenAI403Counter(ctx context.Context, accountID int64) {
+	if s == nil || s.openAI403CounterCache == nil || accountID <= 0 {
+		return
+	}
+	if err := s.openAI403CounterCache.ResetOpenAI403Count(ctx, accountID); err != nil {
+		slog.Warn("openai_403_reset_failed", "account_id", accountID, "error", err)
+	}
 }
 
 // RecoverAccountState 按需恢复账号的可恢复运行时状态。
@@ -1239,6 +1301,9 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 			return nil, err
 		}
 		result.ClearedRateLimit = true
+	}
+	if result.ClearedError || result.ClearedRateLimit {
+		s.ResetOpenAI403Counter(ctx, accountID)
 	}
 
 	return result, nil

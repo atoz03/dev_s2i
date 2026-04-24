@@ -26,6 +26,8 @@ import (
 const (
 	openAIImagesGenerationsEndpoint = "/v1/images/generations"
 	openAIImagesEditsEndpoint       = "/v1/images/edits"
+	// /v1/images 转 /v1/responses image_generation 时使用的主模型。
+	openAIImagesResponsesMainModel = "gpt-5.4-mini"
 )
 
 type OpenAIImagesCapability string
@@ -54,6 +56,16 @@ type OpenAIImagesRequest struct {
 	Stream             bool
 	N                  int
 	Size               string
+	Quality            string
+	Background         string
+	OutputFormat       string
+	Moderation         string
+	Style              string
+	OutputCompression  *int
+	PartialImages      *int
+	InputImageURLs     []string
+	MaskImageURL       string
+	MaskUpload         *OpenAIImagesUpload
 	ExplicitSize       bool
 	SizeTier           string
 	ResponseFormat     string
@@ -168,6 +180,38 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		req.Size = strings.TrimSpace(sizeResult.String())
 		req.ExplicitSize = req.Size != ""
 	}
+	req.Quality = strings.TrimSpace(gjson.GetBytes(body, "quality").String())
+	req.Background = strings.TrimSpace(gjson.GetBytes(body, "background").String())
+	req.OutputFormat = strings.TrimSpace(gjson.GetBytes(body, "output_format").String())
+	req.Moderation = strings.TrimSpace(gjson.GetBytes(body, "moderation").String())
+	req.Style = strings.TrimSpace(gjson.GetBytes(body, "style").String())
+	if outputCompression := gjson.GetBytes(body, "output_compression"); outputCompression.Exists() && outputCompression.Type == gjson.Number {
+		v := int(outputCompression.Int())
+		req.OutputCompression = &v
+	}
+	if partialImages := gjson.GetBytes(body, "partial_images"); partialImages.Exists() && partialImages.Type == gjson.Number {
+		v := int(partialImages.Int())
+		req.PartialImages = &v
+	}
+	if image := gjson.GetBytes(body, "image"); image.Exists() {
+		switch image.Type {
+		case gjson.String:
+			if trimmed := strings.TrimSpace(image.String()); trimmed != "" {
+				req.InputImageURLs = append(req.InputImageURLs, trimmed)
+			}
+		case gjson.JSON:
+			if image.IsArray() {
+				for _, item := range image.Array() {
+					if trimmed := strings.TrimSpace(item.String()); trimmed != "" {
+						req.InputImageURLs = append(req.InputImageURLs, trimmed)
+					}
+				}
+			}
+		}
+	}
+	if mask := gjson.GetBytes(body, "mask"); mask.Exists() && mask.Type == gjson.String {
+		req.MaskImageURL = strings.TrimSpace(mask.String())
+	}
 	req.ResponseFormat = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "response_format").String()))
 	req.HasMask = gjson.GetBytes(body, "mask").Exists()
 	req.HasNativeOptions = hasOpenAINativeImageOptions(func(path string) bool {
@@ -212,6 +256,13 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			partContentType := strings.TrimSpace(part.Header.Get("Content-Type"))
 			if name == "mask" && len(data) > 0 {
 				req.HasMask = true
+				maskUpload := OpenAIImagesUpload{
+					FieldName:   name,
+					FileName:    fileName,
+					ContentType: partContentType,
+					Data:        data,
+				}
+				req.MaskUpload = &maskUpload
 			}
 			if name == "image" || strings.HasPrefix(name, "image[") {
 				width, height := parseOpenAIImageDimensions(part.Header)
@@ -234,9 +285,36 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			req.ExplicitModel = value != ""
 		case "prompt":
 			req.Prompt = value
+		case "image":
+			if value != "" {
+				req.InputImageURLs = append(req.InputImageURLs, value)
+			}
+		case "mask":
+			req.MaskImageURL = value
+			if value != "" {
+				req.HasMask = true
+			}
 		case "size":
 			req.Size = value
 			req.ExplicitSize = value != ""
+		case "quality":
+			req.Quality = value
+		case "background":
+			req.Background = value
+		case "output_format":
+			req.OutputFormat = value
+		case "moderation":
+			req.Moderation = value
+		case "style":
+			req.Style = value
+		case "output_compression":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				req.OutputCompression = &parsed
+			}
+		case "partial_images":
+			if parsed, err := strconv.Atoi(value); err == nil {
+				req.PartialImages = &parsed
+			}
 		case "response_format":
 			req.ResponseFormat = strings.ToLower(value)
 		case "stream":

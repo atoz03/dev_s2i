@@ -42,6 +42,7 @@ export interface SystemSettings {
   // Default settings
   default_balance: number
   default_concurrency: number
+  default_user_rpm_limit: number
   default_subscriptions: DefaultSubscriptionSetting[]
   // OEM settings
   site_name: string
@@ -199,6 +200,12 @@ export interface SystemSettings {
   balance_low_notify_recharge_url: string
   account_quota_notify_enabled: boolean
   account_quota_notify_emails: NotifyEmailEntry[]
+  // Channel Monitor feature switch
+  channel_monitor_enabled: boolean
+  channel_monitor_default_interval_seconds: number
+
+  // Available Channels feature switch
+  available_channels_enabled: boolean
 }
 
 export interface UpdateSettingsRequest {
@@ -212,6 +219,7 @@ export interface UpdateSettingsRequest {
   totp_enabled?: boolean // TOTP 双因素认证
   default_balance?: number
   default_concurrency?: number
+  default_user_rpm_limit?: number
   default_subscriptions?: DefaultSubscriptionSetting[]
   site_name?: string
   site_logo?: string
@@ -252,6 +260,11 @@ export interface UpdateSettingsRequest {
   wechat_connect_frontend_redirect_url?: string
   wechat_connect_mp_app_id?: string
   wechat_connect_mp_app_secret?: string
+  wechat_connect_open_app_id?: string
+  wechat_connect_open_app_secret?: string
+  wechat_connect_mobile_app_id?: string
+  wechat_connect_mobile_app_secret?: string
+  wechat_connect_mobile_enabled?: boolean
   oidc_connect_enabled?: boolean
   oidc_connect_provider_name?: string
   oidc_connect_client_id?: string
@@ -299,6 +312,7 @@ export interface UpdateSettingsRequest {
   fallback_model_anthropic?: string
   fallback_model_openai?: string
   fallback_model_gemini?: string
+  fallback_model_antigravity?: string
   enable_identity_patch?: boolean
   identity_patch_prompt?: string
   ops_monitoring_enabled?: boolean
@@ -345,6 +359,12 @@ export interface UpdateSettingsRequest {
   balance_low_notify_recharge_url?: string
   account_quota_notify_enabled?: boolean
   account_quota_notify_emails?: NotifyEmailEntry[]
+  // Channel Monitor feature switch
+  channel_monitor_enabled?: boolean
+  channel_monitor_default_interval_seconds?: number
+
+  // Available Channels feature switch
+  available_channels_enabled?: boolean
 }
 
 /**

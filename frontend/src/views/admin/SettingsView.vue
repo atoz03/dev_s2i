@@ -3200,6 +3200,7 @@ const form = reactive<SettingsForm>({
   totp_encryption_key_configured: false,
   default_balance: 0,
   default_concurrency: 1,
+  default_user_rpm_limit: 0,
   default_subscriptions: [],
   site_name: 'Sub2API',
   site_logo: '',
@@ -3329,6 +3330,9 @@ const form = reactive<SettingsForm>({
   payment_visible_method_alipay_enabled: false,
   payment_visible_method_wxpay_enabled: false,
   openai_advanced_scheduler_enabled: false,
+  channel_monitor_enabled: true,
+  channel_monitor_default_interval_seconds: 300,
+  available_channels_enabled: false,
 })
 const authSourceEmailEnabled = ref(false)
 
