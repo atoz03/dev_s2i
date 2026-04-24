@@ -725,7 +725,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon, menuKey: 'announcements' as const },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon, menuKey: 'proxies' as const },
     { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true, menuKey: 'redeem' as const },
-    { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true, menuKey: 'promoCodes' as const },
     {
       path: '/admin/orders',
       label: t('nav.orderManagement'),

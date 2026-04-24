@@ -22,6 +22,7 @@ export const ADMIN_MENU_VISIBILITY_OPTIONS: readonly AdminMenuVisibilityOption[]
   { key: 'announcements', labelKey: 'nav.announcements' },
   { key: 'proxies', labelKey: 'nav.proxies' },
   { key: 'redeem', labelKey: 'nav.redeemCodes' },
+  { key: 'promoCodes', labelKey: 'nav.promoCodes' },
   { key: 'paymentDashboard', labelKey: 'nav.paymentDashboard' },
   { key: 'paymentOrders', labelKey: 'nav.orderManagement' },
   { key: 'paymentPlans', labelKey: 'nav.paymentPlans' },

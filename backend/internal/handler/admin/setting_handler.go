@@ -36,6 +36,7 @@ var allowedHiddenAdminMenuItemKeys = map[string]struct{}{
 	"announcements":    {},
 	"proxies":          {},
 	"redeem":           {},
+	"promoCodes":       {},
 	"paymentDashboard": {},
 	"paymentOrders":    {},
 	"paymentPlans":     {},

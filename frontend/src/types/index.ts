@@ -42,6 +42,7 @@ export type AdminBuiltinMenuItemKey =
   | 'announcements'
   | 'proxies'
   | 'redeem'
+  | 'promoCodes'
   | 'paymentDashboard'
   | 'paymentOrders'
   | 'paymentPlans'
