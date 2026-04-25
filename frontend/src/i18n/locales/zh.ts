@@ -338,6 +338,7 @@ export default {
     apiKeys: 'API 密钥',
     usage: '使用记录',
     redeem: '兑换',
+    affiliate: '邀请返利',
     profile: '个人资料',
     users: '用户管理',
     groups: '分组管理',
@@ -850,6 +851,159 @@ export default {
     userAgent: 'User-Agent'
   },
 
+  // Shared keys for channel monitor (admin + user views)
+  monitorCommon: {
+    status: {
+      operational: '正常',
+      degraded: '降级',
+      failed: '失败',
+      error: '错误',
+      unknown: '-'
+    },
+    providers: {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      gemini: 'Gemini'
+    },
+    extraModelsHeader: '附加模型',
+    extraModelsEmpty: '无附加模型',
+    latencyEmpty: '-',
+    availabilityPrefix: '可用性',
+    dialogLatency: '对话延迟',
+    endpointPing: '端点 PING',
+    history60pts: '近 {n} 次记录',
+    nextUpdateIn: '{n}s 后刷新',
+    past: 'PAST',
+    now: 'NOW',
+    maintenancePaused: '维护中 · 已暂停时间线采集',
+    extraModelsCount: '+ {n} 模型',
+    pollEvery: '{n}s 轮询',
+    updatedAt: '更新于 {time}',
+    relativeSecondsAgo: '{n} 秒前',
+    relativeMinutesAgo: '{n} 分钟前',
+    relativeHoursAgo: '{n} 小时前',
+    relativeDaysAgo: '{n} 天前'
+  },
+
+  // Channel Status (user-facing read-only view)
+  channelStatus: {
+    title: '渠道状态',
+    description: '查看渠道可用性、延迟和近期状态',
+    searchPlaceholder: '搜索渠道...',
+    allProviders: '全部供应商',
+    loadError: '加载渠道状态失败',
+    detailLoadError: '加载渠道详情失败',
+    detailTitle: '渠道详情',
+    closeDetail: '关闭',
+    windowTab: {
+      '7d': '7 天',
+      '15d': '15 天',
+      '30d': '30 天'
+    },
+    overall: {
+      operational: 'OPERATIONAL',
+      degraded: 'DEGRADED',
+      unavailable: 'UNAVAILABLE'
+    },
+    columns: {
+      name: '名称',
+      provider: '供应商',
+      groupName: '分组',
+      primaryModel: '主模型',
+      availability7d: '7 天可用率',
+      latency: '延迟 (ms)'
+    },
+    detailColumns: {
+      model: '模型',
+      latestStatus: '最新状态',
+      latestLatency: '最新延迟 (ms)',
+      availability7d: '7 天可用率',
+      availability15d: '15 天可用率',
+      availability30d: '30 天可用率',
+      avgLatency7d: '7 天平均延迟 (ms)'
+    },
+    empty: {
+      title: '暂无可显示的渠道',
+      description: '管理员尚未配置可监控的渠道。'
+    }
+  },
+
+  // Available Channels (user-facing)
+  availableChannels: {
+    title: '可用渠道',
+    description: '查看您可访问的渠道与其支持的模型、定价',
+    searchPlaceholder: '搜索渠道或模型...',
+    empty: '暂无可用渠道',
+    noModels: '未配置模型',
+    noPricing: '未配置定价',
+    exclusive: '专属',
+    public: '公开',
+    exclusiveTooltip: '管理员授权给你的专属分组',
+    publicTooltip: '对所有用户公开的分组',
+    columns: {
+      name: '渠道名',
+      description: '描述',
+      platform: '平台',
+      groups: '我可访问的分组',
+      supportedModels: '支持模型'
+    },
+    pricing: {
+      billingMode: '计费模式',
+      billingModeToken: '按 Token',
+      billingModePerRequest: '按次',
+      billingModeImage: '按图片',
+      inputPrice: '输入',
+      outputPrice: '输出',
+      cacheWritePrice: '缓存写入',
+      cacheReadPrice: '缓存读取',
+      imageOutputPrice: '图片输出',
+      perRequestPrice: '每次请求',
+      intervals: '阶梯定价',
+      unitPerMillion: '/ 1M token',
+      unitPerRequest: '/ 次'
+    }
+  },
+
+  affiliate: {
+    title: '邀请返利',
+    description: '邀请新用户注册，并将返利额度转入账户余额',
+    yourCode: '我的邀请码',
+    inviteLink: '邀请链接',
+    copyCode: '复制邀请码',
+    copyLink: '复制链接',
+    codeCopied: '邀请码已复制',
+    linkCopied: '邀请链接已复制',
+    loadFailed: '加载邀请返利数据失败',
+    transferFailed: '转入余额失败',
+    stats: {
+      invitedUsers: '邀请人数',
+      availableQuota: '可转返利额度',
+      totalQuota: '历史返利额度'
+    },
+    transfer: {
+      title: '返利额度转余额',
+      description: '将当前可用返利额度一键转入账户余额',
+      button: '转入余额',
+      transferring: '转入中...',
+      empty: '当前没有可转入额度',
+      success: '已转入余额：{amount}'
+    },
+    invitees: {
+      title: '已邀请用户',
+      empty: '暂无邀请记录',
+      columns: {
+        email: '邮箱',
+        username: '用户名',
+        joinedAt: '注册时间'
+      }
+    },
+    tips: {
+      title: '使用说明',
+      line1: '将邀请码或邀请链接分享给新用户。',
+      line2: '被邀请用户充值后，你可获得对应比例的返利额度。',
+      line3: '返利额度可随时转入账户余额。'
+    }
+  },
   // Redeem
   redeem: {
     title: '兑换码',
@@ -2659,6 +2813,22 @@ export default {
         responsesWebsocketsV2PassthroughHint: '当前已开启自动透传：仅影响 HTTP 透传链路，不影响 WS mode。',
         codexCLIOnly: '仅允许 Codex 官方客户端',
         codexCLIOnlyDesc: '仅对 OpenAI OAuth 生效。开启后仅允许 Codex 官方客户端家族访问；关闭后完全绕过并保持原逻辑。',
+        compactMode: 'Compact 模式',
+        compactModeDesc:
+          '控制本账号在 /responses/compact 调度中的参与方式。Auto 跟随探测结果，Force On 强制允许，Force Off 强制排除。',
+        compactModeAuto: '自动',
+        compactModeForceOn: '强制开启',
+        compactModeForceOff: '强制关闭',
+        compactModelMapping: 'Compact 专属模型映射',
+        compactModelMappingDesc:
+          '仅在 /responses/compact 请求中生效。当上游 compact 端点需要特殊 compact 模型时使用。',
+        compactSupported: '支持 Compact',
+        compactUnsupported: '不支持 Compact',
+        compactUnknown: 'Compact 未知',
+        compactLastChecked: '最近探测',
+        testMode: '测试模式',
+        testModeDefault: '常规请求',
+        testModeCompact: 'Compact 探测',
         modelRestrictionDisabledByPassthrough: '已开启自动透传：模型白名单/映射不会生效。',
         enableSora: '同时启用 Sora',
         enableSoraHint: 'Sora 使用相同的 OpenAI 账号，开启后将同时创建 Sora 平台账号'
@@ -4697,6 +4867,8 @@ export default {
         description: '新用户的默认值',
         defaultBalance: '默认余额',
         defaultBalanceHint: '新用户的初始余额',
+        affiliateRebateRate: '邀请返利比例',
+        affiliateRebateRateHint: '充值后返给邀请人的比例（0-100%，例如填写 10 表示返利 10%）',
         defaultConcurrency: '默认并发数',
         defaultConcurrencyHint: '新用户的最大并发请求数',
         defaultSubscriptions: '默认订阅列表',

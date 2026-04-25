@@ -338,6 +338,7 @@ export default {
     apiKeys: 'API Keys',
     usage: 'Usage',
     redeem: 'Redeem',
+    affiliate: 'Affiliate Rebates',
     profile: 'Profile',
     users: 'Users',
     groups: 'Groups',
@@ -846,6 +847,159 @@ export default {
     userAgent: 'User-Agent'
   },
 
+  // Shared keys for channel monitor (admin + user views)
+  monitorCommon: {
+    status: {
+      operational: 'Operational',
+      degraded: 'Degraded',
+      failed: 'Failed',
+      error: 'Error',
+      unknown: '-'
+    },
+    providers: {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      gemini: 'Gemini'
+    },
+    extraModelsHeader: 'Extra Models',
+    extraModelsEmpty: 'No extra models',
+    latencyEmpty: '-',
+    availabilityPrefix: 'Availability',
+    dialogLatency: 'Dialog Latency',
+    endpointPing: 'Endpoint PING',
+    history60pts: 'HISTORY ({n} PTS)',
+    nextUpdateIn: 'NEXT UPDATE IN {n}s',
+    past: 'PAST',
+    now: 'NOW',
+    maintenancePaused: 'Maintenance · timeline paused',
+    extraModelsCount: '+ {n} models',
+    pollEvery: '{n}s polling',
+    updatedAt: 'Updated {time}',
+    relativeSecondsAgo: '{n}s ago',
+    relativeMinutesAgo: '{n}m ago',
+    relativeHoursAgo: '{n}h ago',
+    relativeDaysAgo: '{n}d ago'
+  },
+
+  // Channel Status (user-facing read-only view)
+  channelStatus: {
+    title: 'Channel Status',
+    description: 'Inspect channel availability, latency and recent status',
+    searchPlaceholder: 'Search channels...',
+    allProviders: 'All Providers',
+    loadError: 'Failed to load channel status',
+    detailLoadError: 'Failed to load channel detail',
+    detailTitle: 'Channel Detail',
+    closeDetail: 'Close',
+    windowTab: {
+      '7d': '7 days',
+      '15d': '15 days',
+      '30d': '30 days'
+    },
+    overall: {
+      operational: 'OPERATIONAL',
+      degraded: 'DEGRADED',
+      unavailable: 'UNAVAILABLE'
+    },
+    columns: {
+      name: 'Name',
+      provider: 'Provider',
+      groupName: 'Group',
+      primaryModel: 'Primary Model',
+      availability7d: '7d Availability',
+      latency: 'Latency (ms)'
+    },
+    detailColumns: {
+      model: 'Model',
+      latestStatus: 'Latest Status',
+      latestLatency: 'Latest Latency (ms)',
+      availability7d: '7d Availability',
+      availability15d: '15d Availability',
+      availability30d: '30d Availability',
+      avgLatency7d: '7d Avg Latency (ms)'
+    },
+    empty: {
+      title: 'No channels available',
+      description: 'No monitored channels have been configured yet.'
+    }
+  },
+
+  // Available Channels (user-facing)
+  availableChannels: {
+    title: 'Available Channels',
+    description: 'Channels you can access, along with their supported models and pricing',
+    searchPlaceholder: 'Search channels or models...',
+    empty: 'No available channels',
+    noModels: 'No models configured',
+    noPricing: 'Pricing not configured',
+    exclusive: 'Exclusive',
+    public: 'Public',
+    exclusiveTooltip: 'Exclusive groups granted to you by an admin',
+    publicTooltip: 'Groups open to all users',
+    columns: {
+      name: 'Channel',
+      description: 'Description',
+      platform: 'Platform',
+      groups: 'Your Accessible Groups',
+      supportedModels: 'Supported Models'
+    },
+    pricing: {
+      billingMode: 'Billing Mode',
+      billingModeToken: 'Per Token',
+      billingModePerRequest: 'Per Request',
+      billingModeImage: 'Per Image',
+      inputPrice: 'Input',
+      outputPrice: 'Output',
+      cacheWritePrice: 'Cache Write',
+      cacheReadPrice: 'Cache Read',
+      imageOutputPrice: 'Image Output',
+      perRequestPrice: 'Per Request',
+      intervals: 'Tiered Pricing',
+      unitPerMillion: '/ 1M tokens',
+      unitPerRequest: '/ request'
+    }
+  },
+
+  affiliate: {
+    title: 'Affiliate Rebates',
+    description: 'Invite new users and convert your rebate quota into account balance',
+    yourCode: 'Your Affiliate Code',
+    inviteLink: 'Invite Link',
+    copyCode: 'Copy Code',
+    copyLink: 'Copy Link',
+    codeCopied: 'Affiliate code copied',
+    linkCopied: 'Invite link copied',
+    loadFailed: 'Failed to load affiliate data',
+    transferFailed: 'Failed to transfer affiliate quota',
+    stats: {
+      invitedUsers: 'Invited Users',
+      availableQuota: 'Available Rebate Quota',
+      totalQuota: 'Historical Rebate Quota'
+    },
+    transfer: {
+      title: 'Transfer Rebate Quota',
+      description: 'Move available rebate quota into your account balance',
+      button: 'Transfer to Balance',
+      transferring: 'Transferring...',
+      empty: 'No available rebate quota',
+      success: '{amount} has been transferred to your balance'
+    },
+    invitees: {
+      title: 'Invited Users',
+      empty: 'No invited users yet',
+      columns: {
+        email: 'Email',
+        username: 'Username',
+        joinedAt: 'Joined At'
+      }
+    },
+    tips: {
+      title: 'How It Works',
+      line1: 'Share your affiliate code or invite link with new users.',
+      line2: 'When invitees recharge, you receive rebate quota based on the configured rate.',
+      line3: 'Transfer rebate quota to balance at any time.'
+    }
+  },
   // Redeem
   redeem: {
     title: 'Redeem Code',
@@ -2512,6 +2666,22 @@ export default {
         codexCLIOnly: 'Codex official clients only',
         codexCLIOnlyDesc:
           'Only applies to OpenAI OAuth. When enabled, only Codex official client families are allowed; when disabled, the gateway bypasses this restriction and keeps existing behavior.',
+        compactMode: 'Compact mode',
+        compactModeDesc:
+          'Controls how this account participates in /responses/compact routing. Auto follows probe results, Force On always allows, Force Off always excludes.',
+        compactModeAuto: 'Auto',
+        compactModeForceOn: 'Force On',
+        compactModeForceOff: 'Force Off',
+        compactModelMapping: 'Compact-only model mapping',
+        compactModelMappingDesc:
+          'Only applies to /responses/compact. Use this when the upstream compact endpoint requires a special compact model.',
+        compactSupported: 'Compact supported',
+        compactUnsupported: 'Compact unsupported',
+        compactUnknown: 'Compact unknown',
+        compactLastChecked: 'Last compact probe',
+        testMode: 'Test mode',
+        testModeDefault: 'Default request',
+        testModeCompact: 'Compact probe',
         modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
         enableSora: 'Enable Sora simultaneously',
         enableSoraHint: 'Sora uses the same OpenAI account. Enable to create Sora account simultaneously.'
@@ -4532,6 +4702,9 @@ export default {
         description: 'Default values for new users',
         defaultBalance: 'Default Balance',
         defaultBalanceHint: 'Initial balance for new users',
+        affiliateRebateRate: 'Affiliate Rebate Rate',
+        affiliateRebateRateHint:
+          'Rebate percentage credited to inviter after recharge (0-100%, e.g. 10 means 10%)',
         defaultConcurrency: 'Default Concurrency',
         defaultConcurrencyHint: 'Maximum concurrent requests for new users',
         defaultSubscriptions: 'Default Subscriptions',
