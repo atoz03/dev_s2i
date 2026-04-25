@@ -3200,6 +3200,7 @@ const form = reactive<SettingsForm>({
   totp_encryption_key_configured: false,
   default_balance: 0,
   default_concurrency: 1,
+  affiliate_rebate_rate: 20,
   default_user_rpm_limit: 0,
   default_subscriptions: [],
   site_name: 'Sub2API',
