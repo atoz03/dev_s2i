@@ -138,7 +138,7 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimitState(t *testin
 
 func TestAccountTestService_OpenAI429BodyOnlyPersistsRateLimitAndClearsStaleError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
+	ctx, _ := newSoraTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","resets_at":"1777283883"}}`)
 
@@ -168,7 +168,7 @@ func TestAccountTestService_OpenAI429BodyOnlyPersistsRateLimitAndClearsStaleErro
 
 func TestAccountTestService_OpenAI429ActiveAccountDoesNotClearError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
+	ctx, _ := newSoraTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","resets_in_seconds":3600}}`)
 
@@ -195,7 +195,7 @@ func TestAccountTestService_OpenAI429ActiveAccountDoesNotClearError(t *testing.T
 
 func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
+	ctx, _ := newSoraTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached"}}`)
 
@@ -224,7 +224,7 @@ func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState
 
 func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
+	ctx, _ := newSoraTestContext()
 
 	resp := newJSONResponse(http.StatusUnauthorized, `{"error":"bad token"}`)
 
