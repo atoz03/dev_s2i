@@ -279,7 +279,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		CustomEndpoints:                          dto.ParseCustomEndpoints(settings.CustomEndpoints),
 		DefaultConcurrency:                       settings.DefaultConcurrency,
 		DefaultBalance:                           settings.DefaultBalance,
+		AffiliateEnabled:                         settings.AffiliateEnabled,
 		AffiliateRebateRate:                      settings.AffiliateRebateRate,
+		AffiliateRebateFreezeHours:               settings.AffiliateRebateFreezeHours,
+		AffiliateRebateDurationDays:              settings.AffiliateRebateDurationDays,
+		AffiliateRebatePerInviteeCap:             settings.AffiliateRebatePerInviteeCap,
 		DefaultUserRPMLimit:                      settings.DefaultUserRPMLimit,
 		DefaultSubscriptions:                     defaultSubscriptions,
 		AuthSourceDefaultEmailBalance:            authSourceDefaults.Email.Balance,
@@ -452,11 +456,15 @@ type UpdateSettingsRequest struct {
 	CustomEndpoints             *[]dto.CustomEndpoint `json:"custom_endpoints"`
 
 	// 默认配置
-	DefaultConcurrency   int                              `json:"default_concurrency"`
-	DefaultBalance       float64                          `json:"default_balance"`
-	AffiliateRebateRate  *float64                         `json:"affiliate_rebate_rate"`
-	DefaultUserRPMLimit  int                              `json:"default_user_rpm_limit"`
-	DefaultSubscriptions []dto.DefaultSubscriptionSetting `json:"default_subscriptions"`
+	DefaultConcurrency           int                              `json:"default_concurrency"`
+	DefaultBalance               float64                          `json:"default_balance"`
+	AffiliateEnabled             *bool                            `json:"affiliate_enabled"`
+	AffiliateRebateRate          *float64                         `json:"affiliate_rebate_rate"`
+	AffiliateRebateFreezeHours   *int                             `json:"affiliate_rebate_freeze_hours"`
+	AffiliateRebateDurationDays  *int                             `json:"affiliate_rebate_duration_days"`
+	AffiliateRebatePerInviteeCap *float64                         `json:"affiliate_rebate_per_invitee_cap"`
+	DefaultUserRPMLimit          int                              `json:"default_user_rpm_limit"`
+	DefaultSubscriptions         []dto.DefaultSubscriptionSetting `json:"default_subscriptions"`
 	// 第三方登录默认赠送配置（Email 来源）
 	AuthSourceDefaultEmailBalance            *float64                          `json:"auth_source_default_email_balance"`
 	AuthSourceDefaultEmailConcurrency        *int                              `json:"auth_source_default_email_concurrency"`
@@ -587,6 +595,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.DefaultUserRPMLimit < 0 {
 		req.DefaultUserRPMLimit = 0
 	}
+	affiliateEnabled := previousSettings.AffiliateEnabled
+	if req.AffiliateEnabled != nil {
+		affiliateEnabled = *req.AffiliateEnabled
+	}
 	affiliateRebateRate := previousSettings.AffiliateRebateRate
 	if req.AffiliateRebateRate != nil {
 		affiliateRebateRate = *req.AffiliateRebateRate
@@ -596,6 +608,33 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	if affiliateRebateRate > service.AffiliateRebateRateMax {
 		affiliateRebateRate = service.AffiliateRebateRateMax
+	}
+	affiliateRebateFreezeHours := previousSettings.AffiliateRebateFreezeHours
+	if req.AffiliateRebateFreezeHours != nil {
+		affiliateRebateFreezeHours = *req.AffiliateRebateFreezeHours
+	}
+	if affiliateRebateFreezeHours < 0 {
+		affiliateRebateFreezeHours = service.AffiliateRebateFreezeHoursDefault
+	}
+	if affiliateRebateFreezeHours > service.AffiliateRebateFreezeHoursMax {
+		affiliateRebateFreezeHours = service.AffiliateRebateFreezeHoursMax
+	}
+	affiliateRebateDurationDays := previousSettings.AffiliateRebateDurationDays
+	if req.AffiliateRebateDurationDays != nil {
+		affiliateRebateDurationDays = *req.AffiliateRebateDurationDays
+	}
+	if affiliateRebateDurationDays < 0 {
+		affiliateRebateDurationDays = service.AffiliateRebateDurationDaysDefault
+	}
+	if affiliateRebateDurationDays > service.AffiliateRebateDurationDaysMax {
+		affiliateRebateDurationDays = service.AffiliateRebateDurationDaysMax
+	}
+	affiliateRebatePerInviteeCap := previousSettings.AffiliateRebatePerInviteeCap
+	if req.AffiliateRebatePerInviteeCap != nil {
+		affiliateRebatePerInviteeCap = *req.AffiliateRebatePerInviteeCap
+	}
+	if affiliateRebatePerInviteeCap < 0 {
+		affiliateRebatePerInviteeCap = service.AffiliateRebatePerInviteeCapDefault
 	}
 	// 通用表格配置：兼容旧客户端未传字段时保留当前值。
 	if req.TableDefaultPageSize <= 0 {
@@ -1259,7 +1298,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomEndpoints:                  customEndpointsJSON,
 		DefaultConcurrency:               req.DefaultConcurrency,
 		DefaultBalance:                   req.DefaultBalance,
+		AffiliateEnabled:                 affiliateEnabled,
 		AffiliateRebateRate:              affiliateRebateRate,
+		AffiliateRebateFreezeHours:       affiliateRebateFreezeHours,
+		AffiliateRebateDurationDays:      affiliateRebateDurationDays,
+		AffiliateRebatePerInviteeCap:     affiliateRebatePerInviteeCap,
 		DefaultUserRPMLimit:              req.DefaultUserRPMLimit,
 		DefaultSubscriptions:             defaultSubscriptions,
 		EnableModelFallback:              req.EnableModelFallback,
@@ -1572,7 +1615,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CustomEndpoints:                          dto.ParseCustomEndpoints(updatedSettings.CustomEndpoints),
 		DefaultConcurrency:                       updatedSettings.DefaultConcurrency,
 		DefaultBalance:                           updatedSettings.DefaultBalance,
+		AffiliateEnabled:                         updatedSettings.AffiliateEnabled,
 		AffiliateRebateRate:                      updatedSettings.AffiliateRebateRate,
+		AffiliateRebateFreezeHours:               updatedSettings.AffiliateRebateFreezeHours,
+		AffiliateRebateDurationDays:              updatedSettings.AffiliateRebateDurationDays,
+		AffiliateRebatePerInviteeCap:             updatedSettings.AffiliateRebatePerInviteeCap,
 		DefaultUserRPMLimit:                      updatedSettings.DefaultUserRPMLimit,
 		DefaultSubscriptions:                     updatedDefaultSubscriptions,
 		AuthSourceDefaultEmailBalance:            updatedAuthDefaults.Email.Balance,

@@ -107,3 +107,10 @@
 - 根因：回滚到 `de83d5e8` 后，`gateway_handler.go` 带入 antigravity 依赖但对应实现未纳入，且同时存在 openai images/session hash、public settings 字段、wire 生成文件与构造签名漂移。
 - 修复：`gateway_handler.go` 回到 `10d7deca` 的无-antigravity 版本；补齐 `GenerateExplicitSessionHash` 与 `AffiliateEnabled`（dto + SSR 注入）；更新 `api_contract_test.go` 的 `NewAccountHandler` 参数；重生成 `backend/cmd/server/wire_gen.go`；移除未使用函数 `writeOpenAIFastPolicyBlockedResponse`。
 - 验证：`cd backend && go list ./... && go test ./... && golangci-lint run ./...` 通过。
+
+## 2026-05-01 API contract 修复
+
+- 根因：`TestAPIContracts` 仍按旧 settings/usage 快照断言；同时 admin settings 响应遗漏现有 affiliate 与 channel monitor 设置字段，导致真实 API 与 contract 不一致。
+- 修复：补齐 affiliate 开关、返利冻结/有效期/单人上限以及 channel monitor/available channels 的 settings 读写与响应映射；usage contract 移除已不存在的 `media_type`；settings contract 补上当前本地设置字段，移除未暴露到 admin settings API 的 `fallback_model_antigravity` 与 `openai_fast_policy_settings` 断言；WeChat OAuth config fallback 保持多通道字段独立，不把 open 配置复制到 legacy/mp/mobile。
+- 约束：本次不恢复已删除的 antigravity gateway package/service 逻辑，只修 API contract 与现有 settings 链路。
+- 验证：`cd backend && go test -tags=unit ./internal/server -run TestAPIContracts -count=1`、`cd backend && go test -tags=unit ./...`、`cd backend && go list ./... && golangci-lint run ./...` 通过。

@@ -633,8 +633,12 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	// 默认配置
 	updates[SettingKeyDefaultConcurrency] = strconv.Itoa(settings.DefaultConcurrency)
 	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
+	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
 	settings.AffiliateRebateRate = clampAffiliateRebateRate(settings.AffiliateRebateRate)
 	updates[SettingKeyAffiliateRebateRate] = strconv.FormatFloat(settings.AffiliateRebateRate, 'f', 8, 64)
+	updates[SettingKeyAffiliateRebateFreezeHours] = strconv.Itoa(clampAffiliateRebateFreezeHours(settings.AffiliateRebateFreezeHours))
+	updates[SettingKeyAffiliateRebateDurationDays] = strconv.Itoa(clampAffiliateRebateDurationDays(settings.AffiliateRebateDurationDays))
+	updates[SettingKeyAffiliateRebatePerInviteeCap] = strconv.FormatFloat(normalizeAffiliateRebatePerInviteeCap(settings.AffiliateRebatePerInviteeCap), 'f', 8, 64)
 	updates[SettingKeyDefaultUserRPMLimit] = strconv.Itoa(settings.DefaultUserRPMLimit)
 	defaultSubsJSON, err := json.Marshal(settings.DefaultSubscriptions)
 	if err != nil {
@@ -689,6 +693,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	updates[SettingKeyBalanceLowNotifyRechargeURL] = settings.BalanceLowNotifyRechargeURL
 	updates[SettingKeyAccountQuotaNotifyEnabled] = strconv.FormatBool(settings.AccountQuotaNotifyEnabled)
 	updates[SettingKeyAccountQuotaNotifyEmails] = MarshalNotifyEmails(settings.AccountQuotaNotifyEmails)
+	updates[SettingKeyChannelMonitorEnabled] = strconv.FormatBool(settings.ChannelMonitorEnabled)
+	updates[SettingKeyChannelMonitorDefaultIntervalSeconds] = strconv.Itoa(clampChannelMonitorInterval(settings.ChannelMonitorDefaultIntervalSeconds))
+	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
@@ -966,14 +973,7 @@ func (s *SettingService) GetAffiliateRebateFreezeHours(ctx context.Context) int 
 	if err != nil {
 		return AffiliateRebateFreezeHoursDefault
 	}
-	hours, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || hours < 0 {
-		return AffiliateRebateFreezeHoursDefault
-	}
-	if hours > AffiliateRebateFreezeHoursMax {
-		return AffiliateRebateFreezeHoursMax
-	}
-	return hours
+	return parseAffiliateRebateFreezeHours(raw)
 }
 
 // GetAffiliateRebateDurationDays 返回返利有效期（天）。
@@ -982,14 +982,7 @@ func (s *SettingService) GetAffiliateRebateDurationDays(ctx context.Context) int
 	if err != nil {
 		return AffiliateRebateDurationDaysDefault
 	}
-	days, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || days < 0 {
-		return AffiliateRebateDurationDaysDefault
-	}
-	if days > AffiliateRebateDurationDaysMax {
-		return AffiliateRebateDurationDaysMax
-	}
-	return days
+	return parseAffiliateRebateDurationDays(raw)
 }
 
 // GetAffiliateRebatePerInviteeCap 返回单人返利上限。
@@ -998,8 +991,55 @@ func (s *SettingService) GetAffiliateRebatePerInviteeCap(ctx context.Context) fl
 	if err != nil {
 		return AffiliateRebatePerInviteeCapDefault
 	}
+	return parseAffiliateRebatePerInviteeCap(raw)
+}
+
+func parseAffiliateRebateFreezeHours(raw string) int {
+	hours, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || hours < 0 {
+		return AffiliateRebateFreezeHoursDefault
+	}
+	return clampAffiliateRebateFreezeHours(hours)
+}
+
+func clampAffiliateRebateFreezeHours(hours int) int {
+	if hours < 0 {
+		return AffiliateRebateFreezeHoursDefault
+	}
+	if hours > AffiliateRebateFreezeHoursMax {
+		return AffiliateRebateFreezeHoursMax
+	}
+	return hours
+}
+
+func parseAffiliateRebateDurationDays(raw string) int {
+	days, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || days < 0 {
+		return AffiliateRebateDurationDaysDefault
+	}
+	return clampAffiliateRebateDurationDays(days)
+}
+
+func clampAffiliateRebateDurationDays(days int) int {
+	if days < 0 {
+		return AffiliateRebateDurationDaysDefault
+	}
+	if days > AffiliateRebateDurationDaysMax {
+		return AffiliateRebateDurationDaysMax
+	}
+	return days
+}
+
+func parseAffiliateRebatePerInviteeCap(raw string) float64 {
 	capValue, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil || capValue < 0 || math.IsNaN(capValue) || math.IsInf(capValue, 0) {
+		return AffiliateRebatePerInviteeCapDefault
+	}
+	return capValue
+}
+
+func normalizeAffiliateRebatePerInviteeCap(capValue float64) float64 {
+	if capValue < 0 || math.IsNaN(capValue) || math.IsInf(capValue, 0) {
 		return AffiliateRebatePerInviteeCapDefault
 	}
 	return capValue
@@ -1154,7 +1194,11 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOIDCConnectUserInfoUsernamePath:          "",
 		SettingKeyDefaultConcurrency:                       strconv.Itoa(s.cfg.Default.UserConcurrency),
 		SettingKeyDefaultBalance:                           strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
+		SettingKeyAffiliateEnabled:                         strconv.FormatBool(AffiliateEnabledDefault),
 		SettingKeyAffiliateRebateRate:                      strconv.FormatFloat(AffiliateRebateRateDefault, 'f', 8, 64),
+		SettingKeyAffiliateRebateFreezeHours:               strconv.Itoa(AffiliateRebateFreezeHoursDefault),
+		SettingKeyAffiliateRebateDurationDays:              strconv.Itoa(AffiliateRebateDurationDaysDefault),
+		SettingKeyAffiliateRebatePerInviteeCap:             strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 8, 64),
 		SettingKeyDefaultUserRPMLimit:                      "0",
 		SettingKeyDefaultSubscriptions:                     "[]",
 		SettingKeyAuthSourceDefaultEmailBalance:            "0",
@@ -1200,12 +1244,15 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyMaxClaudeCodeVersion: "",
 
 		// 分组隔离（默认不允许未分组 Key 调度）
-		SettingKeyAllowUngroupedKeyScheduling:    "false",
-		SettingPaymentVisibleMethodAlipaySource:  "",
-		SettingPaymentVisibleMethodWxpaySource:   "",
-		SettingPaymentVisibleMethodAlipayEnabled: "false",
-		SettingPaymentVisibleMethodWxpayEnabled:  "false",
-		openAIAdvancedSchedulerSettingKey:        "false",
+		SettingKeyAllowUngroupedKeyScheduling:          "false",
+		SettingPaymentVisibleMethodAlipaySource:        "",
+		SettingPaymentVisibleMethodWxpaySource:         "",
+		SettingPaymentVisibleMethodAlipayEnabled:       "false",
+		SettingPaymentVisibleMethodWxpayEnabled:        "false",
+		openAIAdvancedSchedulerSettingKey:              "false",
+		SettingKeyChannelMonitorEnabled:                "true",
+		SettingKeyChannelMonitorDefaultIntervalSeconds: strconv.Itoa(channelMonitorIntervalFallback),
+		SettingKeyAvailableChannelsEnabled:             "false",
 	}
 
 	return s.settingRepo.SetMultiple(ctx, defaults)
@@ -1276,6 +1323,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.AffiliateRebateRate = AffiliateRebateRateDefault
 	}
+	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"
+	result.AffiliateRebateFreezeHours = parseAffiliateRebateFreezeHours(settings[SettingKeyAffiliateRebateFreezeHours])
+	result.AffiliateRebateDurationDays = parseAffiliateRebateDurationDays(settings[SettingKeyAffiliateRebateDurationDays])
+	result.AffiliateRebatePerInviteeCap = parseAffiliateRebatePerInviteeCap(settings[SettingKeyAffiliateRebatePerInviteeCap])
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 
 	// 敏感信息直接返回，方便测试连接时使用
@@ -1550,6 +1601,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	if result.AccountQuotaNotifyEmails == nil {
 		result.AccountQuotaNotifyEmails = []NotifyEmailEntry{}
 	}
+	result.ChannelMonitorEnabled = !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled])
+	result.ChannelMonitorDefaultIntervalSeconds = parseChannelMonitorInterval(settings[SettingKeyChannelMonitorDefaultIntervalSeconds])
+	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
 
 	return result
 }
