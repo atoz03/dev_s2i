@@ -120,3 +120,9 @@
 - 根因：client disconnect 后继续读取 upstream usage 时，CI 慢环境可能先收到上游 EOF，再处理 idle ticker，导致超时场景被归类成 `missing terminal event`。
 - 修复：无 terminal event 且客户端已断开时，若距离最后上游数据已超过 `stream_data_interval_timeout`，统一返回 `stream usage incomplete after timeout`。
 - 验证：目标单测连续 20 次通过，`make -C backend test-unit` 通过。
+
+## 2026-05-02 scheduler cache integration 修复
+
+- 根因：合并后保留了 `LastUsedAt` side-key 测试，但实现回退成重写账号 JSON，且测试仍引用旧 `full/slim` key 名。
+- 修复：恢复 `sched:acc:last_used:*` 热字段缓存，读取账号与快照时覆盖 `LastUsedAt`；测试改为当前 `account/meta` key 命名，不恢复旧 `full` key。
+- 验证：`go test ./...`、`make test-unit`、`make test-integration`、`golangci-lint run ./...` 通过。

@@ -131,9 +131,9 @@ func TestSchedulerCacheUpdateLastUsedUsesSideKeyAndKeepsAccountJSON(t *testing.T
 	require.NoError(t, cache.SetAccount(ctx, account))
 
 	id := strconv.FormatInt(account.ID, 10)
-	fullBefore, err := rdb.Get(ctx, schedulerAccountFullKey(id)).Result()
+	accountBefore, err := rdb.Get(ctx, schedulerAccountKey(id)).Result()
 	require.NoError(t, err)
-	slimBefore, err := rdb.Get(ctx, schedulerAccountKey(id)).Result()
+	metaBefore, err := rdb.Get(ctx, schedulerAccountMetaKey(id)).Result()
 	require.NoError(t, err)
 
 	latestUsedAt := initialUsedAt.Add(37 * time.Second)
@@ -141,12 +141,12 @@ func TestSchedulerCacheUpdateLastUsedUsesSideKeyAndKeepsAccountJSON(t *testing.T
 		account.ID: latestUsedAt,
 	}))
 
-	fullAfter, err := rdb.Get(ctx, schedulerAccountFullKey(id)).Result()
+	accountAfter, err := rdb.Get(ctx, schedulerAccountKey(id)).Result()
 	require.NoError(t, err)
-	slimAfter, err := rdb.Get(ctx, schedulerAccountKey(id)).Result()
+	metaAfter, err := rdb.Get(ctx, schedulerAccountMetaKey(id)).Result()
 	require.NoError(t, err)
-	require.Equal(t, fullBefore, fullAfter, "更新 LastUsedAt 不应重写完整账号 JSON")
-	require.Equal(t, slimBefore, slimAfter, "更新 LastUsedAt 不应重写精简账号 JSON")
+	require.Equal(t, accountBefore, accountAfter, "更新 LastUsedAt 不应重写完整账号 JSON")
+	require.Equal(t, metaBefore, metaAfter, "更新 LastUsedAt 不应重写快照元数据 JSON")
 
 	lastUsedRaw, err := rdb.Get(ctx, schedulerLastUsedKey(id)).Result()
 	require.NoError(t, err)
