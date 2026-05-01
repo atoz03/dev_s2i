@@ -114,3 +114,9 @@
 - 修复：补齐 affiliate 开关、返利冻结/有效期/单人上限以及 channel monitor/available channels 的 settings 读写与响应映射；usage contract 移除已不存在的 `media_type`；settings contract 补上当前本地设置字段，移除未暴露到 admin settings API 的 `fallback_model_antigravity` 与 `openai_fast_policy_settings` 断言；WeChat OAuth config fallback 保持多通道字段独立，不把 open 配置复制到 legacy/mp/mobile。
 - 约束：本次不恢复已删除的 antigravity gateway package/service 逻辑，只修 API contract 与现有 settings 链路。
 - 验证：`cd backend && go test -tags=unit ./internal/server -run TestAPIContracts -count=1`、`cd backend && go test -tags=unit ./...`、`cd backend && go list ./... && golangci-lint run ./...` 通过。
+
+## 2026-05-02 Anthropic passthrough 流超时错误分类
+
+- 根因：client disconnect 后继续读取 upstream usage 时，CI 慢环境可能先收到上游 EOF，再处理 idle ticker，导致超时场景被归类成 `missing terminal event`。
+- 修复：无 terminal event 且客户端已断开时，若距离最后上游数据已超过 `stream_data_interval_timeout`，统一返回 `stream usage incomplete after timeout`。
+- 验证：目标单测连续 20 次通过，`make -C backend test-unit` 通过。
