@@ -101,3 +101,9 @@
 
 - 优先整体回退本次 merge：`git revert -m 1 <merge_commit_sha>`。
 - 若仅单点回归，可在回退后按文件级别 cherry-pick 已验证修复，避免再次引入整包行为变化。
+
+## 2026-05-01 CI 残留问题修复（回滚后）
+
+- 根因：回滚到 `de83d5e8` 后，`gateway_handler.go` 带入 antigravity 依赖但对应实现未纳入，且同时存在 openai images/session hash、public settings 字段、wire 生成文件与构造签名漂移。
+- 修复：`gateway_handler.go` 回到 `10d7deca` 的无-antigravity 版本；补齐 `GenerateExplicitSessionHash` 与 `AffiliateEnabled`（dto + SSR 注入）；更新 `api_contract_test.go` 的 `NewAccountHandler` 参数；重生成 `backend/cmd/server/wire_gen.go`；移除未使用函数 `writeOpenAIFastPolicyBlockedResponse`。
+- 验证：`cd backend && go list ./... && go test ./... && golangci-lint run ./...` 通过。

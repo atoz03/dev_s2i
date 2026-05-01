@@ -1155,6 +1155,12 @@ func (s *OpenAIGatewayService) GenerateSessionHash(c *gin.Context, body []byte) 
 	return currentHash
 }
 
+// GenerateExplicitSessionHash 显式会话哈希：仅当请求明确携带会话信号时返回哈希。
+// 兼容 openai images 路径，保持与 messages/responses 一致的信号优先级。
+func (s *OpenAIGatewayService) GenerateExplicitSessionHash(c *gin.Context, body []byte) string {
+	return s.GenerateSessionHash(c, body)
+}
+
 // GenerateSessionHashWithFallback 先按常规信号生成会话哈希；
 // 当未携带 session_id/conversation_id/prompt_cache_key 时，使用 fallbackSeed 生成稳定哈希。
 // 该方法用于 WS ingress，避免会话信号缺失时发生跨账号漂移。
@@ -5391,18 +5397,6 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 		}
 		return updated, nil
 	}
-}
-
-func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, blockedErr *OpenAIFastBlockedError) {
-	if c == nil || blockedErr == nil {
-		return
-	}
-	c.JSON(http.StatusForbidden, gin.H{
-		"error": gin.H{
-			"type":    "permission_error",
-			"message": blockedErr.Message,
-		},
-	})
 }
 
 func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(ctx context.Context, account *Account, model string, frame []byte) ([]byte, *OpenAIFastBlockedError, error) {

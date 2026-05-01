@@ -46,4 +46,5 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorEnabled                bool            `json:"channel_monitor_enabled"`
 	ChannelMonitorDefaultIntervalSeconds int             `json:"channel_monitor_default_interval_seconds"`
 	AvailableChannelsEnabled             bool            `json:"available_channels_enabled"`
+	AffiliateEnabled                     bool            `json:"affiliate_enabled"`
 }

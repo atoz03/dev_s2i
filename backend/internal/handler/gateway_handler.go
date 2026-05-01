@@ -14,9 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
@@ -36,28 +34,26 @@ var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
-	gatewayService            *service.GatewayService
-	geminiCompatService       *service.GeminiMessagesCompatService
-	antigravityGatewayService *service.AntigravityGatewayService
-	userService               *service.UserService
-	billingCacheService       *service.BillingCacheService
-	usageService              *service.UsageService
-	apiKeyService             *service.APIKeyService
-	usageRecordWorkerPool     *service.UsageRecordWorkerPool
-	errorPassthroughService   *service.ErrorPassthroughService
-	concurrencyHelper         *ConcurrencyHelper
-	userMsgQueueHelper        *UserMsgQueueHelper
-	maxAccountSwitches        int
-	maxAccountSwitchesGemini  int
-	cfg                       *config.Config
-	settingService            *service.SettingService
+	gatewayService           *service.GatewayService
+	geminiCompatService      *service.GeminiMessagesCompatService
+	userService              *service.UserService
+	billingCacheService      *service.BillingCacheService
+	usageService             *service.UsageService
+	apiKeyService            *service.APIKeyService
+	usageRecordWorkerPool    *service.UsageRecordWorkerPool
+	errorPassthroughService  *service.ErrorPassthroughService
+	concurrencyHelper        *ConcurrencyHelper
+	userMsgQueueHelper       *UserMsgQueueHelper
+	maxAccountSwitches       int
+	maxAccountSwitchesGemini int
+	cfg                      *config.Config
+	settingService           *service.SettingService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
 func NewGatewayHandler(
 	gatewayService *service.GatewayService,
 	geminiCompatService *service.GeminiMessagesCompatService,
-	antigravityGatewayService *service.AntigravityGatewayService,
 	userService *service.UserService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -89,21 +85,20 @@ func NewGatewayHandler(
 	}
 
 	return &GatewayHandler{
-		gatewayService:            gatewayService,
-		geminiCompatService:       geminiCompatService,
-		antigravityGatewayService: antigravityGatewayService,
-		userService:               userService,
-		billingCacheService:       billingCacheService,
-		usageService:              usageService,
-		apiKeyService:             apiKeyService,
-		usageRecordWorkerPool:     usageRecordWorkerPool,
-		errorPassthroughService:   errorPassthroughService,
-		concurrencyHelper:         NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
-		userMsgQueueHelper:        umqHelper,
-		maxAccountSwitches:        maxAccountSwitches,
-		maxAccountSwitchesGemini:  maxAccountSwitchesGemini,
-		cfg:                       cfg,
-		settingService:            settingService,
+		gatewayService:           gatewayService,
+		geminiCompatService:      geminiCompatService,
+		userService:              userService,
+		billingCacheService:      billingCacheService,
+		usageService:             usageService,
+		apiKeyService:            apiKeyService,
+		usageRecordWorkerPool:    usageRecordWorkerPool,
+		errorPassthroughService:  errorPassthroughService,
+		concurrencyHelper:        NewConcurrencyHelper(concurrencyService, SSEPingFormatClaude, pingInterval),
+		userMsgQueueHelper:       umqHelper,
+		maxAccountSwitches:       maxAccountSwitches,
+		maxAccountSwitchesGemini: maxAccountSwitchesGemini,
+		cfg:                      cfg,
+		settingService:           settingService,
 	}
 }
 
@@ -177,7 +172,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
+	// 在请求上下文中记录 thinking 状态，供模型整流与兼容逻辑使用
 	c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
 
 	setOpsRequestContext(c, reqModel, reqStream, body)
@@ -262,13 +257,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
-	// [DEBUG-STICKY] 打印会话 hash 生成结果
-	reqLog.Info("sticky.session_hash_generated",
-		zap.String("session_hash", sessionHash),
-		zap.String("metadata_user_id_raw", parsedReq.MetadataUserID),
-	)
-
-	// 获取平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则使用分组平台
+	// 获取平台：优先使用强制平台，否则使用分组平台
 	platform := ""
 	if forcePlatform, ok := middleware2.GetForcePlatformFromContext(c); ok {
 		platform = forcePlatform
@@ -284,11 +273,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	var sessionBoundAccountID int64
 	if sessionKey != "" {
 		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, sessionKey)
-		// [DEBUG-STICKY] 打印粘性会话查询结果
-		reqLog.Info("sticky.cache_lookup",
-			zap.String("session_key", sessionKey),
-			zap.Int64("bound_account_id", sessionBoundAccountID),
-		)
 		if sessionBoundAccountID > 0 {
 			prefetchedGroupID := int64(0)
 			if apiKey.GroupID != nil {
@@ -297,8 +281,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			ctx := service.WithPrefetchedStickySession(c.Request.Context(), sessionBoundAccountID, prefetchedGroupID, h.metadataBridgeEnabled())
 			c.Request = c.Request.WithContext(ctx)
 		}
-	} else {
-		reqLog.Info("sticky.no_session_key", zap.String("session_hash", sessionHash))
 	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
@@ -306,23 +288,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	if platform == service.PlatformGemini {
 		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
 
-		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
-		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
-		if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), apiKey.GroupID) {
-			ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
-			c.Request = c.Request.WithContext(ctx)
-		}
-
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					reqLog.Warn("gateway.select_account_no_available",
-						zap.String("model", reqModel),
-						zap.Int64p("group_id", apiKey.GroupID),
-						zap.String("platform", platform),
-						zap.Error(err),
-					)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
@@ -366,11 +335,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			accountReleaseFunc := selection.ReleaseFunc
 			if !selection.Acquired {
 				if selection.WaitPlan == nil {
-					reqLog.Warn("gateway.select_account_no_slot_no_wait_plan",
-						zap.Int64("account_id", account.ID),
-						zap.String("model", reqModel),
-						zap.String("platform", platform),
-					)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
 					return
 				}
@@ -427,11 +391,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
-			if account.Platform == service.PlatformAntigravity {
-				result, err = h.antigravityGatewayService.ForwardGemini(requestCtx, c, account, reqModel, "generateContent", reqStream, body, hasBoundSession)
-			} else {
-				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
-			}
+			result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
 			}
@@ -530,41 +490,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	currentAPIKey := apiKey
 	currentSubscription := subscription
-	var fallbackGroupID *int64
-	if apiKey.Group != nil {
-		fallbackGroupID = apiKey.Group.FallbackGroupIDOnInvalidRequest
-	}
-	fallbackUsed := false
-
-	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
-	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
-	if h.gatewayService.IsSingleAntigravityAccountGroup(c.Request.Context(), currentAPIKey.GroupID) {
-		ctx := service.WithSingleAccountRetry(c.Request.Context(), true, h.metadataBridgeEnabled())
-		c.Request = c.Request.WithContext(ctx)
-	}
 
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
-		retryWithFallback := false
 
 		for {
 			// 选择支持该模型的账号
-			reqLog.Info("sticky.selecting_account",
-				zap.String("session_key", sessionKey),
-				zap.Int64("sticky_bound_account_id", sessionBoundAccountID),
-				zap.Bool("has_bound_session", hasBoundSession),
-				zap.Int("failed_account_count", len(fs.FailedAccountIDs)),
-			)
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
-					reqLog.Warn("gateway.select_account_no_available",
-						zap.String("model", reqModel),
-						zap.Int64p("group_id", currentAPIKey.GroupID),
-						zap.String("platform", platform),
-						zap.Bool("fallback_used", fallbackUsed),
-						zap.Error(err),
-					)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error(), streamStarted)
 					return
 				}
@@ -588,16 +522,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 
-			// [DEBUG-STICKY] 打印账号选择结果
-			reqLog.Info("sticky.account_selected",
-				zap.Int64("selected_account_id", account.ID),
-				zap.String("account_name", account.Name),
-				zap.Bool("slot_acquired", selection.Acquired),
-				zap.Bool("has_wait_plan", selection.WaitPlan != nil),
-				zap.Int64("sticky_bound_account_id", sessionBoundAccountID),
-				zap.Bool("sticky_honored", sessionBoundAccountID > 0 && sessionBoundAccountID == account.ID),
-			)
-
 			// 检查请求拦截（预热请求、SUGGESTION MODE等）
 			if account.IsInterceptWarmupEnabled() {
 				interceptType := detectInterceptType(body, reqModel, parsedReq.MaxTokens, reqStream, isClaudeCodeClient)
@@ -618,11 +542,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			accountReleaseFunc := selection.ReleaseFunc
 			if !selection.Acquired {
 				if selection.WaitPlan == nil {
-					reqLog.Warn("gateway.select_account_no_slot_no_wait_plan",
-						zap.Int64("account_id", account.ID),
-						zap.String("model", reqModel),
-						zap.String("platform", platform),
-					)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
 					return
 				}
@@ -664,10 +583,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				// Slot acquired: no longer waiting in queue.
 				releaseWait()
-				reqLog.Info("sticky.bind_after_wait",
-					zap.String("session_key", sessionKey),
-					zap.Int64("account_id", account.ID),
-				)
 				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
@@ -743,11 +658,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
-			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
-				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, body, hasBoundSession)
-			} else {
-				result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)
-			}
+			result, err = h.gatewayService.Forward(requestCtx, c, account, parsedReq)
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
 			if queueRelease != nil {
@@ -767,52 +678,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 
-				var promptTooLongErr *service.PromptTooLongError
-				if errors.As(err, &promptTooLongErr) {
-					reqLog.Warn("gateway.prompt_too_long_from_antigravity",
-						zap.Any("current_group_id", currentAPIKey.GroupID),
-						zap.Any("fallback_group_id", fallbackGroupID),
-						zap.Bool("fallback_used", fallbackUsed),
-					)
-					if !fallbackUsed && fallbackGroupID != nil && *fallbackGroupID > 0 {
-						fallbackGroup, err := h.gatewayService.ResolveGroupByID(c.Request.Context(), *fallbackGroupID)
-						if err != nil {
-							reqLog.Warn("gateway.resolve_fallback_group_failed", zap.Int64("fallback_group_id", *fallbackGroupID), zap.Error(err))
-							_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
-							return
-						}
-						if fallbackGroup.Platform != service.PlatformAnthropic ||
-							fallbackGroup.SubscriptionType == service.SubscriptionTypeSubscription ||
-							fallbackGroup.FallbackGroupIDOnInvalidRequest != nil {
-							reqLog.Warn("gateway.fallback_group_invalid",
-								zap.Int64("fallback_group_id", fallbackGroup.ID),
-								zap.String("fallback_platform", fallbackGroup.Platform),
-								zap.String("fallback_subscription_type", fallbackGroup.SubscriptionType),
-							)
-							_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
-							return
-						}
-						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
-						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil); err != nil {
-							status, code, message, retryAfter := billingErrorDetails(err)
-							if retryAfter > 0 {
-								c.Header("Retry-After", strconv.Itoa(retryAfter))
-							}
-							h.handleStreamingAwareError(c, status, code, message, streamStarted)
-							return
-						}
-						// 兜底重试按"直接请求兜底分组"处理：清除强制平台，允许按分组平台调度
-						ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
-						c.Request = c.Request.WithContext(ctx)
-						currentAPIKey = fallbackAPIKey
-						currentSubscription = nil
-						fallbackUsed = true
-						retryWithFallback = true
-						break
-					}
-					_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
-					return
-				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
@@ -862,17 +727,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 			}
 
-			// 绑定粘性会话（成功转发后绑定/刷新）
-			// - 无现有绑定（首次请求）：创建绑定
-			// - 选中账号与粘性账号一致：刷新 TTL
-			// - 粘性账号因负载/RPM 被跳过、选中了其他账号：不覆盖原绑定，
-			//   下次请求粘性账号恢复后仍可命中
-			if sessionKey != "" && (sessionBoundAccountID == 0 || sessionBoundAccountID == account.ID) {
-				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
-					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				}
-			}
-
 			// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
 			userAgent := c.GetHeader("User-Agent")
 			clientIP := ip.GetClientIP(c)
@@ -912,9 +766,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					).Error("gateway.record_usage_failed", zap.Error(err))
 				}
 			})
-			return
-		}
-		if !retryWithFallback {
 			return
 		}
 	}
@@ -972,26 +823,6 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		"object": "list",
 		"data":   claude.DefaultModels,
 	})
-}
-
-// AntigravityModels 返回 Antigravity 支持的全部模型
-// GET /antigravity/models
-func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   antigravity.DefaultModels(),
-	})
-}
-
-func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {
-	if apiKey == nil || group == nil {
-		return apiKey
-	}
-	cloned := *apiKey
-	groupID := group.ID
-	cloned.GroupID = &groupID
-	cloned.Group = group
-	return &cloned
 }
 
 // Usage handles getting account balance and usage statistics for CC Switch integration
@@ -1496,7 +1327,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
 	SetClaudeCodeClientContext(c, body, parsedReq)
 	reqLog = reqLog.With(zap.String("model", parsedReq.Model), zap.Bool("stream", parsedReq.Stream))
-	// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
+	// 在请求上下文中记录 thinking 状态，供模型整流与兼容逻辑使用
 	c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
 
 	// 验证 model 必填
