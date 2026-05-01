@@ -73,3 +73,31 @@
 
 - 若线上观察到网关行为异常，优先回退 merge commit（`git revert -m 1 <merge_commit_sha>`），保持主线历史可追踪。
 - 如仅个别冲突决议有问题，可在该 revert 基础上定向 cherry-pick 本地确认稳定的修复提交，避免整仓回退。
+
+## 2026-04-30 `upstream/main -> main` 合并决议
+
+### 本次取舍
+
+- 合并方式固定为 `git merge --no-ff upstream/main`，保留合并历史，不做 rebase。
+- `backend/cmd/server/VERSION` 保持本地 `1.2.4` 体系，不跟随 upstream 的 `0.1.120` 版本线。
+- 设置链路与页面展示口径保持本地为主：
+  - `frontend/src/views/admin/SettingsView.vue`
+  - `frontend/src/api/admin/settings.ts`
+  - `backend/internal/handler/admin/setting_handler.go`
+  - `backend/internal/handler/dto/settings.go`
+  - `backend/internal/service/setting_service.go`
+- OpenAI 关键链路按“本地优先 + 定向吸收安全修复”处理：
+  - `backend/internal/service/openai_gateway_service.go`：保留本地主流程，不直接整包切到 upstream 结构。
+  - `backend/internal/service/openai_gateway_messages.go`：吸收 `normalizeOpenAIModelForUpstream` 与 fast policy 相关低侵入修复。
+  - `backend/internal/service/openai_ws_forwarder.go`：吸收显式 tool replay 与 item_reference/previous response 相关修复。
+  - `backend/internal/service/openai_codex_transform.go`：保留本地 `gpt-5.5-*` 细分映射，同时保留 upstream 的 Responses 兼容字段修复（如 tool_choice 与 reasoning 过滤）。
+
+### 原因与影响
+
+- 目标是维持现网行为稳定（版本体系、设置页显示与保存口径、OpenAI 本地既有策略）并吸收 upstream 的通用修复能力。
+- 风险仍集中在 OpenAI 网关与 WS 续链路径；因此以最小行为漂移为优先，不做大规模结构重排。
+
+### 回退方式
+
+- 优先整体回退本次 merge：`git revert -m 1 <merge_commit_sha>`。
+- 若仅单点回归，可在回退后按文件级别 cherry-pick 已验证修复，避免再次引入整包行为变化。

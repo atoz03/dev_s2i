@@ -171,6 +171,17 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		}
 	}
 
+	// 4b. Apply OpenAI fast policy (may filter service_tier or block the request).
+	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, responsesBody)
+	if policyErr != nil {
+		var blocked *OpenAIFastBlockedError
+		if errors.As(policyErr, &blocked) {
+			writeChatCompletionsError(c, http.StatusForbidden, "permission_error", blocked.Message)
+		}
+		return nil, policyErr
+	}
+	responsesBody = updatedBody
+
 	// 5. Get access token
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -303,11 +314,19 @@ func normalizeResponsesBodyServiceTier(body []byte) ([]byte, string, error) {
 }
 
 func normalizedOpenAIServiceTierValue(raw string) string {
-	normalized := normalizeOpenAIServiceTier(raw)
-	if normalized == nil {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
 		return ""
 	}
-	return *normalized
+	if value == "fast" {
+		return "priority"
+	}
+	switch value {
+	case "priority", "flex", "auto", "default", "scale":
+		return value
+	default:
+		return ""
+	}
 }
 
 // handleChatCompletionsErrorResponse reads an upstream error and returns it in

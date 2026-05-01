@@ -55,6 +55,7 @@ func TestAPIContracts(t *testing.T) {
 					"role": "user",
 					"balance": 12.5,
 					"concurrency": 5,
+					"rpm_limit": 0,
 					"status": "active",
 					"allowed_groups": null,
 					"created_at": "2025-01-02T03:04:05Z",
@@ -77,8 +78,8 @@ func TestAPIContracts(t *testing.T) {
 							"can_unbind": false,
 							"display_name": "alice@example.com",
 							"subject_hint": "a***e@example.com",
-							"note": "Primary account email is managed from the profile form.",
-							"note_key": "profile.authBindings.notes.emailManagedFromProfile"
+							"note_key": "profile.authBindings.notes.emailManagedFromProfile",
+							"note": "Primary account email is managed from the profile form."
 						},
 						"linuxdo": {
 							"provider": "linuxdo",
@@ -115,8 +116,8 @@ func TestAPIContracts(t *testing.T) {
 							"can_unbind": false,
 							"display_name": "alice@example.com",
 							"subject_hint": "a***e@example.com",
-							"note": "Primary account email is managed from the profile form.",
-							"note_key": "profile.authBindings.notes.emailManagedFromProfile"
+							"note_key": "profile.authBindings.notes.emailManagedFromProfile",
+							"note": "Primary account email is managed from the profile form."
 						},
 						"linuxdo": {
 							"provider": "linuxdo",
@@ -153,8 +154,8 @@ func TestAPIContracts(t *testing.T) {
 							"can_unbind": false,
 							"display_name": "alice@example.com",
 							"subject_hint": "a***e@example.com",
-							"note": "Primary account email is managed from the profile form.",
-							"note_key": "profile.authBindings.notes.emailManagedFromProfile"
+							"note_key": "profile.authBindings.notes.emailManagedFromProfile",
+							"note": "Primary account email is managed from the profile form."
 						},
 						"linuxdo": {
 							"provider": "linuxdo",
@@ -181,7 +182,6 @@ func TestAPIContracts(t *testing.T) {
 							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
 						}
 					},
-					"rpm_limit": 0,
 					"run_mode": "standard"
 				}
 			}`,
@@ -551,6 +551,7 @@ func TestAPIContracts(t *testing.T) {
 							"first_token_ms": 50,
 							"image_count": 0,
 							"image_size": null,
+							"media_type": null,
 							"cache_ttl_overridden": false,
 							"created_at": "2025-01-02T03:04:05Z",
 							"user_agent": null
@@ -712,17 +713,19 @@ func TestAPIContracts(t *testing.T) {
 					"auth_source_default_wechat_grant_on_signup": false,
 					"auth_source_default_wechat_grant_on_first_bind": false,
 					"force_email_on_third_party_signup": false,
-						"default_concurrency": 5,
-						"default_balance": 1.25,
-						"affiliate_rebate_rate": 20,
-						"default_subscriptions": [],
-						"default_upstream_user_agent": "",
-						"default_user_rpm_limit": 0,
+					"default_concurrency": 5,
+					"default_balance": 1.25,
+					"affiliate_rebate_rate": 20,
+					"affiliate_rebate_freeze_hours": 0,
+					"affiliate_rebate_duration_days": 0,
+					"affiliate_rebate_per_invitee_cap": 0,
+					"default_user_rpm_limit": 0,
+					"default_subscriptions": [],
 					"enable_model_fallback": false,
 					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
+					"fallback_model_antigravity": "gemini-2.5-pro",
 					"fallback_model_gemini": "gemini-2.5-pro",
 						"fallback_model_openai": "gpt-4o",
-						"force_unified_upstream_user_agent": false,
 						"enable_identity_patch": true,
 						"identity_patch_prompt": "",
 						"invitation_code_enabled": false,
@@ -739,18 +742,23 @@ func TestAPIContracts(t *testing.T) {
 					"enable_cch_signing": false,
 					"enable_fingerprint_unification": true,
 					"enable_metadata_passthrough": false,
-					"hidden_admin_menu_items": [],
-					"update_github_repo": "",
 					"web_search_emulation_enabled": false,
 					"payment_visible_method_alipay_source": "easypay_alipay",
 					"payment_visible_method_wxpay_source": "official_wxpay",
 					"payment_visible_method_alipay_enabled": true,
 					"payment_visible_method_wxpay_enabled": false,
-						"openai_advanced_scheduler_enabled": true,
-						"channel_monitor_enabled": false,
-						"channel_monitor_default_interval_seconds": 0,
-						"available_channels_enabled": false,
-						"custom_menu_items": [],
+					"openai_advanced_scheduler_enabled": true,
+					"openai_fast_policy_settings": {
+						"rules": [
+							{
+								"service_tier": "priority",
+								"action": "filter",
+								"scope": "all",
+								"fallback_action": "pass"
+							}
+						]
+					},
+					"custom_menu_items": [],
 					"custom_endpoints": [],
 					"payment_enabled": false,
 					"payment_min_amount": 0,
@@ -777,6 +785,10 @@ func TestAPIContracts(t *testing.T) {
 					"balance_low_notify_threshold": 0,
 					"balance_low_notify_recharge_url": "",
 					"account_quota_notify_emails": [],
+					"channel_monitor_enabled": true,
+					"channel_monitor_default_interval_seconds": 60,
+					"available_channels_enabled": false,
+					"affiliate_enabled": false,
 					"wechat_connect_enabled": false,
 					"wechat_connect_app_id": "",
 					"wechat_connect_app_secret_configured": false,
@@ -897,17 +909,20 @@ func TestAPIContracts(t *testing.T) {
 					"custom_menu_items": [],
 					"custom_endpoints": [],
 					"default_concurrency": 0,
-						"default_balance": 0,
-						"affiliate_rebate_rate": 20,
-						"default_upstream_user_agent": "",
-						"default_user_rpm_limit": 0,
-						"default_subscriptions": [],
-						"enable_model_fallback": false,
-						"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
-						"fallback_model_openai": "gpt-4o",
-						"fallback_model_gemini": "gemini-2.5-pro",
-						"enable_identity_patch": true,
-						"identity_patch_prompt": "",
+					"default_balance": 0,
+					"affiliate_rebate_rate": 20,
+					"affiliate_rebate_freeze_hours": 0,
+					"affiliate_rebate_duration_days": 0,
+					"affiliate_rebate_per_invitee_cap": 0,
+					"default_user_rpm_limit": 0,
+					"default_subscriptions": [],
+					"enable_model_fallback": false,
+					"fallback_model_anthropic": "claude-3-5-sonnet-20241022",
+					"fallback_model_openai": "gpt-4o",
+					"fallback_model_gemini": "gemini-2.5-pro",
+					"fallback_model_antigravity": "gemini-2.5-pro",
+					"enable_identity_patch": true,
+					"identity_patch_prompt": "",
 					"ops_monitoring_enabled": false,
 					"ops_realtime_monitoring_enabled": true,
 					"ops_query_mode_default": "auto",
@@ -924,8 +939,18 @@ func TestAPIContracts(t *testing.T) {
 					"payment_visible_method_wxpay_source": "",
 					"payment_visible_method_alipay_enabled": false,
 					"payment_visible_method_wxpay_enabled": false,
-						"openai_advanced_scheduler_enabled": false,
-						"payment_enabled": false,
+					"openai_advanced_scheduler_enabled": false,
+					"openai_fast_policy_settings": {
+						"rules": [
+							{
+								"service_tier": "priority",
+								"action": "filter",
+								"scope": "all",
+								"fallback_action": "pass"
+							}
+						]
+					},
+					"payment_enabled": false,
 					"payment_min_amount": 0,
 					"payment_max_amount": 0,
 					"payment_daily_limit": 0,
@@ -947,28 +972,26 @@ func TestAPIContracts(t *testing.T) {
 					"payment_cancel_rate_limit_window_mode": "",
 					"balance_low_notify_enabled": false,
 					"account_quota_notify_enabled": false,
-						"balance_low_notify_threshold": 0,
-						"balance_low_notify_recharge_url": "",
-						"account_quota_notify_emails": [],
-						"channel_monitor_enabled": false,
-						"channel_monitor_default_interval_seconds": 0,
-						"available_channels_enabled": false,
-						"update_github_repo": "",
-						"hidden_admin_menu_items": [],
-						"force_unified_upstream_user_agent": false,
-						"wechat_connect_enabled": true,
-						"wechat_connect_app_id": "",
-						"wechat_connect_app_secret_configured": false,
-						"wechat_connect_mode": "open",
-						"wechat_connect_open_enabled": true,
-						"wechat_connect_open_app_id": "wx-open-config",
-						"wechat_connect_open_app_secret_configured": true,
-						"wechat_connect_mp_enabled": false,
-						"wechat_connect_mp_app_id": "",
-						"wechat_connect_mp_app_secret_configured": false,
-						"wechat_connect_mobile_enabled": false,
-						"wechat_connect_mobile_app_id": "",
-						"wechat_connect_mobile_app_secret_configured": false,
+					"balance_low_notify_threshold": 0,
+					"balance_low_notify_recharge_url": "",
+					"account_quota_notify_emails": [],
+					"channel_monitor_enabled": true,
+					"channel_monitor_default_interval_seconds": 60,
+					"available_channels_enabled": false,
+					"affiliate_enabled": false,
+					"wechat_connect_enabled": true,
+					"wechat_connect_app_id": "wx-open-config",
+					"wechat_connect_app_secret_configured": true,
+					"wechat_connect_mode": "open",
+					"wechat_connect_open_enabled": true,
+					"wechat_connect_open_app_id": "wx-open-config",
+					"wechat_connect_open_app_secret_configured": true,
+					"wechat_connect_mp_enabled": false,
+					"wechat_connect_mp_app_id": "wx-open-config",
+					"wechat_connect_mp_app_secret_configured": true,
+					"wechat_connect_mobile_enabled": false,
+					"wechat_connect_mobile_app_id": "wx-open-config",
+					"wechat_connect_mobile_app_secret_configured": true,
 					"wechat_connect_redirect_url": "",
 					"wechat_connect_frontend_redirect_url": "/auth/wechat/callback",
 					"wechat_connect_scopes": "snsapi_login",
@@ -1038,8 +1061,8 @@ func TestAPIContracts(t *testing.T) {
 
 type contractDeps struct {
 	now         time.Time
-	cfg         *config.Config
 	router      http.Handler
+	cfg         *config.Config
 	apiKeyRepo  *stubApiKeyRepo
 	groupRepo   *stubGroupRepo
 	userSubRepo *stubUserSubscriptionRepo
@@ -1101,30 +1124,12 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(
-		userRepo,
-		groupRepo,
-		&accountRepo,
-		proxyRepo,
-		apiKeyRepo,
-		redeemRepo,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		settingService,
-		nil,
-		userSubRepo,
-		nil,
-	)
+	adminService := service.NewAdminService(userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService)
-	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil, nil, nil)
-	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminSettingHandler := adminhandler.NewSettingHandler(settingService, nil, nil, nil, nil, nil)
+	adminAccountHandler := adminhandler.NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	jwtAuth := func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{
@@ -1177,8 +1182,8 @@ func newContractDeps(t *testing.T) *contractDeps {
 
 	return &contractDeps{
 		now:         now,
-		cfg:         cfg,
 		router:      r,
+		cfg:         cfg,
 		apiKeyRepo:  apiKeyRepo,
 		groupRepo:   groupRepo,
 		userSubRepo: userSubRepo,

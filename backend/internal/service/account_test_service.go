@@ -1225,7 +1225,13 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 	}
-	apiURL := strings.TrimSuffix(normalizedBaseURL, "/") + "/v1/images/generations"
+	trimmedBase := strings.TrimSuffix(normalizedBaseURL, "/")
+	apiURL := ""
+	if strings.HasSuffix(trimmedBase, "/v1") {
+		apiURL = trimmedBase + "/images/generations"
+	} else {
+		apiURL = trimmedBase + "/v1/images/generations"
+	}
 
 	// Set SSE headers
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
