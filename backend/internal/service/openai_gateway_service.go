@@ -211,9 +211,10 @@ type OpenAIUsage struct {
 
 // OpenAIForwardResult represents the result of forwarding
 type OpenAIForwardResult struct {
-	RequestID string
-	Usage     OpenAIUsage
-	Model     string // 原始模型（用于响应和日志显示）
+	RequestID  string
+	ResponseID string
+	Usage      OpenAIUsage
+	Model      string // 原始模型（用于响应和日志显示）
 	// BillingModel is the model used for cost calculation.
 	// When non-empty, CalculateCost uses this instead of Model.
 	// This is set by the Anthropic Messages conversion path where
@@ -350,6 +351,8 @@ type OpenAIGatewayService struct {
 	openaiWSRetryMetrics  openAIWSRetryMetrics
 	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle *accountWriteThrottle
+	openaiCompatSessionResponses        sync.Map
+	openaiCompatAnthropicDigestSessions sync.Map
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -2053,6 +2056,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	reqModel, reqStream, _ := extractOpenAIRequestMetaFromBody(body)
 	promptCacheKey := s.ExtractSessionID(c, body)
 	originalModel := reqModel
+	compatMessagesBridge := isOpenAICompatMessagesBridgeBody(body)
+	setOpenAICompatMessagesBridgeContext(c, compatMessagesBridge)
 
 	isCodexCLI := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) || (s.cfg != nil && s.cfg.Gateway.ForceCodexCLI)
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
@@ -2106,6 +2111,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		reqStream = v
 	}
 	promptCacheKey = s.ResolveSessionIDWithFallback(c, body, promptCacheKey)
+	apiKey := getAPIKeyFromContext(c)
+	imageGenerationAllowed := GroupAllowsImageGeneration(nil)
+	if apiKey != nil {
+		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
+	}
+	if IsImageGenerationIntentMap(openAIResponsesEndpoint, reqModel, reqBody) && !imageGenerationAllowed {
+		setOpsUpstreamError(c, http.StatusForbidden, ImageGenerationPermissionMessage(), "")
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": gin.H{
+				"type":    "permission_error",
+				"message": ImageGenerationPermissionMessage(),
+			},
+		})
+		return nil, errors.New("image generation disabled for group")
+	}
 
 	// Track if body needs re-serialization
 	bodyModified := false
@@ -2159,16 +2179,27 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	// 非透传模式下，instructions 为空时注入默认指令。
-	if isInstructionsEmpty(reqBody) {
+	if isInstructionsEmpty(reqBody) && !compatMessagesBridge {
 		reqBody["instructions"] = "You are a helpful coding assistant."
 		bodyModified = true
 		markPatchSet("instructions", "You are a helpful coding assistant.")
+	}
+
+	if isCodexCLI && imageGenerationAllowed && ensureOpenAIResponsesImageGenerationTool(reqBody) {
+		bodyModified = true
+		disablePatch()
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Injected /responses image_generation tool for Codex client")
 	}
 
 	if normalizeOpenAIResponsesImageGenerationTools(reqBody) {
 		bodyModified = true
 		disablePatch()
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized /responses image_generation tool payload")
+	}
+	if isCodexCLI && imageGenerationAllowed && applyCodexImageGenerationBridgeInstructions(reqBody) {
+		bodyModified = true
+		disablePatch()
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Added Codex image_generation bridge instructions")
 	}
 
 	// 对所有请求执行模型映射（包含 Codex CLI）。
@@ -2180,6 +2211,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("model", billingModel)
 	}
 	upstreamModel := billingModel
+	if imageGenerationAllowed && normalizeOpenAIResponsesImageOnlyModel(reqBody) {
+		bodyModified = true
+		disablePatch()
+		if model, ok := reqBody["model"].(string); ok {
+			upstreamModel = strings.TrimSpace(model)
+		}
+		logger.LegacyPrintf(
+			"service.openai_gateway",
+			"[OpenAI] Normalized /responses image-only model request inbound_model=%s image_model=%s upstream_model=%s",
+			reqModel,
+			billingModel,
+			upstreamModel,
+		)
+	}
 	if err := validateOpenAIResponsesImageModel(reqBody, upstreamModel); err != nil {
 		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -2228,10 +2273,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	// 针对所有 OpenAI 账号执行 Codex 模型名规范化，确保上游识别一致。
+	// OpenAI OAuth 账号走 ChatGPT internal Codex endpoint，需要将模型名规范化为
+	// 上游可识别的 Codex/GPT 系列。API Key 账号则保留原始/映射后的模型名，
+	// 以兼容自定义 base_url 的 OpenAI-compatible 上游。
 	if model, ok := reqBody["model"].(string); ok {
 		if !compactMapped {
-			upstreamModel = normalizeCodexModel(model)
+			upstreamModel = normalizeOpenAIModelForUpstream(account, model)
 			if upstreamModel != "" && upstreamModel != model {
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Upstream model resolved: %s -> %s (account: %s, type: %s, isCodexCLI: %v)",
 					model, upstreamModel, account.Name, account.Type, isCodexCLI)
@@ -2261,7 +2308,20 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if account.Type == AccountTypeOAuth {
-		codexResult := applyCodexOAuthTransform(reqBody, isCodexCLI, isCompactRequest)
+		codexResult := codexTransformResult{}
+		if compatMessagesBridge {
+			codexResult = applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
+				IsCodexCLI:              isCodexCLI,
+				IsCompact:               isCompactRequest,
+				SkipDefaultInstructions: true,
+				PreserveToolCallIDs:     true,
+			})
+			ensureCodexOAuthInstructionsField(reqBody)
+			bodyModified = true
+			disablePatch()
+		} else {
+			codexResult = applyCodexOAuthTransform(reqBody, isCodexCLI, isCompactRequest)
+		}
 		if codexResult.Modified {
 			bodyModified = true
 			disablePatch()
@@ -2677,6 +2737,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Handle normal response
 		var usage *OpenAIUsage
+		imageCount := 0
 		var firstTokenMs *int
 		if reqStream {
 			streamResult, err := s.handleStreamingResponse(ctx, resp, c, account, startTime, originalModel, upstreamModel)
@@ -2684,12 +2745,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				return nil, err
 			}
 			usage = streamResult.usage
+			imageCount = streamResult.imageCount
 			firstTokenMs = streamResult.firstTokenMs
 		} else {
-			usage, err = s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
+			nonStreamingResult, err := s.handleNonStreamingResponse(ctx, resp, c, account, originalModel, upstreamModel)
 			if err != nil {
 				return nil, err
 			}
+			usage = nonStreamingResult.usage
+			imageCount = nonStreamingResult.imageCount
 		}
 
 		// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
@@ -2717,6 +2781,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			OpenAIWSMode:    false,
 			Duration:        time.Since(startTime),
 			FirstTokenMs:    firstTokenMs,
+			ImageCount:      imageCount,
 		}, nil
 	}
 }
@@ -2931,11 +2996,17 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	token string,
 ) (*http.Request, error) {
 	rawSessionKey := s.ResolveSessionIDWithFallback(c, body, "")
-	upstreamSessionKey := buildOpenAIUpstreamSessionKey(c, rawSessionKey)
-	if normalizedBody, _, err := normalizeOpenAIResponsesPromptCacheBody(body, upstreamSessionKey); err != nil {
-		return nil, err
-	} else {
-		body = normalizedBody
+	isMessagesCompatPath := c != nil && c.Request != nil && c.Request.URL != nil && strings.HasSuffix(strings.TrimSpace(c.Request.URL.Path), "/messages")
+	upstreamSessionKey := strings.TrimSpace(rawSessionKey)
+	if !isMessagesCompatPath {
+		upstreamSessionKey = buildOpenAIUpstreamSessionKey(c, rawSessionKey)
+	}
+	if account.Type != AccountTypeOAuth && !isMessagesCompatPath {
+		if normalizedBody, _, err := normalizeOpenAIResponsesPromptCacheBody(body, upstreamSessionKey); err != nil {
+			return nil, err
+		} else {
+			body = normalizedBody
+		}
 	}
 	compactPath := isOpenAIResponsesCompactPath(c)
 
@@ -2980,8 +3051,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	req.Header.Del("x-goog-api-key")
 	req.Header.Set("authorization", "Bearer "+token)
 
+	compatMessagesBridge := false
+	clientConversationID := ""
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
 	if account.Type == AccountTypeOAuth {
+		compatMessagesBridge = isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
+		clientConversationID = strings.TrimSpace(req.Header.Get("conversation_id"))
 		req.Host = "chatgpt.com"
 		if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 			req.Header.Set("chatgpt-account-id", chatgptAccountID)
@@ -2994,14 +3069,26 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		} else if req.Header.Get("accept") == "" {
 			req.Header.Set("accept", "text/event-stream")
 		}
-		if req.Header.Get("OpenAI-Beta") == "" {
-			req.Header.Set("OpenAI-Beta", "responses=experimental")
-		}
-		if req.Header.Get("originator") == "" {
-			req.Header.Set("originator", "codex_cli_rs")
+		if compatMessagesBridge {
+			req.Header.Del("OpenAI-Beta")
+			req.Header.Del("originator")
+		} else {
+			if req.Header.Get("OpenAI-Beta") == "" {
+				req.Header.Set("OpenAI-Beta", "responses=experimental")
+			}
+			if req.Header.Get("originator") == "" {
+				req.Header.Set("originator", "codex_cli_rs")
+			}
 		}
 	}
-	applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+	if account.Type == AccountTypeOAuth {
+		applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+		if compatMessagesBridge && clientConversationID == "" {
+			req.Header.Del("conversation_id")
+		}
+	} else if !isMessagesCompatPath {
+		applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+	}
 
 	// 透传模式支持统一上游 User-Agent（系统级）与账户级 User-Agent。
 	s.applyUpstreamUserAgent(ctx, req, account)
@@ -3383,11 +3470,17 @@ func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, fil
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
-	upstreamSessionKey := buildOpenAIUpstreamSessionKey(c, promptCacheKey)
-	if normalizedBody, _, err := normalizeOpenAIResponsesPromptCacheBody(body, upstreamSessionKey); err != nil {
-		return nil, err
-	} else {
-		body = normalizedBody
+	isMessagesCompatPath := c != nil && c.Request != nil && c.Request.URL != nil && strings.HasSuffix(strings.TrimSpace(c.Request.URL.Path), "/messages")
+	upstreamSessionKey := strings.TrimSpace(promptCacheKey)
+	if !isMessagesCompatPath {
+		upstreamSessionKey = buildOpenAIUpstreamSessionKey(c, promptCacheKey)
+	}
+	if account.Type != AccountTypeOAuth && !isMessagesCompatPath {
+		if normalizedBody, _, err := normalizeOpenAIResponsesPromptCacheBody(body, upstreamSessionKey); err != nil {
+			return nil, err
+		} else {
+			body = normalizedBody
+		}
 	}
 	compactPath := isOpenAIResponsesCompactPath(c)
 
@@ -3442,9 +3535,18 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			}
 		}
 	}
+	compatMessagesBridge := false
+	clientConversationID := ""
 	if account.Type == AccountTypeOAuth {
-		req.Header.Set("OpenAI-Beta", "responses=experimental")
-		req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
+		compatMessagesBridge = isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
+		clientConversationID = strings.TrimSpace(req.Header.Get("conversation_id"))
+		if compatMessagesBridge {
+			req.Header.Del("OpenAI-Beta")
+			req.Header.Del("originator")
+		} else {
+			req.Header.Set("OpenAI-Beta", "responses=experimental")
+			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
+		}
 		if compactPath {
 			req.Header.Set("accept", "application/json")
 			if req.Header.Get("version") == "" {
@@ -3454,7 +3556,14 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			req.Header.Set("accept", "text/event-stream")
 		}
 	}
-	applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+	if account.Type == AccountTypeOAuth {
+		applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+		if compatMessagesBridge && clientConversationID == "" {
+			req.Header.Del("conversation_id")
+		}
+	} else if !isMessagesCompatPath {
+		applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+	}
 
 	// 优先应用统一上游 User-Agent（系统级），其次账户级 User-Agent。
 	s.applyUpstreamUserAgent(ctx, req, account)
@@ -3739,6 +3848,13 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 type openaiStreamingResult struct {
 	usage        *OpenAIUsage
 	firstTokenMs *int
+	imageCount   int
+}
+
+type openaiNonStreamingResult struct {
+	*OpenAIUsage
+	usage      *OpenAIUsage
+	imageCount int
 }
 
 func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string) (*openaiStreamingResult, error) {
@@ -3772,6 +3888,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	}
 
 	usage := &OpenAIUsage{}
+	imageCounter := newOpenAIImageOutputCounter()
 	var firstTokenMs *int
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -3840,7 +3957,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 
 	needModelReplace := originalModel != mappedModel
 	resultWithUsage := func() *openaiStreamingResult {
-		return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs}
+		return &openaiStreamingResult{usage: usage, firstTokenMs: firstTokenMs, imageCount: imageCounter.Count()}
 	}
 	finalizeStream := func() (*openaiStreamingResult, error) {
 		if !clientDisconnected {
@@ -3892,9 +4009,10 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			}
 
 			dataBytes := []byte(data)
-			if openAIStreamEventIsTerminal(data) {
-				sawTerminalEvent = true
-			}
+				if openAIStreamEventIsTerminal(data) {
+					sawTerminalEvent = true
+				}
+				imageCounter.AddSSEData(dataBytes)
 
 			// Correct Codex tool calls if needed (apply_patch -> edit, etc.)
 			if correctedData, corrected := s.toolCorrector.CorrectToolCallsInSSEBytes(dataBytes); corrected {
@@ -4114,7 +4232,8 @@ func (s *OpenAIGatewayService) parseSSEUsageBytes(data []byte, usage *OpenAIUsag
 		return
 	}
 	eventType := gjson.GetBytes(data, "type").String()
-	if eventType != "response.completed" && eventType != "response.done" {
+	if eventType != "response.completed" && eventType != "response.done" &&
+		eventType != "response.incomplete" && eventType != "response.cancelled" && eventType != "response.canceled" {
 		return
 	}
 
@@ -4143,15 +4262,19 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	}, true
 }
 
-func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*OpenAIUsage, error) {
+func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err
 	}
 
+	if isEventStreamResponse(resp.Header) {
+		return s.handleOAuthSSEToJSON(resp, c, body, originalModel, mappedModel)
+	}
+
 	if account.Type == AccountTypeOAuth {
 		bodyLooksLikeSSE := bytes.Contains(body, []byte("data:")) || bytes.Contains(body, []byte("event:"))
-		if isEventStreamResponse(resp.Header) || bodyLooksLikeSSE {
+		if bodyLooksLikeSSE {
 			return s.handleOAuthSSEToJSON(resp, c, body, originalModel, mappedModel)
 		}
 	}
@@ -4178,7 +4301,11 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 
 	c.Data(resp.StatusCode, contentType, body)
 
-	return usage, nil
+	return &openaiNonStreamingResult{
+		OpenAIUsage: usage,
+		usage:       usage,
+		imageCount:  countOpenAIResponseImageOutputsFromJSONBytes(body),
+	}, nil
 }
 
 func isEventStreamResponse(header http.Header) bool {
@@ -4186,7 +4313,7 @@ func isEventStreamResponse(header http.Header) bool {
 	return strings.Contains(contentType, "text/event-stream")
 }
 
-func (s *OpenAIGatewayService) handleOAuthSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel, mappedModel string) (*OpenAIUsage, error) {
+func (s *OpenAIGatewayService) handleOAuthSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	bodyText := string(body)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
@@ -4228,7 +4355,11 @@ func (s *OpenAIGatewayService) handleOAuthSSEToJSON(resp *http.Response, c *gin.
 	}
 	c.Data(resp.StatusCode, contentType, body)
 
-	return usage, nil
+	return &openaiNonStreamingResult{
+		OpenAIUsage: usage,
+		usage:       usage,
+		imageCount:  countOpenAIImageOutputsFromSSEBody(bodyText),
+	}, nil
 }
 
 func extractOpenAISSETerminalEvent(body string) (string, []byte, bool) {
@@ -4651,16 +4782,15 @@ type OpenAIRecordUsageInput struct {
 
 // RecordUsage records usage and deducts balance
 func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRecordUsageInput) error {
-	result := input.Result
-	if s.rateLimitService != nil && input != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
-		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
+	if input == nil {
+		return errors.New("openai usage input is nil")
 	}
-
-	// 跳过所有 token 均为零的用量记录——上游未返回 usage 时不应写入数据库
-	if result.Usage.InputTokens == 0 && result.Usage.OutputTokens == 0 &&
-		result.Usage.CacheCreationInputTokens == 0 && result.Usage.CacheReadInputTokens == 0 &&
-		result.Usage.ImageOutputTokens == 0 && result.ImageCount == 0 {
-		return nil
+	result := input.Result
+	if result == nil {
+		return errors.New("openai usage result is nil")
+	}
+	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
+		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
 	}
 
 	apiKey := input.APIKey

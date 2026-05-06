@@ -85,6 +85,7 @@ type cachedGatewayForwardingSettings struct {
 	fingerprintUnification bool
 	metadataPassthrough    bool
 	cchSigning             bool
+	anthropicCacheTTL1hInjection bool
 	expiresAt              int64 // unix nano
 }
 
@@ -907,6 +908,22 @@ func (s *SettingService) GetGatewayForwardingSettings(ctx context.Context) (fing
 		return r.fp, r.mp, r.cch
 	}
 	return true, false, false // fail-open defaults
+}
+
+// IsAnthropicCacheTTL1hInjectionEnabled 检查是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl。
+func (s *SettingService) IsAnthropicCacheTTL1hInjectionEnabled(ctx context.Context) bool {
+	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.anthropicCacheTTL1hInjection
+		}
+	}
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
+	defer cancel()
+	value, err := s.settingRepo.GetValue(dbCtx, SettingKeyEnableAnthropicCacheTTL1hInjection)
+	if err != nil {
+		return false
+	}
+	return value == "true"
 }
 
 // IsEmailVerifyEnabled 检查是否开启邮件验证

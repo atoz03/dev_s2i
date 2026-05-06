@@ -26,9 +26,12 @@ type Group struct {
 	DefaultValidityDays int
 
 	// 图片生成计费配置（antigravity 和 gemini 平台使用）
-	ImagePrice1K *float64
-	ImagePrice2K *float64
-	ImagePrice4K *float64
+	AllowImageGeneration bool
+	ImageRateIndependent bool
+	ImageRateMultiplier  float64
+	ImagePrice1K         *float64
+	ImagePrice2K         *float64
+	ImagePrice4K         *float64
 
 	// Sora 按次计费配置（阶段 1）
 	SoraImagePrice360          *float64

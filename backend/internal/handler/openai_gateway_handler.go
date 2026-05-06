@@ -33,6 +33,7 @@ type OpenAIGatewayHandler struct {
 	usageRecordWorkerPool   *service.UsageRecordWorkerPool
 	errorPassthroughService *service.ErrorPassthroughService
 	concurrencyHelper       *ConcurrencyHelper
+	imageLimiter            *imageConcurrencyLimiter
 	maxAccountSwitches      int
 	cfg                     *config.Config
 }
@@ -79,6 +80,7 @@ func NewOpenAIGatewayHandler(
 		usageRecordWorkerPool:   usageRecordWorkerPool,
 		errorPassthroughService: errorPassthroughService,
 		concurrencyHelper:       NewConcurrencyHelper(concurrencyService, SSEPingFormatComment, pingInterval),
+		imageLimiter:            &imageConcurrencyLimiter{},
 		maxAccountSwitches:      maxAccountSwitches,
 		cfg:                     cfg,
 	}
@@ -196,6 +198,23 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	setOpsRequestContext(c, reqModel, reqStream, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+
+	imageIntent := service.IsImageGenerationIntent("/v1/responses", reqModel, body)
+	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
+		return
+	}
+	var imageReleaseFunc func()
+	if imageIntent {
+		var imageAcquired bool
+		imageReleaseFunc, imageAcquired = h.acquireImageGenerationSlot(c, streamStarted)
+		if !imageAcquired {
+			return
+		}
+		if imageReleaseFunc != nil {
+			defer imageReleaseFunc()
+		}
+	}
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
@@ -395,7 +414,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
 
-		h.submitOpenAIUsageRecordTask(
+		h.submitOpenAIUsageRecordTaskWithContext(
 			c,
 			"handler.openai_gateway.responses",
 			subject.UserID,
@@ -745,7 +764,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
 
-		h.submitOpenAIUsageRecordTask(
+		h.submitOpenAIUsageRecordTaskWithContext(
 			c,
 			"handler.openai_gateway.messages",
 			subject.UserID,
@@ -762,6 +781,20 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		)
 		return
 	}
+}
+
+func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
+	// Anthropic metadata.user_id 只作为账号粘性信号。上游 GPT/Codex 缓存键
+	// 交给 ForwardAsAnthropic 从 cache_control 或完整消息 digest 派生，避免
+	// 固定 metadata key 压住后续 turn 的缓存滚动。
+	if sessionHash != "" {
+		return sessionHash, promptCacheKey
+	}
+	if userID := strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String()); userID != "" {
+		seed := reqModel + "-" + userID
+		sessionHash = service.DeriveSessionHashFromSeed(seed)
+	}
+	return sessionHash, promptCacheKey
 }
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
@@ -1236,7 +1269,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(ctx, account.ID, result.ResponseHeaders)
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, result.FirstTokenMs)
-			h.submitOpenAIUsageRecordTask(
+			h.submitOpenAIUsageRecordTaskWithContext(
 				c,
 				"handler.openai_gateway.websocket",
 				subject.UserID,
@@ -1399,6 +1432,60 @@ func (h *OpenAIGatewayHandler) submitUsageRecordTask(task service.UsageRecordTas
 		}
 	}()
 	task(ctx)
+}
+
+func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(result *service.OpenAIForwardResult, task service.UsageRecordTask) {
+	if result != nil && result.ImageCount > 0 {
+		h.submitMandatoryUsageRecordTask(task)
+		return
+	}
+	h.submitUsageRecordTask(task)
+}
+
+func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(task service.UsageRecordTask) {
+	if task == nil {
+		return
+	}
+	if h.usageRecordWorkerPool != nil {
+		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDropped {
+			return
+		}
+		logger.L().With(
+			zap.String("component", "handler.openai_gateway.usage"),
+		).Warn("openai.usage_record_task_mandatory_sync_fallback")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.L().With(
+				zap.String("component", "handler.openai_gateway.usage"),
+				zap.Any("panic", recovered),
+			).Error("openai.usage_record_task_panic_recovered")
+		}
+	}()
+	task(ctx)
+}
+
+func (h *OpenAIGatewayHandler) acquireImageGenerationSlot(c *gin.Context, streamStarted bool) (func(), bool) {
+	if h == nil || h.cfg == nil || h.imageLimiter == nil {
+		return nil, true
+	}
+	imageConcurrency := h.cfg.Gateway.ImageConcurrency
+	wait := strings.TrimSpace(imageConcurrency.OverflowMode) == config.ImageConcurrencyOverflowModeWait
+	release, acquired := h.imageLimiter.Acquire(
+		c.Request.Context(),
+		imageConcurrency.Enabled,
+		imageConcurrency.MaxConcurrentRequests,
+		wait,
+		time.Duration(imageConcurrency.WaitTimeoutSeconds)*time.Second,
+		imageConcurrency.MaxWaitingRequests,
+	)
+	if acquired {
+		return release, true
+	}
+	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Image generation concurrency limit exceeded, please retry later", streamStarted)
+	return nil, false
 }
 
 // handleConcurrencyError handles concurrency-related errors with proper 429 response

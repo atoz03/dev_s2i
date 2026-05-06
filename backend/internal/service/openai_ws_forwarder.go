@@ -219,8 +219,11 @@ func (e *OpenAIWSClientCloseError) Reason() string {
 
 // OpenAIWSIngressHooks 定义入站 WS 每个 turn 的生命周期回调。
 type OpenAIWSIngressHooks struct {
-	BeforeTurn func(turn int) error
-	AfterTurn  func(turn int, result *OpenAIForwardResult, turnErr error)
+	// InitialRequestModel 是首帧渠道映射前的请求模型，只用于 usage metadata
+	// 的 reasoning effort 后缀推导，禁止用于上游请求或计费模型。
+	InitialRequestModel string
+	BeforeTurn          func(turn int) error
+	AfterTurn           func(turn int, result *OpenAIForwardResult, turnErr error)
 }
 
 func normalizeOpenAIWSLogValue(value string) string {
@@ -1161,12 +1164,14 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	}
 	headers.Set("OpenAI-Beta", betaValue)
 
-	uaCtx := context.Background()
+	resolvedUA := ""
 	if c != nil && c.Request != nil {
-		uaCtx = c.Request.Context()
+		resolvedUA = s.resolveUpstreamUserAgent(c.Request.Context(), account)
+	} else {
+		resolvedUA = s.resolveUpstreamUserAgent(context.Background(), account)
 	}
-	if ua := strings.TrimSpace(s.resolveUpstreamUserAgent(uaCtx, account)); ua != "" {
-		headers.Set("user-agent", ua)
+	if strings.TrimSpace(resolvedUA) != "" {
+		headers.Set("user-agent", resolvedUA)
 	} else if c != nil {
 		if ua := strings.TrimSpace(c.GetHeader("User-Agent")); ua != "" {
 			headers.Set("user-agent", ua)
@@ -1731,6 +1736,15 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	previousResponseID := openAIWSPayloadString(payload, "previous_response_id")
 	previousResponseIDKind := ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	promptCacheKey := openAIWSPayloadString(payload, "prompt_cache_key")
+	imageBillingModel := ""
+	imageSizeTier := ""
+	if IsImageGenerationIntentMap(openAIResponsesEndpoint, originalModel, reqBody) {
+		var imageCfgErr error
+		imageBillingModel, imageSizeTier, imageCfgErr = resolveOpenAIResponsesImageBillingConfig(reqBody, originalModel)
+		if imageCfgErr != nil {
+			return nil, wrapOpenAIWSFallback("image_billing_config", imageCfgErr)
+		}
+	}
 	_, hasTools := payload["tools"]
 	debugEnabled := isOpenAIWSModeDebugEnabled()
 	payloadBytes := -1
@@ -1987,13 +2001,16 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 
 	usage := &OpenAIUsage{}
+	imageCounter := newOpenAIImageOutputCounter()
 	var firstTokenMs *int
 	responseID := ""
 	var finalResponse []byte
 	wroteDownstream := false
-	upstreamPayloadModel := strings.TrimSpace(openAIWSPayloadString(payload, "model"))
-	modelRewriteCandidates := collectOpenAIWSModelRewriteCandidates(originalModel, mappedModel, upstreamPayloadModel)
-	needModelReplace := len(modelRewriteCandidates) > 0
+	needModelReplace := originalModel != mappedModel
+	var mappedModelBytes []byte
+	if needModelReplace && mappedModel != "" {
+		mappedModelBytes = []byte(mappedModel)
+	}
 	bufferedStreamEvents := make([][]byte, 0, 4)
 	eventCount := 0
 	tokenEventCount := 0
@@ -2154,8 +2171,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 
 		if !clientDisconnected {
-			if needModelReplace && openAIWSEventMayContainModel(eventType) {
-				message = replaceOpenAIWSMessageModelByCandidates(message, originalModel, modelRewriteCandidates...)
+			if needModelReplace && len(mappedModelBytes) > 0 && openAIWSEventMayContainModel(eventType) && bytes.Contains(message, mappedModelBytes) {
+				message = replaceOpenAIWSMessageModel(message, mappedModel, originalModel)
 			}
 			if openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(message) {
 				if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(message); changed {
@@ -2166,6 +2183,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if openAIWSEventShouldParseUsage(eventType) {
 			parseOpenAIWSResponseUsageFromCompletedEvent(message, usage)
 		}
+		imageCounter.AddSSEData(message)
 
 		if eventType == "error" {
 			errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(message)
@@ -2333,11 +2351,12 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		clientDisconnected,
 	)
 
-	return &OpenAIForwardResult{
+	imageCount := imageCounter.Count()
+	result := &OpenAIForwardResult{
 		RequestID:       responseID,
 		Usage:           *usage,
 		Model:           originalModel,
-		UpstreamModel:   coalesceOpenAIWSUpstreamModel(upstreamPayloadModel, mappedModel),
+		UpstreamModel:   mappedModel,
 		ServiceTier:     extractOpenAIServiceTier(reqBody),
 		ReasoningEffort: extractOpenAIReasoningEffort(reqBody, originalModel),
 		Stream:          reqStream,
@@ -2345,53 +2364,13 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		ResponseHeaders: lease.HandshakeHeaders(),
 		Duration:        time.Since(startTime),
 		FirstTokenMs:    firstTokenMs,
-	}, nil
-}
-
-func collectOpenAIWSModelRewriteCandidates(originalModel string, candidates ...string) []string {
-	originalModel = strings.TrimSpace(originalModel)
-	if originalModel == "" {
-		return nil
 	}
-	seen := make(map[string]struct{}, len(candidates))
-	out := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || candidate == originalModel {
-			continue
-		}
-		if _, exists := seen[candidate]; exists {
-			continue
-		}
-		seen[candidate] = struct{}{}
-		out = append(out, candidate)
+	if imageCount > 0 {
+		result.ImageCount = imageCount
+		result.ImageSize = imageSizeTier
+		result.BillingModel = imageBillingModel
 	}
-	return out
-}
-
-func replaceOpenAIWSMessageModelByCandidates(message []byte, originalModel string, candidates ...string) []byte {
-	if len(message) == 0 || strings.TrimSpace(originalModel) == "" {
-		return message
-	}
-	updated := message
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || candidate == originalModel {
-			continue
-		}
-		if !bytes.Contains(updated, []byte(candidate)) {
-			continue
-		}
-		updated = replaceOpenAIWSMessageModel(updated, candidate, originalModel)
-	}
-	return updated
-}
-
-func coalesceOpenAIWSUpstreamModel(primary, fallback string) string {
-	if primary = strings.TrimSpace(primary); primary != "" {
-		return primary
-	}
-	return strings.TrimSpace(fallback)
+	return result, nil
 }
 
 // ProxyResponsesWebSocketFromClient 处理客户端入站 WebSocket（OpenAI Responses WS Mode）并转发到上游。
@@ -2490,6 +2469,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		promptCacheKey     string
 		previousResponseID string
 		originalModel      string
+		imageBillingModel  string
+		imageSizeTier      string
 		payloadBytes       int
 	}
 
@@ -2579,13 +2560,26 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			normalized = next
 		}
-		upstreamModel := normalizeCodexModel(account.GetMappedModel(originalModel))
+		upstreamModel := normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 		if upstreamModel != originalModel {
 			next, setErr := applyPayloadMutation(normalized, "model", upstreamModel)
 			if setErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", setErr)
 			}
 			normalized = next
+		}
+		imageIntent := IsImageGenerationIntent(openAIResponsesEndpoint, originalModel, normalized)
+		if imageIntent && !GroupAllowsImageGeneration(apiKeyGroup(getAPIKeyFromContext(c))) {
+			return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, ImageGenerationPermissionMessage(), nil)
+		}
+		imageBillingModel := ""
+		imageSizeTier := ""
+		if imageIntent {
+			var imageCfgErr error
+			imageBillingModel, imageSizeTier, imageCfgErr = resolveOpenAIResponsesImageBillingConfigFromBody(normalized, originalModel)
+			if imageCfgErr != nil {
+				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, imageCfgErr.Error(), imageCfgErr)
+			}
 		}
 
 		// Apply OpenAI Fast Policy on the response.create frame using the same
@@ -2632,6 +2626,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			promptCacheKey:     promptCacheKey,
 			previousResponseID: previousResponseID,
 			originalModel:      originalModel,
+			imageBillingModel:  imageBillingModel,
+			imageSizeTier:      imageSizeTier,
 			payloadBytes:       len(normalized),
 		}, nil
 	}
@@ -2833,7 +2829,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return payload, nil
 	}
 
-	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string) (*OpenAIForwardResult, error) {
+	sendAndRelay := func(turn int, lease *openAIWSConnLease, payload []byte, payloadBytes int, originalModel string, imageBillingModel string, imageSizeTier string) (*OpenAIForwardResult, error) {
 		if lease == nil {
 			return nil, errors.New("upstream websocket lease is nil")
 		}
@@ -2858,6 +2854,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 		responseID := ""
 		usage := OpenAIUsage{}
+		imageCounter := newOpenAIImageOutputCounter()
 		var firstTokenMs *int
 		reqStream := openAIWSPayloadBoolFromRaw(payload, "stream", true)
 		turnPreviousResponseID := openAIWSPayloadStringFromRaw(payload, "previous_response_id")
@@ -2875,7 +2872,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		mappedModel := ""
 		var mappedModelBytes []byte
 		if originalModel != "" {
-			mappedModel = normalizeCodexModel(account.GetMappedModel(originalModel))
+			mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 			needModelReplace = mappedModel != "" && mappedModel != originalModel
 			if needModelReplace {
 				mappedModelBytes = []byte(mappedModel)
@@ -2979,6 +2976,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if openAIWSEventShouldParseUsage(eventType) {
 				parseOpenAIWSResponseUsageFromCompletedEvent(upstreamMessage, &usage)
 			}
+			imageCounter.AddSSEData(upstreamMessage)
 
 			if !clientDisconnected {
 				if needModelReplace && len(mappedModelBytes) > 0 && openAIWSEventMayContainModel(eventType) && bytes.Contains(upstreamMessage, mappedModelBytes) {
@@ -3038,7 +3036,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 						clientDisconnected,
 					)
 				}
-				return &OpenAIForwardResult{
+				imageCount := imageCounter.Count()
+				result := &OpenAIForwardResult{
 					RequestID:       responseID,
 					Usage:           usage,
 					Model:           originalModel,
@@ -3050,13 +3049,21 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					ResponseHeaders: lease.HandshakeHeaders(),
 					Duration:        time.Since(turnStart),
 					FirstTokenMs:    firstTokenMs,
-				}, nil
+				}
+				if imageCount > 0 {
+					result.ImageCount = imageCount
+					result.ImageSize = imageSizeTier
+					result.BillingModel = imageBillingModel
+				}
+				return result, nil
 			}
 		}
 	}
 
 	currentPayload := firstPayload.payloadRaw
 	currentOriginalModel := firstPayload.originalModel
+	currentImageBillingModel := firstPayload.imageBillingModel
+	currentImageSizeTier := firstPayload.imageSizeTier
 	currentPayloadBytes := firstPayload.payloadBytes
 	isStrictAffinityTurn := func(payload []byte) bool {
 		if !storeDisabled {
@@ -3143,6 +3150,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			return false
 		}
 		if turnPrevRecoveryTried || !s.openAIWSIngressPreviousResponseRecoveryEnabled() {
+			return false
+		}
+		// 携带 function_call_output 的请求不能丢弃 previous_response_id：
+		// 上游 API 需要 response chain 来匹配 tool_result 与之前的 tool_use，
+		// 丢弃后会导致 "No tool call found for function call output" 400 错误。
+		if gjson.GetBytes(currentPayload, `input.#(type=="function_call_output")`).Exists() {
 			return false
 		}
 		if isStrictAffinityTurn(currentPayload) {
@@ -3411,7 +3424,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					truncateOpenAIWSLogValue(pingErr.Error(), openAIWSLogValueMaxLen),
 				)
 				if forcePreferredConn {
-					if !turnPrevRecoveryTried && currentPreviousResponseID != "" {
+					// 携带 function_call_output 的请求不能丢弃 previous_response_id：
+					// 上游 API 需要 response chain 来匹配 tool_result 与之前的 tool_use，
+					// 丢弃后会导致 "No tool call found for function call output" 400 错误。
+					hasFCOutput := gjson.GetBytes(currentPayload, `input.#(type=="function_call_output")`).Exists()
+					if !turnPrevRecoveryTried && currentPreviousResponseID != "" && !hasFCOutput {
 						updatedPayload, removed, dropErr := dropPreviousResponseIDFromRawPayload(currentPayload)
 						if dropErr != nil || !removed {
 							reason := "not_removed"
@@ -3501,7 +3518,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			)
 		}
 
-		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel)
+		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier)
 		if relayErr != nil {
 			lastTurnClean = false
 			if recoverIngressPrevResponseNotFound(relayErr, turn, connID) {
@@ -3623,6 +3640,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		currentPayload = nextPayload.payloadRaw
 		currentOriginalModel = nextPayload.originalModel
+		currentImageBillingModel = nextPayload.imageBillingModel
+		currentImageSizeTier = nextPayload.imageSizeTier
 		currentPayloadBytes = nextPayload.payloadBytes
 		storeDisabled = s.isOpenAIWSStoreDisabledInRequestRaw(currentPayload, account)
 		if !storeDisabled {

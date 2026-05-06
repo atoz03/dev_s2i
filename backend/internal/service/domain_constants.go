@@ -52,10 +52,11 @@ const (
 
 // Redeem type constants
 const (
-	RedeemTypeBalance      = domain.RedeemTypeBalance
-	RedeemTypeConcurrency  = domain.RedeemTypeConcurrency
-	RedeemTypeSubscription = domain.RedeemTypeSubscription
-	RedeemTypeInvitation   = domain.RedeemTypeInvitation
+	RedeemTypeBalance          = domain.RedeemTypeBalance
+	RedeemTypeConcurrency      = domain.RedeemTypeConcurrency
+	RedeemTypeSubscription     = domain.RedeemTypeSubscription
+	RedeemTypeInvitation       = domain.RedeemTypeInvitation
+	RedeemTypeAffiliateBalance = "affiliate_balance"
 )
 
 // PromoCode status constants
@@ -288,6 +289,9 @@ const (
 	// SettingKeyOverloadCooldownSettings stores JSON config for 529 overload cooldown handling.
 	SettingKeyOverloadCooldownSettings = "overload_cooldown_settings"
 
+	// SettingKeyRateLimit429CooldownSettings stores JSON config for 429 fallback cooldown handling.
+	SettingKeyRateLimit429CooldownSettings = "rate_limit_429_cooldown_settings"
+
 	// =========================
 	// Stream Timeout Handling
 	// =========================
@@ -344,6 +348,8 @@ const (
 	SettingKeyUpdateGitHubRepo = "update_github_repo"
 	// SettingKeyEnableCCHSigning 是否启用 CCH 签名
 	SettingKeyEnableCCHSigning = "enable_cch_signing"
+	// SettingKeyEnableAnthropicCacheTTL1hInjection 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
+	SettingKeyEnableAnthropicCacheTTL1hInjection = "enable_anthropic_cache_ttl_1h_injection"
 
 	// Balance Low Notification
 	SettingKeyBalanceLowNotifyEnabled     = "balance_low_notify_enabled"      // 全局开关

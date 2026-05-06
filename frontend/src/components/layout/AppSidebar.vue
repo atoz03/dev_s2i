@@ -729,6 +729,19 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true, menuKey: 'redeem' as const },
     { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true, menuKey: 'promoCodes' as const },
     {
+      path: '/admin/affiliates',
+      label: t('nav.affiliateManagement'),
+      icon: UsersIcon,
+      hideInSimpleMode: true,
+      expandOnly: true,
+      featureFlag: flagAffiliate,
+      children: [
+        { path: '/admin/affiliates/invites', label: t('nav.affiliateInviteRecords'), icon: UsersIcon },
+        { path: '/admin/affiliates/rebates', label: t('nav.affiliateRebateRecords'), icon: OrderIcon },
+        { path: '/admin/affiliates/transfers', label: t('nav.affiliateTransferRecords'), icon: CreditCardIcon },
+      ],
+    },
+    {
       path: '/admin/orders',
       label: t('nav.orderManagement'),
       icon: OrderIcon,

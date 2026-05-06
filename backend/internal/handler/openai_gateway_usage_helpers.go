@@ -35,7 +35,7 @@ func (h *GatewayHandler) openAISubscriptionAndBillingEligibility(
 	return subscription, nil
 }
 
-func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(
+func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTaskWithContext(
 	c *gin.Context,
 	component string,
 	userID int64,

@@ -261,7 +261,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
 		}
 
-		h.submitOpenAIUsageRecordTask(
+		h.submitOpenAIUsageRecordTaskWithContext(
 			c,
 			"handler.openai_gateway.chat_completions",
 			subject.UserID,
