@@ -1229,6 +1229,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 
 	hooks := &service.OpenAIWSIngressHooks{
+		// usage metadata（reasoning_effort）需要使用首帧渠道映射前模型后缀推导。
+		InitialRequestModel: reqModel,
 		BeforeTurn: func(turn int) error {
 			if turn == 1 {
 				return nil

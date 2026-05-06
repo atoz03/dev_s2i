@@ -171,6 +171,7 @@ export interface SystemSettings {
   force_unified_upstream_user_agent: boolean
   update_github_repo: string
   enable_cch_signing: boolean
+  enable_anthropic_cache_ttl_1h_injection: boolean
   web_search_emulation_enabled?: boolean
 
   // Payment configuration
@@ -339,6 +340,7 @@ export interface UpdateSettingsRequest {
   force_unified_upstream_user_agent?: boolean
   update_github_repo?: string
   enable_cch_signing?: boolean
+  enable_anthropic_cache_ttl_1h_injection?: boolean
   // Payment configuration
   payment_enabled?: boolean
   payment_min_amount?: number

@@ -4750,6 +4750,8 @@ export default {
         defaultUpstreamUserAgentHint: 'Used when client request does not explicitly provide User-Agent.',
         forceUnifiedUpstreamUserAgent: 'Force Unified Upstream User-Agent',
         forceUnifiedUpstreamUserAgentHint: 'When enabled, all upstream requests use the default User-Agent above, regardless of client headers.',
+        anthropicCacheTTLInjection: 'Anthropic Cache TTL Injection',
+        anthropicCacheTTLInjectionHint: 'When enabled, injects a 1h cache_control TTL into Anthropic OAuth/SetupToken request bodies.',
       },
       webSearchEmulation: {
         title: 'Web Search Emulation',

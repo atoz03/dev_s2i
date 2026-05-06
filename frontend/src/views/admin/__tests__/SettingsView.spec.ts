@@ -594,11 +594,10 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
 
     expect(updateSettings).toHaveBeenCalledTimes(1);
-    expect(updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enable_anthropic_cache_ttl_1h_injection: true,
-      }),
-    );
+    const payload = updateSettings.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      enable_anthropic_cache_ttl_1h_injection: true,
+    });
   });
 
   it("updates provider enablement immediately and reloads providers", async () => {

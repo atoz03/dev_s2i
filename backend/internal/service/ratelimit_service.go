@@ -840,9 +840,24 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			return
 		}
 
-		// 其他平台：没有重置时间，使用默认5分钟
-		resetAt := time.Now().Add(5 * time.Minute)
-		slog.Warn("rate_limit_no_reset_time", "account_id", account.ID, "platform", account.Platform, "using_default", "5m")
+		// 其他平台：没有重置时间，按 429 默认回避设置处理（默认 5 秒，可配置/可禁用）。
+		settings := s.rateLimit429CooldownSettings(ctx)
+		if settings == nil || !settings.Enabled {
+			slog.Warn(
+				"rate_limit_no_reset_time_skipped",
+				"account_id", account.ID,
+				"platform", account.Platform,
+				"reason", "429 cooldown fallback disabled",
+			)
+			return
+		}
+		resetAt := time.Now().Add(time.Duration(settings.CooldownSeconds) * time.Second)
+		slog.Warn(
+			"rate_limit_no_reset_time",
+			"account_id", account.ID,
+			"platform", account.Platform,
+			"using_fallback_seconds", settings.CooldownSeconds,
+		)
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
 		}
@@ -876,6 +891,22 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+}
+
+func (s *RateLimitService) rateLimit429CooldownSettings(ctx context.Context) *RateLimit429CooldownSettings {
+	defaults := DefaultRateLimit429CooldownSettings()
+	if s == nil || s.settingService == nil {
+		return defaults
+	}
+	settings, err := s.settingService.GetRateLimit429CooldownSettings(ctx)
+	if err != nil {
+		slog.Warn("rate_limit_429_cooldown_settings_read_failed", "error", err)
+		return defaults
+	}
+	if settings == nil {
+		return defaults
+	}
+	return settings
 }
 
 // calculateOpenAI429ResetTime 从 OpenAI 429 响应头计算正确的重置时间

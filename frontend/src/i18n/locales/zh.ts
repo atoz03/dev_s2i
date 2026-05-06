@@ -4911,6 +4911,8 @@ export default {
         defaultUpstreamUserAgentHint: '当客户端未显式提供 User-Agent 时，使用此值转发到上游。',
         forceUnifiedUpstreamUserAgent: '强制统一上游 User-Agent',
         forceUnifiedUpstreamUserAgentHint: '开启后，无论客户端传什么 User-Agent，都会被统一替换为上面的默认值。',
+        anthropicCacheTTLInjection: 'Anthropic Cache TTL 注入',
+        anthropicCacheTTLInjectionHint: '开启后，会为 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl。',
       },
       webSearchEmulation: {
         title: 'Web Search 模拟',
