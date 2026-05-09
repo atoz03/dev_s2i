@@ -1,6 +1,8 @@
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { buildAuthErrorMessage } from '@/utils/authError'
 
 export interface OpenAITokenInfo {
   access_token?: string
@@ -30,6 +32,7 @@ interface UseOpenAIOAuthOptions {
 
 export function useOpenAIOAuth(options?: UseOpenAIOAuthOptions) {
   const appStore = useAppStore()
+  const { t } = useI18n()
   const oauthPlatform = options?.platform ?? 'openai'
   const endpointPrefix = oauthPlatform === 'sora' ? '/admin/sora' : '/admin/openai'
 
@@ -119,7 +122,14 @@ export function useOpenAIOAuth(options?: UseOpenAIOAuthOptions) {
       const tokenInfo = await adminAPI.accounts.exchangeCode(`${endpointPrefix}/exchange-code`, payload)
       return tokenInfo as OpenAITokenInfo
     } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Failed to exchange OpenAI auth code'
+      const reason = err?.response?.data?.reason || err?.reason || ''
+      if (reason === 'OPENAI_OAUTH_PROXY_REQUIRED') {
+        error.value = t('admin.accounts.oauth.openai.errors.OPENAI_OAUTH_PROXY_REQUIRED')
+      } else {
+        error.value = buildAuthErrorMessage(err, {
+          fallback: t('admin.accounts.oauth.openai.failedToExchangeCode')
+        })
+      }
       appStore.showError(error.value)
       return null
     } finally {
