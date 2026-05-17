@@ -81,6 +81,17 @@
                 t('admin.accounts.oauth.openai.accessTokenAuth', '手动输入 AT')
               }}</span>
             </label>
+            <label v-if="showCodexSessionImportOption" class="flex cursor-pointer items-center gap-2">
+              <input
+                v-model="inputMethod"
+                type="radio"
+                value="codex_session"
+                class="text-blue-600 focus:ring-blue-500"
+              />
+              <span class="text-sm text-blue-900 dark:text-blue-200">{{
+                t('admin.accounts.oauth.openai.codexSessionAuth')
+              }}</span>
+            </label>
           </div>
         </div>
 
@@ -773,6 +784,7 @@ interface Props {
   showMobileRefreshTokenOption?: boolean // Whether to show mobile refresh token option
   showSessionTokenOption?: boolean // Whether to show session token input option
   showAccessTokenOption?: boolean // Whether to show access token input option
+  showCodexSessionImportOption?: boolean // Whether to show Codex session import option
   platform?: AccountPlatform // Platform type for different UI/text
   showProjectId?: boolean // New prop to control project ID visibility
 }
@@ -791,6 +803,7 @@ const props = withDefaults(defineProps<Props>(), {
   showMobileRefreshTokenOption: false,
   showSessionTokenOption: false,
   showAccessTokenOption: false,
+  showCodexSessionImportOption: false,
   platform: 'anthropic',
   showProjectId: true
 })
@@ -803,6 +816,7 @@ const emit = defineEmits<{
   'validate-mobile-refresh-token': [refreshToken: string]
   'validate-session-token': [sessionToken: string]
   'import-access-token': [accessToken: string]
+  'import-codex-session': [content: string]
   'update:inputMethod': [method: AuthInputMethod]
 }>()
 
@@ -843,12 +857,13 @@ const sessionKeyInput = ref('')
 const refreshTokenInput = ref('')
 const sessionTokenInput = ref('')
 const accessTokenInput = ref('')
+const codexSessionInput = ref('')
 const showHelpDialog = ref(false)
 const oauthState = ref('')
 const projectId = ref('')
 
 // Computed: show method selection when either cookie or refresh token option is enabled
-const showMethodSelection = computed(() => props.showCookieOption || props.showRefreshTokenOption || props.showMobileRefreshTokenOption || props.showSessionTokenOption || props.showAccessTokenOption)
+const showMethodSelection = computed(() => props.showCookieOption || props.showRefreshTokenOption || props.showMobileRefreshTokenOption || props.showSessionTokenOption || props.showAccessTokenOption || props.showCodexSessionImportOption)
 
 // Clipboard
 const { copied, copyToClipboard } = useClipboard()
@@ -995,6 +1010,7 @@ defineExpose({
   sessionKey: sessionKeyInput,
   refreshToken: refreshTokenInput,
   sessionToken: sessionTokenInput,
+  codexSession: codexSessionInput,
   inputMethod,
   reset: () => {
     authCodeInput.value = ''
@@ -1003,6 +1019,7 @@ defineExpose({
     sessionKeyInput.value = ''
     refreshTokenInput.value = ''
     sessionTokenInput.value = ''
+    codexSessionInput.value = ''
     inputMethod.value = 'manual'
     showHelpDialog.value = false
   }

@@ -126,3 +126,23 @@
 - 根因：合并后保留了 `LastUsedAt` side-key 测试，但实现回退成重写账号 JSON，且测试仍引用旧 `full/slim` key 名。
 - 修复：恢复 `sched:acc:last_used:*` 热字段缓存，读取账号与快照时覆盖 `LastUsedAt`；测试改为当前 `account/meta` key 命名，不恢复旧 `full` key。
 - 验证：`go test ./...`、`make test-unit`、`make test-integration`、`golangci-lint run ./...` 通过。
+
+## 2026-05-17 `upstream/main -> main` 合并决议
+
+### 本次取舍
+
+- 合并方式保持 `git merge --no-ff upstream/main`，本轮先用 `-X ours --no-commit` 缩小冲突面，再逐项补齐 upstream 新增功能与本地保留链路。
+- `backend/internal/pkg/antigravity/*` 继续按本地决议物理删除，不恢复 upstream 引入的 package 依赖；Antigravity User-Agent 只保留在 settings 链路中。
+- image 生图链路继续保留本地 responses-only 实现，同时吸收 upstream 对 moderation body / upload data URL 的低侵入补充。
+- 设置链路吸收 upstream 的登录协议、GitHub/Google 邮箱 OAuth、auth source 默认赠送、内容审核/风控开关与 payment/Airwallex 相关字段；合并后补齐 service、DTO、SSR 注入 payload、admin contract、SettingsView 类型与保存 payload。
+- WebSocket 内容审核按 upstream 新能力接入，但首帧阻断必须在并发槽位与账号选择前完成，避免应返回 policy violation 的请求被误判为 try-again-later。
+
+### 原因与影响
+
+- 目标是吸收 upstream 的安全与设置能力，同时不改变本地已确认的 Antigravity package 删除、OpenAI image 路由和网关行为边界。
+- 风险点集中在 settings contract、OpenAI WS 首帧审核、前端设置页保存 payload；已用后端单元/集成、前端 lint/typecheck/关键 vitest 覆盖。
+
+### 回退方式
+
+- 若整体合并引发回归，优先回退本次 merge commit：`git revert -m 1 <merge_commit_sha>`。
+- 若仅 settings 或风控链路有问题，优先按字段链路定向回退或修补，避免恢复已删除的 antigravity package。

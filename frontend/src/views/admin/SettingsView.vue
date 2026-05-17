@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-4xl space-y-6">
+    <div class="mx-auto max-w-6xl space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <div class="h-8 w-8 animate-spin rounded-full border-b-2 border-primary-600"></div>
@@ -27,9 +27,9 @@
         </div>
 
         <!-- Tab: Security — Admin API Key -->
-        <div v-show="activeTab === 'security'" class="space-y-6">
-        <!-- Admin API Key Settings -->
-        <div class="card">
+	        <div v-show="activeTab === 'security'" class="space-y-6">
+	        <!-- Admin API Key Settings -->
+	        <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.adminApiKey.title') }}
@@ -164,9 +164,30 @@
                 </p>
               </div>
             </div>
-          </div>
-        </div>
-        </div><!-- /Tab: Security — Admin API Key -->
+	          </div>
+	        </div>
+	        <div class="card">
+	          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+	            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+	              GitHub OAuth
+	            </h2>
+	            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+	              使用 GitHub OAuth Apps 创建登录应用，并把回调地址配置到应用设置中。
+	            </p>
+	          </div>
+	          <div class="p-6">
+	            <a
+	              data-testid="github-oauth-apps-guide-link"
+	              href="https://github.com/settings/developers"
+	              target="_blank"
+	              rel="noopener noreferrer"
+	              class="inline-flex items-center text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+	            >
+	              GitHub OAuth Apps
+	            </a>
+	          </div>
+	        </div>
+	        </div><!-- /Tab: Security — Admin API Key -->
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
@@ -3068,7 +3089,7 @@ import type {
   WebSearchProviderConfig,
   WebSearchTestResult,
 } from '@/api/admin/settings'
-import type { AdminGroup, Proxy, NotifyEmailEntry } from '@/types'
+import type { AdminGroup, Proxy, NotifyEmailEntry, LoginAgreementDocument } from '@/types'
 import type { ProviderInstance } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -3182,6 +3203,40 @@ const tablePageSizeMin = 5
 const tablePageSizeMax = 1000
 const tablePageSizeDefault = 20
 
+function defaultLoginAgreementDocuments(): LoginAgreementDocument[] {
+  return [
+    {
+      id: "terms",
+      title: "服务条款",
+      content_md: "",
+    },
+    {
+      id: "usage-policy",
+      title: "使用政策",
+      content_md: "",
+    },
+    {
+      id: "supported-regions",
+      title: "支持的国家和地区",
+      content_md: "",
+    },
+    {
+      id: "service-specific-terms",
+      title: "服务特定条款",
+      content_md: "",
+    },
+  ];
+}
+
+function normalizeLoginAgreementDocumentId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/[-_]{2,}/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+}
+
 interface DefaultSubscriptionGroupOption {
   value: number
   label: string
@@ -3210,6 +3265,10 @@ const form = reactive<SettingsForm>({
   password_reset_enabled: false,
   totp_enabled: false,
   totp_encryption_key_configured: false,
+  login_agreement_enabled: false,
+  login_agreement_mode: "modal",
+  login_agreement_updated_at: "2026-03-31",
+  login_agreement_documents: defaultLoginAgreementDocuments(),
   default_balance: 0,
   default_concurrency: 1,
   affiliate_enabled: false,
@@ -3290,6 +3349,16 @@ const form = reactive<SettingsForm>({
   oidc_connect_userinfo_email_path: '',
   oidc_connect_userinfo_id_path: '',
   oidc_connect_userinfo_username_path: '',
+  github_oauth_enabled: false,
+  github_oauth_client_id: '',
+  github_oauth_client_secret_configured: false,
+  github_oauth_redirect_url: '',
+  github_oauth_frontend_redirect_url: '/auth/oauth/callback',
+  google_oauth_enabled: false,
+  google_oauth_client_id: '',
+  google_oauth_client_secret_configured: false,
+  google_oauth_redirect_url: '',
+  google_oauth_frontend_redirect_url: '/auth/oauth/callback',
   // Auth source default grants
   auth_source_default_email_balance: 0,
   auth_source_default_email_concurrency: 5,
@@ -3311,6 +3380,16 @@ const form = reactive<SettingsForm>({
   auth_source_default_wechat_subscriptions: [],
   auth_source_default_wechat_grant_on_signup: false,
   auth_source_default_wechat_grant_on_first_bind: false,
+  auth_source_default_github_balance: 0,
+  auth_source_default_github_concurrency: 5,
+  auth_source_default_github_subscriptions: [],
+  auth_source_default_github_grant_on_signup: false,
+  auth_source_default_github_grant_on_first_bind: false,
+  auth_source_default_google_balance: 0,
+  auth_source_default_google_concurrency: 5,
+  auth_source_default_google_subscriptions: [],
+  auth_source_default_google_grant_on_signup: false,
+  auth_source_default_google_grant_on_first_bind: false,
   force_email_on_third_party_signup: false,
   // Model fallback
   enable_model_fallback: false,
@@ -3338,6 +3417,8 @@ const form = reactive<SettingsForm>({
   update_github_repo: '',
   enable_cch_signing: false,
   enable_anthropic_cache_ttl_1h_injection: false,
+  rewrite_message_cache_control: false,
+  antigravity_user_agent_version: "",
   // Balance & quota notification
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
@@ -3349,6 +3430,7 @@ const form = reactive<SettingsForm>({
   payment_visible_method_alipay_enabled: false,
   payment_visible_method_wxpay_enabled: false,
   openai_advanced_scheduler_enabled: false,
+  risk_control_enabled: false,
   channel_monitor_enabled: true,
   channel_monitor_default_interval_seconds: 300,
   available_channels_enabled: false,
@@ -3695,6 +3777,31 @@ function removeEndpoint(index: number) {
   form.custom_endpoints.splice(index, 1)
 }
 
+function normalizeLoginAgreementDocumentsForSave(): LoginAgreementDocument[] {
+  return form.login_agreement_documents
+    .map((doc, index) => ({
+      id:
+        normalizeLoginAgreementDocumentId(doc.id || doc.title) ||
+        `doc-${index + 1}`,
+      title: doc.title.trim(),
+      content_md: doc.content_md.trim(),
+    }))
+    .filter((doc) => doc.title || doc.content_md);
+}
+
+function findDuplicateLoginAgreementDocumentId(
+  documents: LoginAgreementDocument[],
+): string | null {
+  const seen = new Set<string>();
+  for (const doc of documents) {
+    if (seen.has(doc.id)) {
+      return doc.id;
+    }
+    seen.add(doc.id);
+  }
+  return null;
+}
+
 function formatTablePageSizeOptions(options: number[]): string {
   return options.join(', ')
 }
@@ -3866,6 +3973,13 @@ async function saveSettings() {
     if (!isValidHttpUrl(form.frontend_url)) form.frontend_url = ''
     if (!isValidHttpUrl(form.doc_url)) form.doc_url = ''
 
+    const normalizedLoginAgreementDocuments = normalizeLoginAgreementDocumentsForSave()
+    const duplicateLoginAgreementDocumentId = findDuplicateLoginAgreementDocumentId(normalizedLoginAgreementDocuments)
+    if (duplicateLoginAgreementDocumentId) {
+      appStore.showError(`登录协议文档 ID 重复：${duplicateLoginAgreementDocumentId}`)
+      return
+    }
+
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
@@ -3876,6 +3990,10 @@ async function saveSettings() {
       invitation_code_enabled: form.invitation_code_enabled,
       password_reset_enabled: form.password_reset_enabled,
       totp_enabled: form.totp_enabled,
+      login_agreement_enabled: form.login_agreement_enabled,
+      login_agreement_mode: form.login_agreement_mode,
+      login_agreement_updated_at: form.login_agreement_updated_at,
+      login_agreement_documents: normalizedLoginAgreementDocuments,
       default_balance: form.default_balance,
       default_concurrency: form.default_concurrency,
       affiliate_enabled: form.affiliate_enabled,
@@ -3959,13 +4077,16 @@ async function saveSettings() {
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
-      default_upstream_user_agent: form.default_upstream_user_agent,
-      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent,
-      update_github_repo: form.update_github_repo,
-      enable_cch_signing: form.enable_cch_signing,
-      enable_anthropic_cache_ttl_1h_injection: form.enable_anthropic_cache_ttl_1h_injection,
-      // Payment configuration
+	      default_upstream_user_agent: form.default_upstream_user_agent,
+	      force_unified_upstream_user_agent: form.force_unified_upstream_user_agent,
+	      update_github_repo: form.update_github_repo,
+	      enable_cch_signing: form.enable_cch_signing,
+	      enable_anthropic_cache_ttl_1h_injection: form.enable_anthropic_cache_ttl_1h_injection,
+	      rewrite_message_cache_control: form.rewrite_message_cache_control,
+	      antigravity_user_agent_version: form.antigravity_user_agent_version,
+	      // Payment configuration
       payment_enabled: form.payment_enabled,
+      risk_control_enabled: form.risk_control_enabled,
       payment_min_amount: Number(form.payment_min_amount) || 0,
       payment_max_amount: Number(form.payment_max_amount) || 0,
       payment_daily_limit: Number(form.payment_daily_limit) || 0,
@@ -4546,34 +4667,31 @@ onMounted(() => {
   @apply h-[42px];
 }
 
-/* ============ Settings Tab Navigation ============ */
+/* ============ 系统设置 Tab 导航 ============ */
+.settings-tabs-shell {
+  @apply sticky z-20 -mx-1 rounded-2xl border border-white/80 bg-white/90 p-1.5 backdrop-blur-xl;
+  top: 4.75rem;
+  box-shadow:
+    0 12px 28px rgb(15 23 42 / 0.07),
+    0 1px 0 rgb(255 255 255 / 0.9) inset;
+}
 
-/* Scroll container: thin scrollbar on PC, auto-hide on mobile */
+:global(.dark) .settings-tabs-shell {
+  border-color: rgb(51 65 85 / 0.65);
+  background: rgb(15 23 42 / 0.86);
+  box-shadow:
+    0 16px 36px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.06) inset;
+}
+
 .settings-tabs-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  @apply overflow-x-auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
-.settings-tabs-scroll:hover {
-  scrollbar-color: rgb(0 0 0 / 0.15) transparent;
-}
-:root.dark .settings-tabs-scroll:hover {
-  scrollbar-color: rgb(255 255 255 / 0.2) transparent;
-}
+
 .settings-tabs-scroll::-webkit-scrollbar {
-  height: 3px;
-}
-.settings-tabs-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.settings-tabs-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
-.settings-tabs-scroll:hover::-webkit-scrollbar-thumb {
-  background: rgb(0 0 0 / 0.15);
-}
-:root.dark .settings-tabs-scroll:hover::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 0.2);
+  display: none;
 }
 
 .settings-tabs {
@@ -4590,20 +4708,40 @@ onMounted(() => {
 }
 
 .settings-tab {
-  @apply relative flex flex-1 items-center justify-center gap-1.5
-         whitespace-nowrap rounded-xl px-2.5 py-2
-         text-sm font-medium
-         text-gray-500 dark:text-dark-400
-         transition-all duration-200 ease-out;
+  @apply relative isolate flex h-10 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-transparent px-3 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
 }
 
-.settings-tab:hover:not(.settings-tab-active) {
-  @apply text-gray-700 dark:text-gray-300;
-  background: rgb(0 0 0 / 0.03);
+@media (min-width: 768px) {
+  .settings-tabs {
+    @apply min-w-full;
+  }
+
+  .settings-tab {
+    @apply min-w-0 flex-1 basis-0 overflow-hidden px-2 text-[13px];
+  }
+
+  .settings-tab-icon {
+    @apply h-6 w-6;
+  }
 }
 
-:root.dark .settings-tab:hover:not(.settings-tab-active) {
-  background: rgb(255 255 255 / 0.04);
+.settings-tab::before {
+  @apply absolute inset-0 -z-10 rounded-xl opacity-0 transition-opacity duration-200;
+  content: "";
+  background: linear-gradient(135deg, rgb(248 250 252 / 0.95), rgb(241 245 249 / 0.8));
+}
+
+.settings-tab:hover::before,
+.settings-tab:focus-visible::before {
+  opacity: 1;
+}
+
+:global(.dark) .settings-tab::before {
+  background: linear-gradient(135deg, rgb(30 41 59 / 0.9), rgb(51 65 85 / 0.62));
+}
+
+.settings-tab:focus-visible {
+  @apply ring-2 ring-primary-500/40 ring-offset-2 ring-offset-white dark:ring-offset-dark-900;
 }
 
 .settings-tab-active {
@@ -4618,12 +4756,19 @@ onMounted(() => {
 }
 
 .settings-tab-icon {
-  @apply flex h-6 w-6 items-center justify-center rounded-lg
-         transition-all duration-200;
+  @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors duration-200 dark:text-gray-400;
+}
+
+.settings-tab:hover .settings-tab-icon,
+.settings-tab:focus-visible .settings-tab-icon {
+  @apply text-gray-700 dark:text-gray-200;
 }
 
 .settings-tab-active .settings-tab-icon {
-  @apply bg-primary-500/15 text-primary-600
-         dark:bg-primary-400/15 dark:text-primary-400;
+  @apply bg-primary-50 text-primary-600 dark:bg-primary-400/10 dark:text-primary-300;
+}
+
+.settings-tab-label {
+  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-none;
 }
 </style>

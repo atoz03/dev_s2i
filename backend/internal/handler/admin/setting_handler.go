@@ -190,6 +190,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 	authSourceLinuxDoSubscriptions := dtoDefaultSubscriptionsFromService(authSourceDefaults.LinuxDo.Subscriptions)
 	authSourceOIDCSubscriptions := dtoDefaultSubscriptionsFromService(authSourceDefaults.OIDC.Subscriptions)
 	authSourceWeChatSubscriptions := dtoDefaultSubscriptionsFromService(authSourceDefaults.WeChat.Subscriptions)
+	authSourceGitHubSubscriptions := dtoDefaultSubscriptionsFromService(authSourceDefaults.GitHub.Subscriptions)
+	authSourceGoogleSubscriptions := dtoDefaultSubscriptionsFromService(authSourceDefaults.Google.Subscriptions)
 
 	// Load payment config
 	var paymentCfg *service.PaymentConfig
@@ -210,6 +212,10 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		InvitationCodeEnabled:                    settings.InvitationCodeEnabled,
 		TotpEnabled:                              settings.TotpEnabled,
 		TotpEncryptionKeyConfigured:              h.settingService.IsTotpEncryptionKeyConfigured(),
+		LoginAgreementEnabled:                    settings.LoginAgreementEnabled,
+		LoginAgreementMode:                       settings.LoginAgreementMode,
+		LoginAgreementUpdatedAt:                  settings.LoginAgreementUpdatedAt,
+		LoginAgreementDocuments:                  loginAgreementDocumentsToDTO(settings.LoginAgreementDocuments),
 		SMTPHost:                                 settings.SMTPHost,
 		SMTPPort:                                 settings.SMTPPort,
 		SMTPUsername:                             settings.SMTPUsername,
@@ -262,6 +268,16 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OIDCConnectUserInfoEmailPath:             settings.OIDCConnectUserInfoEmailPath,
 		OIDCConnectUserInfoIDPath:                settings.OIDCConnectUserInfoIDPath,
 		OIDCConnectUserInfoUsernamePath:          settings.OIDCConnectUserInfoUsernamePath,
+		GitHubOAuthEnabled:                       settings.GitHubOAuthEnabled,
+		GitHubOAuthClientID:                      settings.GitHubOAuthClientID,
+		GitHubOAuthClientSecretConfigured:        settings.GitHubOAuthClientSecretConfigured,
+		GitHubOAuthRedirectURL:                   settings.GitHubOAuthRedirectURL,
+		GitHubOAuthFrontendRedirectURL:           settings.GitHubOAuthFrontendRedirectURL,
+		GoogleOAuthEnabled:                       settings.GoogleOAuthEnabled,
+		GoogleOAuthClientID:                      settings.GoogleOAuthClientID,
+		GoogleOAuthClientSecretConfigured:        settings.GoogleOAuthClientSecretConfigured,
+		GoogleOAuthRedirectURL:                   settings.GoogleOAuthRedirectURL,
+		GoogleOAuthFrontendRedirectURL:           settings.GoogleOAuthFrontendRedirectURL,
 		SiteName:                                 settings.SiteName,
 		SiteLogo:                                 settings.SiteLogo,
 		SiteSubtitle:                             settings.SiteSubtitle,
@@ -306,6 +322,16 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AuthSourceDefaultWeChatSubscriptions:     authSourceWeChatSubscriptions,
 		AuthSourceDefaultWeChatGrantOnSignup:     authSourceDefaults.WeChat.GrantOnSignup,
 		AuthSourceDefaultWeChatGrantOnFirstBind:  authSourceDefaults.WeChat.GrantOnFirstBind,
+		AuthSourceDefaultGitHubBalance:           authSourceDefaults.GitHub.Balance,
+		AuthSourceDefaultGitHubConcurrency:       authSourceDefaults.GitHub.Concurrency,
+		AuthSourceDefaultGitHubSubscriptions:     authSourceGitHubSubscriptions,
+		AuthSourceDefaultGitHubGrantOnSignup:     authSourceDefaults.GitHub.GrantOnSignup,
+		AuthSourceDefaultGitHubGrantOnFirstBind:  authSourceDefaults.GitHub.GrantOnFirstBind,
+		AuthSourceDefaultGoogleBalance:           authSourceDefaults.Google.Balance,
+		AuthSourceDefaultGoogleConcurrency:       authSourceDefaults.Google.Concurrency,
+		AuthSourceDefaultGoogleSubscriptions:     authSourceGoogleSubscriptions,
+		AuthSourceDefaultGoogleGrantOnSignup:     authSourceDefaults.Google.GrantOnSignup,
+		AuthSourceDefaultGoogleGrantOnFirstBind:  authSourceDefaults.Google.GrantOnFirstBind,
 		ForceEmailOnThirdPartySignup:             authSourceDefaults.ForceEmailOnThirdPartySignup,
 		EnableModelFallback:                      settings.EnableModelFallback,
 		FallbackModelAnthropic:                   settings.FallbackModelAnthropic,
@@ -327,6 +353,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ForceUnifiedUpstreamUserAgent:            settings.ForceUnifiedUpstreamUserAgent,
 		UpdateGitHubRepo:                         settings.UpdateGitHubRepo,
 		EnableCCHSigning:                         settings.EnableCCHSigning,
+		AntigravityUserAgentVersion:              settings.AntigravityUserAgentVersion,
 		WebSearchEmulationEnabled:                settings.WebSearchEmulationEnabled,
 		PaymentVisibleMethodAlipaySource:         settings.PaymentVisibleMethodAlipaySource,
 		PaymentVisibleMethodWxpaySource:          settings.PaymentVisibleMethodWxpaySource,
@@ -361,20 +388,54 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorEnabled:                    settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds:     settings.ChannelMonitorDefaultIntervalSeconds,
 		AvailableChannelsEnabled:                 settings.AvailableChannelsEnabled,
+		RiskControlEnabled:                       settings.RiskControlEnabled,
 	})
+}
+
+func loginAgreementDocumentsToDTO(items []service.LoginAgreementDocument) []dto.LoginAgreementDocument {
+	result := make([]dto.LoginAgreementDocument, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.LoginAgreementDocument{
+			ID:        item.ID,
+			Title:     item.Title,
+			ContentMD: item.ContentMD,
+		})
+	}
+	return result
+}
+
+func loginAgreementDocumentsToService(items []dto.LoginAgreementDocument) []service.LoginAgreementDocument {
+	result := make([]service.LoginAgreementDocument, 0, len(items))
+	for _, item := range items {
+		title := strings.TrimSpace(item.Title)
+		content := strings.TrimSpace(item.ContentMD)
+		if title == "" && content == "" {
+			continue
+		}
+		result = append(result, service.LoginAgreementDocument{
+			ID:        strings.TrimSpace(item.ID),
+			Title:     title,
+			ContentMD: content,
+		})
+	}
+	return result
 }
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
 	// 注册设置
-	RegistrationEnabled              bool     `json:"registration_enabled"`
-	EmailVerifyEnabled               bool     `json:"email_verify_enabled"`
-	RegistrationEmailSuffixWhitelist []string `json:"registration_email_suffix_whitelist"`
-	PromoCodeEnabled                 bool     `json:"promo_code_enabled"`
-	PasswordResetEnabled             bool     `json:"password_reset_enabled"`
-	FrontendURL                      string   `json:"frontend_url"`
-	InvitationCodeEnabled            bool     `json:"invitation_code_enabled"`
-	TotpEnabled                      bool     `json:"totp_enabled"` // TOTP 双因素认证
+	RegistrationEnabled              bool                         `json:"registration_enabled"`
+	EmailVerifyEnabled               bool                         `json:"email_verify_enabled"`
+	RegistrationEmailSuffixWhitelist []string                     `json:"registration_email_suffix_whitelist"`
+	PromoCodeEnabled                 bool                         `json:"promo_code_enabled"`
+	PasswordResetEnabled             bool                         `json:"password_reset_enabled"`
+	FrontendURL                      string                       `json:"frontend_url"`
+	InvitationCodeEnabled            bool                         `json:"invitation_code_enabled"`
+	TotpEnabled                      bool                         `json:"totp_enabled"` // TOTP 双因素认证
+	LoginAgreementEnabled            bool                         `json:"login_agreement_enabled"`
+	LoginAgreementMode               string                       `json:"login_agreement_mode"`
+	LoginAgreementUpdatedAt          string                       `json:"login_agreement_updated_at"`
+	LoginAgreementDocuments          []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 邮件服务设置
 	SMTPHost     string `json:"smtp_host"`
@@ -438,6 +499,17 @@ type UpdateSettingsRequest struct {
 	OIDCConnectUserInfoIDPath       string `json:"oidc_connect_userinfo_id_path"`
 	OIDCConnectUserInfoUsernamePath string `json:"oidc_connect_userinfo_username_path"`
 
+	GitHubOAuthEnabled             bool   `json:"github_oauth_enabled"`
+	GitHubOAuthClientID            string `json:"github_oauth_client_id"`
+	GitHubOAuthClientSecret        string `json:"github_oauth_client_secret"`
+	GitHubOAuthRedirectURL         string `json:"github_oauth_redirect_url"`
+	GitHubOAuthFrontendRedirectURL string `json:"github_oauth_frontend_redirect_url"`
+	GoogleOAuthEnabled             bool   `json:"google_oauth_enabled"`
+	GoogleOAuthClientID            string `json:"google_oauth_client_id"`
+	GoogleOAuthClientSecret        string `json:"google_oauth_client_secret"`
+	GoogleOAuthRedirectURL         string `json:"google_oauth_redirect_url"`
+	GoogleOAuthFrontendRedirectURL string `json:"google_oauth_frontend_redirect_url"`
+
 	// OEM设置
 	SiteName                    string                `json:"site_name"`
 	SiteLogo                    string                `json:"site_logo"`
@@ -486,6 +558,16 @@ type UpdateSettingsRequest struct {
 	AuthSourceDefaultWeChatSubscriptions     *[]dto.DefaultSubscriptionSetting `json:"auth_source_default_wechat_subscriptions"`
 	AuthSourceDefaultWeChatGrantOnSignup     *bool                             `json:"auth_source_default_wechat_grant_on_signup"`
 	AuthSourceDefaultWeChatGrantOnFirstBind  *bool                             `json:"auth_source_default_wechat_grant_on_first_bind"`
+	AuthSourceDefaultGitHubBalance           *float64                          `json:"auth_source_default_github_balance"`
+	AuthSourceDefaultGitHubConcurrency       *int                              `json:"auth_source_default_github_concurrency"`
+	AuthSourceDefaultGitHubSubscriptions     *[]dto.DefaultSubscriptionSetting `json:"auth_source_default_github_subscriptions"`
+	AuthSourceDefaultGitHubGrantOnSignup     *bool                             `json:"auth_source_default_github_grant_on_signup"`
+	AuthSourceDefaultGitHubGrantOnFirstBind  *bool                             `json:"auth_source_default_github_grant_on_first_bind"`
+	AuthSourceDefaultGoogleBalance           *float64                          `json:"auth_source_default_google_balance"`
+	AuthSourceDefaultGoogleConcurrency       *int                              `json:"auth_source_default_google_concurrency"`
+	AuthSourceDefaultGoogleSubscriptions     *[]dto.DefaultSubscriptionSetting `json:"auth_source_default_google_subscriptions"`
+	AuthSourceDefaultGoogleGrantOnSignup     *bool                             `json:"auth_source_default_google_grant_on_signup"`
+	AuthSourceDefaultGoogleGrantOnFirstBind  *bool                             `json:"auth_source_default_google_grant_on_first_bind"`
 	ForceEmailOnThirdPartySignup             *bool                             `json:"force_email_on_third_party_signup"`
 
 	// Model fallback configuration
@@ -520,6 +602,7 @@ type UpdateSettingsRequest struct {
 	ForceUnifiedUpstreamUserAgent     *bool   `json:"force_unified_upstream_user_agent"`
 	UpdateGitHubRepo                  *string `json:"update_github_repo"`
 	EnableCCHSigning                  *bool   `json:"enable_cch_signing"`
+	AntigravityUserAgentVersion       *string `json:"antigravity_user_agent_version"`
 	PaymentVisibleMethodAlipaySource  *string `json:"payment_visible_method_alipay_source"`
 	PaymentVisibleMethodWxpaySource   *string `json:"payment_visible_method_wxpay_source"`
 	PaymentVisibleMethodAlipayEnabled *bool   `json:"payment_visible_method_alipay_enabled"`
@@ -699,6 +782,44 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			response.BadRequest(c, "Cannot enable TOTP: TOTP_ENCRYPTION_KEY environment variable must be configured first. Generate a key with 'openssl rand -hex 32' and set it in your environment.")
 			return
 		}
+	}
+	loginAgreementMode := strings.ToLower(strings.TrimSpace(req.LoginAgreementMode))
+	if loginAgreementMode == "" {
+		loginAgreementMode = strings.ToLower(strings.TrimSpace(previousSettings.LoginAgreementMode))
+	}
+	switch loginAgreementMode {
+	case "", "modal":
+		loginAgreementMode = "modal"
+	case "checkbox":
+	default:
+		response.BadRequest(c, "Login agreement mode must be modal or checkbox")
+		return
+	}
+	loginAgreementUpdatedAt := strings.TrimSpace(req.LoginAgreementUpdatedAt)
+	if loginAgreementUpdatedAt == "" {
+		loginAgreementUpdatedAt = strings.TrimSpace(previousSettings.LoginAgreementUpdatedAt)
+	}
+	loginAgreementDocuments := loginAgreementDocumentsToService(req.LoginAgreementDocuments)
+	if len(loginAgreementDocuments) == 0 {
+		loginAgreementDocuments = previousSettings.LoginAgreementDocuments
+	}
+	for _, doc := range loginAgreementDocuments {
+		if strings.TrimSpace(doc.Title) == "" {
+			response.BadRequest(c, "Login agreement document title is required")
+			return
+		}
+		if len(doc.Title) > 80 {
+			response.BadRequest(c, "Login agreement document title is too long (max 80 characters)")
+			return
+		}
+		if len(doc.ContentMD) > 200*1024 {
+			response.BadRequest(c, "Login agreement document content is too large (max 200KB)")
+			return
+		}
+	}
+	if req.LoginAgreementEnabled && len(loginAgreementDocuments) == 0 {
+		response.BadRequest(c, "Login agreement documents are required when enabled")
+		return
 	}
 
 	// LinuxDo Connect 参数验证
@@ -1221,6 +1342,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+	if req.AntigravityUserAgentVersion != nil {
+		normalized := strings.TrimSpace(*req.AntigravityUserAgentVersion)
+		req.AntigravityUserAgentVersion = &normalized
+		if normalized != "" && !semverPattern.MatchString(normalized) {
+			response.Error(c, http.StatusBadRequest, "antigravity_user_agent_version must be empty or a valid semver (e.g. 1.23.2)")
+			return
+		}
+	}
 
 	// 交叉验证：如果同时设置了最低和最高版本号，最高版本号必须 >= 最低版本号
 	if req.MinClaudeCodeVersion != "" && req.MaxClaudeCodeVersion != "" {
@@ -1239,6 +1368,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		FrontendURL:                      req.FrontendURL,
 		InvitationCodeEnabled:            req.InvitationCodeEnabled,
 		TotpEnabled:                      req.TotpEnabled,
+		LoginAgreementEnabled:            req.LoginAgreementEnabled,
+		LoginAgreementMode:               loginAgreementMode,
+		LoginAgreementUpdatedAt:          loginAgreementUpdatedAt,
+		LoginAgreementDocuments:          loginAgreementDocuments,
 		SMTPHost:                         req.SMTPHost,
 		SMTPPort:                         req.SMTPPort,
 		SMTPUsername:                     req.SMTPUsername,
@@ -1291,6 +1424,16 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OIDCConnectUserInfoEmailPath:     req.OIDCConnectUserInfoEmailPath,
 		OIDCConnectUserInfoIDPath:        req.OIDCConnectUserInfoIDPath,
 		OIDCConnectUserInfoUsernamePath:  req.OIDCConnectUserInfoUsernamePath,
+		GitHubOAuthEnabled:               req.GitHubOAuthEnabled,
+		GitHubOAuthClientID:              req.GitHubOAuthClientID,
+		GitHubOAuthClientSecret:          req.GitHubOAuthClientSecret,
+		GitHubOAuthRedirectURL:           req.GitHubOAuthRedirectURL,
+		GitHubOAuthFrontendRedirectURL:   req.GitHubOAuthFrontendRedirectURL,
+		GoogleOAuthEnabled:               req.GoogleOAuthEnabled,
+		GoogleOAuthClientID:              req.GoogleOAuthClientID,
+		GoogleOAuthClientSecret:          req.GoogleOAuthClientSecret,
+		GoogleOAuthRedirectURL:           req.GoogleOAuthRedirectURL,
+		GoogleOAuthFrontendRedirectURL:   req.GoogleOAuthFrontendRedirectURL,
 		SiteName:                         req.SiteName,
 		SiteLogo:                         req.SiteLogo,
 		SiteSubtitle:                     req.SiteSubtitle,
@@ -1384,6 +1527,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.EnableCCHSigning
 			}
 			return previousSettings.EnableCCHSigning
+		}(),
+		AntigravityUserAgentVersion: func() string {
+			if req.AntigravityUserAgentVersion != nil {
+				return *req.AntigravityUserAgentVersion
+			}
+			return previousSettings.AntigravityUserAgentVersion
 		}(),
 		PaymentVisibleMethodAlipaySource: func() string {
 			if req.PaymentVisibleMethodAlipaySource != nil {
@@ -1673,6 +1822,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ForceUnifiedUpstreamUserAgent:            updatedSettings.ForceUnifiedUpstreamUserAgent,
 		UpdateGitHubRepo:                         updatedSettings.UpdateGitHubRepo,
 		EnableCCHSigning:                         updatedSettings.EnableCCHSigning,
+		AntigravityUserAgentVersion:              updatedSettings.AntigravityUserAgentVersion,
 		PaymentVisibleMethodAlipaySource:         updatedSettings.PaymentVisibleMethodAlipaySource,
 		PaymentVisibleMethodWxpaySource:          updatedSettings.PaymentVisibleMethodWxpaySource,
 		PaymentVisibleMethodAlipayEnabled:        updatedSettings.PaymentVisibleMethodAlipayEnabled,
@@ -1815,6 +1965,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.TotpEnabled != after.TotpEnabled {
 		changed = append(changed, "totp_enabled")
+	}
+	if before.LoginAgreementEnabled != after.LoginAgreementEnabled {
+		changed = append(changed, "login_agreement_enabled")
+	}
+	if before.LoginAgreementMode != after.LoginAgreementMode {
+		changed = append(changed, "login_agreement_mode")
+	}
+	if before.LoginAgreementUpdatedAt != after.LoginAgreementUpdatedAt {
+		changed = append(changed, "login_agreement_updated_at")
+	}
+	if !equalLoginAgreementDocuments(before.LoginAgreementDocuments, after.LoginAgreementDocuments) {
+		changed = append(changed, "login_agreement_documents")
 	}
 	if before.SMTPHost != after.SMTPHost {
 		changed = append(changed, "smtp_host")
@@ -2202,6 +2364,18 @@ func equalDefaultSubscriptions(a, b []service.DefaultSubscriptionSetting) bool {
 	}
 	for i := range a {
 		if a[i].GroupID != b[i].GroupID || a[i].ValidityDays != b[i].ValidityDays {
+			return false
+		}
+	}
+	return true
+}
+
+func equalLoginAgreementDocuments(a, b []service.LoginAgreementDocument) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Title != b[i].Title || a[i].ContentMD != b[i].ContentMD {
 			return false
 		}
 	}

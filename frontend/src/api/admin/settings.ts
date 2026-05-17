@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { AdminBuiltinMenuItemKey, CustomMenuItem, CustomEndpoint, NotifyEmailEntry } from '@/types'
+import type { AdminBuiltinMenuItemKey, CustomMenuItem, CustomEndpoint, NotifyEmailEntry, LoginAgreementDocument } from '@/types'
 
 export interface DefaultSubscriptionSetting {
   group_id: number
@@ -13,7 +13,7 @@ export interface DefaultSubscriptionSetting {
 
 export type WeChatConnectMode = 'open' | 'mp'
 export type PaymentVisibleMethod = 'alipay' | 'wxpay'
-export type AuthSourceKey = 'email' | 'linuxdo' | 'oidc' | 'wechat'
+export type AuthSourceKey = 'email' | 'linuxdo' | 'oidc' | 'wechat' | 'github' | 'google'
 
 export interface AuthSourceDefaultGrantState {
   balance: number
@@ -39,6 +39,10 @@ export interface SystemSettings {
   invitation_code_enabled: boolean
   totp_enabled: boolean // TOTP 双因素认证
   totp_encryption_key_configured: boolean // TOTP 加密密钥是否已配置
+  login_agreement_enabled: boolean
+  login_agreement_mode: 'modal' | 'checkbox' | string
+  login_agreement_updated_at: string
+  login_agreement_documents: LoginAgreementDocument[]
   // Default settings
   default_balance: number
   affiliate_enabled: boolean
@@ -118,6 +122,18 @@ export interface SystemSettings {
   oidc_connect_userinfo_id_path: string
   oidc_connect_userinfo_username_path: string
 
+  // GitHub / Google email OAuth settings
+  github_oauth_enabled: boolean
+  github_oauth_client_id: string
+  github_oauth_client_secret_configured: boolean
+  github_oauth_redirect_url: string
+  github_oauth_frontend_redirect_url: string
+  google_oauth_enabled: boolean
+  google_oauth_client_id: string
+  google_oauth_client_secret_configured: boolean
+  google_oauth_redirect_url: string
+  google_oauth_frontend_redirect_url: string
+
   // Auth source default grants
   auth_source_default_email_balance: number
   auth_source_default_email_concurrency: number
@@ -139,6 +155,16 @@ export interface SystemSettings {
   auth_source_default_wechat_subscriptions: DefaultSubscriptionSetting[]
   auth_source_default_wechat_grant_on_signup: boolean
   auth_source_default_wechat_grant_on_first_bind: boolean
+  auth_source_default_github_balance: number
+  auth_source_default_github_concurrency: number
+  auth_source_default_github_subscriptions: DefaultSubscriptionSetting[]
+  auth_source_default_github_grant_on_signup: boolean
+  auth_source_default_github_grant_on_first_bind: boolean
+  auth_source_default_google_balance: number
+  auth_source_default_google_concurrency: number
+  auth_source_default_google_subscriptions: DefaultSubscriptionSetting[]
+  auth_source_default_google_grant_on_signup: boolean
+  auth_source_default_google_grant_on_first_bind: boolean
   force_email_on_third_party_signup: boolean
 
   // Model fallback configuration
@@ -172,6 +198,8 @@ export interface SystemSettings {
   update_github_repo: string
   enable_cch_signing: boolean
   enable_anthropic_cache_ttl_1h_injection: boolean
+  rewrite_message_cache_control?: boolean
+  antigravity_user_agent_version?: string
   web_search_emulation_enabled?: boolean
 
   // Payment configuration
@@ -200,6 +228,7 @@ export interface SystemSettings {
   payment_visible_method_alipay_enabled: boolean
   payment_visible_method_wxpay_enabled: boolean
   openai_advanced_scheduler_enabled: boolean
+  risk_control_enabled: boolean
 
   // Balance & quota notification
   balance_low_notify_enabled: boolean
@@ -224,6 +253,10 @@ export interface UpdateSettingsRequest {
   frontend_url?: string
   invitation_code_enabled?: boolean
   totp_enabled?: boolean // TOTP 双因素认证
+  login_agreement_enabled?: boolean
+  login_agreement_mode?: 'modal' | 'checkbox' | string
+  login_agreement_updated_at?: string
+  login_agreement_documents?: LoginAgreementDocument[]
   default_balance?: number
   affiliate_enabled?: boolean
   affiliate_rebate_rate?: number
@@ -299,6 +332,16 @@ export interface UpdateSettingsRequest {
   oidc_connect_userinfo_email_path?: string
   oidc_connect_userinfo_id_path?: string
   oidc_connect_userinfo_username_path?: string
+  github_oauth_enabled?: boolean
+  github_oauth_client_id?: string
+  github_oauth_client_secret?: string
+  github_oauth_redirect_url?: string
+  github_oauth_frontend_redirect_url?: string
+  google_oauth_enabled?: boolean
+  google_oauth_client_id?: string
+  google_oauth_client_secret?: string
+  google_oauth_redirect_url?: string
+  google_oauth_frontend_redirect_url?: string
   auth_source_default_email_balance?: number
   auth_source_default_email_concurrency?: number
   auth_source_default_email_subscriptions?: DefaultSubscriptionSetting[]
@@ -319,6 +362,16 @@ export interface UpdateSettingsRequest {
   auth_source_default_wechat_subscriptions?: DefaultSubscriptionSetting[]
   auth_source_default_wechat_grant_on_signup?: boolean
   auth_source_default_wechat_grant_on_first_bind?: boolean
+  auth_source_default_github_balance?: number
+  auth_source_default_github_concurrency?: number
+  auth_source_default_github_subscriptions?: DefaultSubscriptionSetting[]
+  auth_source_default_github_grant_on_signup?: boolean
+  auth_source_default_github_grant_on_first_bind?: boolean
+  auth_source_default_google_balance?: number
+  auth_source_default_google_concurrency?: number
+  auth_source_default_google_subscriptions?: DefaultSubscriptionSetting[]
+  auth_source_default_google_grant_on_signup?: boolean
+  auth_source_default_google_grant_on_first_bind?: boolean
   force_email_on_third_party_signup?: boolean
   enable_model_fallback?: boolean
   fallback_model_anthropic?: string
@@ -341,6 +394,8 @@ export interface UpdateSettingsRequest {
   update_github_repo?: string
   enable_cch_signing?: boolean
   enable_anthropic_cache_ttl_1h_injection?: boolean
+  rewrite_message_cache_control?: boolean
+  antigravity_user_agent_version?: string
   // Payment configuration
   payment_enabled?: boolean
   payment_min_amount?: number
@@ -367,6 +422,7 @@ export interface UpdateSettingsRequest {
   payment_visible_method_alipay_enabled?: boolean
   payment_visible_method_wxpay_enabled?: boolean
   openai_advanced_scheduler_enabled?: boolean
+  risk_control_enabled?: boolean
   // Balance & quota notification
   balance_low_notify_enabled?: boolean
   balance_low_notify_threshold?: number
@@ -758,6 +814,8 @@ export function buildAuthSourceDefaultsState(
     linuxdo: buildAuthSourceDefaultStateFor(settings, 'linuxdo'),
     oidc: buildAuthSourceDefaultStateFor(settings, 'oidc'),
     wechat: buildAuthSourceDefaultStateFor(settings, 'wechat'),
+    github: buildAuthSourceDefaultStateFor(settings, 'github'),
+    google: buildAuthSourceDefaultStateFor(settings, 'google'),
   }
 }
 
@@ -786,6 +844,8 @@ export function appendAuthSourceDefaultsToUpdateRequest(
   appendOne('linuxdo', state.linuxdo)
   appendOne('oidc', state.oidc)
   appendOne('wechat', state.wechat)
+  appendOne('github', state.github)
+  appendOne('google', state.google)
 }
 
 export function normalizePaymentVisibleMethodSource(
