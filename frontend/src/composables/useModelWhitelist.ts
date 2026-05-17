@@ -21,6 +21,7 @@ const openaiModels = [
 // OpenAI 账号创建时默认预填的白名单模型
 // 注意：这不是完整可选列表，完整列表仍由 allModels / ModelWhitelistSelector 提供
 const openaiDefaultWhitelistModels = [
+  'gpt-5.5',
   'gpt-5.4',
   'gpt-5.4-mini',
   'gpt-5.2',

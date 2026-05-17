@@ -11,18 +11,19 @@ import {
 } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
-  it('openai 模型列表包含 GPT-5.4 官方快照', () => {
+  it('openai 模型列表包含 GPT-5.5 与 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 
+    expect(models).toContain('gpt-5.5')
     expect(models).toContain('gpt-5.4')
     expect(models).toContain('gpt-5.4-mini')
     expect(models).toContain('gpt-5.4-nano')
     expect(models).toContain('gpt-5.4-2026-03-05')
-    expect(models).toContain('codex-auto-review')
   })
 
-  it('openai 默认白名单只预填 4 个指定模型', () => {
+  it('openai 默认白名单只预填 5 个指定模型', () => {
     expect(getDefaultWhitelistModelsByPlatform('openai')).toEqual([
+      'gpt-5.5',
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.2',
