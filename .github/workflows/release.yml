@@ -172,11 +172,13 @@ jobs:
         id: lowercase
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      - name: Run GoReleaser
+      - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
-          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+          install-only: true
+
+      - name: Run GoReleaser (retry up to 3 times)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
@@ -184,6 +186,30 @@ jobs:
           GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
+        run: |
+          set -euo pipefail
+
+          ARGS="release --clean --skip=validate"
+          if [ "${{ env.SIMPLE_RELEASE }}" = "true" ]; then
+            ARGS="$ARGS --config=.goreleaser.simple.yaml"
+          fi
+
+          for attempt in 1 2 3; do
+            echo "GoReleaser attempt ${attempt}/3"
+            if goreleaser $ARGS; then
+              echo "GoReleaser succeeded on attempt ${attempt}"
+              exit 0
+            fi
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep_seconds=$((attempt * 30))
+              echo "GoReleaser failed on attempt ${attempt}, retry after ${sleep_seconds}s..."
+              sleep "$sleep_seconds"
+            fi
+          done
+
+          echo "GoReleaser failed after 3 attempts."
+          exit 1
 
       # Update DockerHub description
       - name: Update DockerHub description
