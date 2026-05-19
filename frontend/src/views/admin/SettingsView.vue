@@ -3313,6 +3313,23 @@ const form = reactive<SettingsForm>({
   linuxdo_connect_client_secret: '',
   linuxdo_connect_client_secret_configured: false,
   linuxdo_connect_redirect_url: '',
+  // DingTalk Connect OAuth 登录
+  dingtalk_connect_enabled: false,
+  dingtalk_connect_client_id: '',
+  dingtalk_connect_client_secret_configured: false,
+  dingtalk_connect_redirect_url: '',
+  dingtalk_connect_corp_restriction_policy: '',
+  dingtalk_connect_internal_corp_id: '',
+  dingtalk_connect_bypass_registration: false,
+  dingtalk_connect_sync_corp_email: false,
+  dingtalk_connect_sync_display_name: false,
+  dingtalk_connect_sync_dept: false,
+  dingtalk_connect_sync_corp_email_attr_key: 'dingtalk_email',
+  dingtalk_connect_sync_display_name_attr_key: 'dingtalk_name',
+  dingtalk_connect_sync_dept_attr_key: 'dingtalk_department',
+  dingtalk_connect_sync_corp_email_attr_name: '钉钉企业邮箱',
+  dingtalk_connect_sync_display_name_attr_name: '钉钉姓名',
+  dingtalk_connect_sync_dept_attr_name: '钉钉部门',
   // WeChat Connect OAuth 登录
   wechat_connect_enabled: false,
   wechat_connect_app_id: '',
@@ -4676,14 +4693,6 @@ onMounted(() => {
     0 1px 0 rgb(255 255 255 / 0.9) inset;
 }
 
-:global(.dark) .settings-tabs-shell {
-  border-color: rgb(51 65 85 / 0.65);
-  background: rgb(15 23 42 / 0.86);
-  box-shadow:
-    0 16px 36px rgb(0 0 0 / 0.28),
-    0 1px 0 rgb(255 255 255 / 0.06) inset;
-}
-
 .settings-tabs-scroll {
   @apply overflow-x-auto;
   -ms-overflow-style: none;
@@ -4736,10 +4745,6 @@ onMounted(() => {
   opacity: 1;
 }
 
-:global(.dark) .settings-tab::before {
-  background: linear-gradient(135deg, rgb(30 41 59 / 0.9), rgb(51 65 85 / 0.62));
-}
-
 .settings-tab:focus-visible {
   @apply ring-2 ring-primary-500/40 ring-offset-2 ring-offset-white dark:ring-offset-dark-900;
 }
@@ -4770,5 +4775,28 @@ onMounted(() => {
 
 .settings-tab-label {
   @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-none;
+}
+</style>
+
+<style>
+/* Dark-mode overrides for the settings tabs shell. Kept in an UNSCOPED block
+   because Vue's scoped-CSS compiler was dropping the `:global(.dark) ...`
+   rules in the production build, leaving inactive tabs unreadable on dark. */
+.dark .settings-tabs-shell {
+  border-color: rgb(51 65 85 / 0.65);
+  background: rgb(15 23 42 / 0.86);
+  box-shadow:
+    0 16px 36px rgb(0 0 0 / 0.28),
+    0 1px 0 rgb(255 255 255 / 0.06) inset;
+}
+
+.dark .settings-tab::before {
+  background: linear-gradient(135deg, rgb(30 41 59 / 0.9), rgb(51 65 85 / 0.62));
+}
+
+.dark .settings-tab-active {
+  box-shadow:
+    0 12px 26px rgb(0 0 0 / 0.22),
+    0 1px 0 rgb(255 255 255 / 0.08) inset;
 }
 </style>

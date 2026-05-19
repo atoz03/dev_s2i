@@ -35,6 +35,7 @@ type PublicSettingsInjectionPayload struct {
 	CustomMenuItems                      json.RawMessage          `json:"custom_menu_items"`
 	CustomEndpoints                      json.RawMessage          `json:"custom_endpoints"`
 	LinuxDoOAuthEnabled                  bool                     `json:"linuxdo_oauth_enabled"`
+	DingTalkOAuthEnabled                 bool                     `json:"dingtalk_oauth_enabled"`
 	WeChatOAuthEnabled                   bool                     `json:"wechat_oauth_enabled"`
 	WeChatOAuthOpenEnabled               bool                     `json:"wechat_oauth_open_enabled"`
 	WeChatOAuthMPEnabled                 bool                     `json:"wechat_oauth_mp_enabled"`

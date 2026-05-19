@@ -232,9 +232,12 @@ export async function clearError(id: number): Promise<Account> {
  * @param id - Account ID
  * @returns Account usage info
  */
-export async function getUsage(id: number, source?: 'passive' | 'active'): Promise<AccountUsageInfo> {
+export async function getUsage(id: number, source?: 'passive' | 'active', force?: boolean): Promise<AccountUsageInfo> {
+  const params: Record<string, string> = {}
+  if (source) params.source = source
+  if (force) params.force = 'true'
   const { data } = await apiClient.get<AccountUsageInfo>(`/admin/accounts/${id}/usage`, {
-    params: source ? { source } : undefined
+    params: Object.keys(params).length > 0 ? params : undefined
   })
   return data
 }
@@ -446,6 +449,15 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+export interface SyncUpstreamModelsResponse {
+  models: string[]
+}
+
+export async function syncUpstreamModels(id: number): Promise<SyncUpstreamModelsResponse> {
+  const { data } = await apiClient.post<SyncUpstreamModelsResponse>(`/admin/accounts/${id}/models/sync-upstream`)
+  return data
+}
+
 export async function exportData(options?: {
   ids?: number[]
   filters?: {
@@ -625,6 +637,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  syncUpstreamModels,
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,

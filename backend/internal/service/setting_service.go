@@ -23,6 +23,25 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// CoerceDingTalkCorpPolicyForWrite 是 coerceDeprecatedDingTalkCorpPolicy 的导出版本，
+// 用于 admin handler 在写入路径上对客户端直传的入参做防御性 coerce（前端 UI 虽已无 whitelist 选项，
+// 但 API 可被直接调用）。
+func CoerceDingTalkCorpPolicyForWrite(policy string) string {
+	return coerceDeprecatedDingTalkCorpPolicy(policy)
+}
+
+// coerceDeprecatedDingTalkCorpPolicy 把已废弃的 corp_restriction_policy 值替换成安全的等价值。
+// 升级前残留在 DB 中的 "whitelist" 会导致 callback 链路在 default case 静默 fail-closed
+// （所有钉钉登录被拒）。这里统一退化为 "none" 让服务保持可用，并 warn 日志提醒 admin 重新保存设置。
+func coerceDeprecatedDingTalkCorpPolicy(policy string) string {
+	if policy == "whitelist" {
+		slog.Warn("dingtalk: corp_restriction_policy=whitelist is deprecated and unsupported, coercing to none",
+			"hint", "re-save DingTalk settings in admin UI to clear this warning")
+		return "none"
+	}
+	return policy
+}
+
 var (
 	ErrRegistrationDisabled   = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
 	ErrSettingNotFound        = infraerrors.NotFound("SETTING_NOT_FOUND", "setting not found")
@@ -230,6 +249,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyCustomMenuItems,
 		SettingKeyCustomEndpoints,
 		SettingKeyLinuxDoConnectEnabled,
+		SettingKeyDingTalkConnectEnabled,
 		SettingKeyGitHubOAuthEnabled,
 		SettingKeyGitHubOAuthClientID,
 		SettingKeyGitHubOAuthClientSecret,
@@ -261,6 +281,12 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		linuxDoEnabled = raw == "true"
 	} else {
 		linuxDoEnabled = s.cfg != nil && s.cfg.LinuxDo.Enabled
+	}
+	dingTalkEnabled := false
+	if raw, ok := settings[SettingKeyDingTalkConnectEnabled]; ok {
+		dingTalkEnabled = raw == "true"
+	} else {
+		dingTalkEnabled = s.cfg != nil && s.cfg.DingTalk.Enabled
 	}
 	oidcEnabled := false
 	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok {
@@ -329,6 +355,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		CustomMenuItems:                  settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
+		DingTalkOAuthEnabled:             dingTalkEnabled,
 		WeChatOAuthEnabled:               weChatWebOAuthEnabled,
 		WeChatOAuthOpenEnabled:           weChatCfg.Enabled && weChatCfg.OpenEnabled,
 		WeChatOAuthMPEnabled:             weChatCfg.Enabled && weChatCfg.MPEnabled,
@@ -397,6 +424,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		CustomMenuItems:                      filterUserVisibleMenuItems(settings.CustomMenuItems),
 		CustomEndpoints:                      safeRawJSONArray(settings.CustomEndpoints),
 		LinuxDoOAuthEnabled:                  settings.LinuxDoOAuthEnabled,
+		DingTalkOAuthEnabled:                 settings.DingTalkOAuthEnabled,
 		WeChatOAuthEnabled:                   settings.WeChatOAuthEnabled,
 		WeChatOAuthOpenEnabled:               settings.WeChatOAuthOpenEnabled,
 		WeChatOAuthMPEnabled:                 settings.WeChatOAuthMPEnabled,
@@ -642,6 +670,26 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 	if settings.LinuxDoConnectClientSecret != "" {
 		updates[SettingKeyLinuxDoConnectClientSecret] = settings.LinuxDoConnectClientSecret
 	}
+
+	// DingTalk Connect OAuth 登录
+	updates[SettingKeyDingTalkConnectEnabled] = strconv.FormatBool(settings.DingTalkConnectEnabled)
+	updates[SettingKeyDingTalkConnectClientID] = settings.DingTalkConnectClientID
+	updates[SettingKeyDingTalkConnectRedirectURL] = settings.DingTalkConnectRedirectURL
+	if settings.DingTalkConnectClientSecret != "" {
+		updates[SettingKeyDingTalkConnectClientSecret] = settings.DingTalkConnectClientSecret
+	}
+	updates[SettingKeyDingTalkConnectCorpRestrictionPolicy] = settings.DingTalkConnectCorpRestrictionPolicy
+	updates[SettingKeyDingTalkConnectInternalCorpID] = settings.DingTalkConnectInternalCorpID
+	updates[SettingKeyDingTalkConnectBypassRegistration] = strconv.FormatBool(settings.DingTalkConnectBypassRegistration)
+	updates[SettingKeyDingTalkConnectSyncCorpEmail] = strconv.FormatBool(settings.DingTalkConnectSyncCorpEmail)
+	updates[SettingKeyDingTalkConnectSyncDisplayName] = strconv.FormatBool(settings.DingTalkConnectSyncDisplayName)
+	updates[SettingKeyDingTalkConnectSyncDept] = strconv.FormatBool(settings.DingTalkConnectSyncDept)
+	updates[SettingKeyDingTalkConnectSyncCorpEmailAttrKey] = settings.DingTalkConnectSyncCorpEmailAttrKey
+	updates[SettingKeyDingTalkConnectSyncDisplayNameAttrKey] = settings.DingTalkConnectSyncDisplayNameAttrKey
+	updates[SettingKeyDingTalkConnectSyncDeptAttrKey] = settings.DingTalkConnectSyncDeptAttrKey
+	updates[SettingKeyDingTalkConnectSyncCorpEmailAttrName] = settings.DingTalkConnectSyncCorpEmailAttrName
+	updates[SettingKeyDingTalkConnectSyncDisplayNameAttrName] = settings.DingTalkConnectSyncDisplayNameAttrName
+	updates[SettingKeyDingTalkConnectSyncDeptAttrName] = settings.DingTalkConnectSyncDeptAttrName
 
 	// WeChat Connect OAuth 登录
 	updates[SettingKeyWeChatConnectEnabled] = strconv.FormatBool(settings.WeChatConnectEnabled)
@@ -1481,113 +1529,135 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
-		SettingKeyRegistrationEnabled:                      "true",
-		SettingKeyEmailVerifyEnabled:                       "false",
-		SettingKeyRegistrationEmailSuffixWhitelist:         "[]",
-		SettingKeyPromoCodeEnabled:                         "true", // 默认启用优惠码功能
-		SettingKeyLoginAgreementEnabled:                    "false",
-		SettingKeyLoginAgreementMode:                       defaultLoginAgreementMode,
-		SettingKeyLoginAgreementUpdatedAt:                  defaultLoginAgreementDate,
-		SettingKeyLoginAgreementDocuments:                  loginAgreementDocumentsJSON,
-		SettingKeySiteName:                                 "Sub2API",
-		SettingKeySiteLogo:                                 "",
-		SettingKeyPurchaseSubscriptionEnabled:              "false",
-		SettingKeyPurchaseSubscriptionURL:                  "",
-		SettingKeyTableDefaultPageSize:                     "20",
-		SettingKeyTablePageSizeOptions:                     "[10,20,50,100]",
-		SettingKeyHiddenAdminMenuItems:                     "[]",
-		SettingKeyCustomMenuItems:                          "[]",
-		SettingKeyCustomEndpoints:                          "[]",
-		SettingKeyWeChatConnectEnabled:                     "false",
-		SettingKeyWeChatConnectAppID:                       "",
-		SettingKeyWeChatConnectAppSecret:                   "",
-		SettingKeyWeChatConnectOpenAppID:                   "",
-		SettingKeyWeChatConnectOpenAppSecret:               "",
-		SettingKeyWeChatConnectMPAppID:                     "",
-		SettingKeyWeChatConnectMPAppSecret:                 "",
-		SettingKeyWeChatConnectMobileAppID:                 "",
-		SettingKeyWeChatConnectMobileAppSecret:             "",
-		SettingKeyWeChatConnectOpenEnabled:                 "false",
-		SettingKeyWeChatConnectMPEnabled:                   "false",
-		SettingKeyWeChatConnectMobileEnabled:               "false",
-		SettingKeyWeChatConnectMode:                        defaultWeChatConnectMode,
-		SettingKeyWeChatConnectScopes:                      defaultWeChatConnectScopes,
-		SettingKeyWeChatConnectRedirectURL:                 "",
-		SettingKeyWeChatConnectFrontendRedirectURL:         defaultWeChatConnectFrontend,
-		SettingKeyGitHubOAuthEnabled:                       "false",
-		SettingKeyGitHubOAuthClientID:                      "",
-		SettingKeyGitHubOAuthClientSecret:                  "",
-		SettingKeyGitHubOAuthRedirectURL:                   "",
-		SettingKeyGitHubOAuthFrontendRedirectURL:           defaultGitHubOAuthFrontend,
-		SettingKeyGoogleOAuthEnabled:                       "false",
-		SettingKeyGoogleOAuthClientID:                      "",
-		SettingKeyGoogleOAuthClientSecret:                  "",
-		SettingKeyGoogleOAuthRedirectURL:                   "",
-		SettingKeyGoogleOAuthFrontendRedirectURL:           defaultGoogleOAuthFrontend,
-		SettingKeyOIDCConnectEnabled:                       "false",
-		SettingKeyOIDCConnectProviderName:                  "OIDC",
-		SettingKeyOIDCConnectClientID:                      "",
-		SettingKeyOIDCConnectClientSecret:                  "",
-		SettingKeyOIDCConnectIssuerURL:                     "",
-		SettingKeyOIDCConnectDiscoveryURL:                  "",
-		SettingKeyOIDCConnectAuthorizeURL:                  "",
-		SettingKeyOIDCConnectTokenURL:                      "",
-		SettingKeyOIDCConnectUserInfoURL:                   "",
-		SettingKeyOIDCConnectJWKSURL:                       "",
-		SettingKeyOIDCConnectScopes:                        "openid email profile",
-		SettingKeyOIDCConnectRedirectURL:                   "",
-		SettingKeyOIDCConnectFrontendRedirectURL:           "/auth/oidc/callback",
-		SettingKeyOIDCConnectTokenAuthMethod:               "client_secret_post",
-		SettingKeyOIDCConnectUsePKCE:                       strconv.FormatBool(oidcUsePKCEDefault),
-		SettingKeyOIDCConnectValidateIDToken:               strconv.FormatBool(oidcValidateIDTokenDefault),
-		SettingKeyOIDCConnectAllowedSigningAlgs:            "RS256,ES256,PS256",
-		SettingKeyOIDCConnectClockSkewSeconds:              "120",
-		SettingKeyOIDCConnectRequireEmailVerified:          "false",
-		SettingKeyOIDCConnectUserInfoEmailPath:             "",
-		SettingKeyOIDCConnectUserInfoIDPath:                "",
-		SettingKeyOIDCConnectUserInfoUsernamePath:          "",
-		SettingKeyDefaultConcurrency:                       strconv.Itoa(s.cfg.Default.UserConcurrency),
-		SettingKeyDefaultBalance:                           strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
-		SettingKeyAffiliateEnabled:                         strconv.FormatBool(AffiliateEnabledDefault),
-		SettingKeyAffiliateRebateRate:                      strconv.FormatFloat(AffiliateRebateRateDefault, 'f', 8, 64),
-		SettingKeyAffiliateRebateFreezeHours:               strconv.Itoa(AffiliateRebateFreezeHoursDefault),
-		SettingKeyAffiliateRebateDurationDays:              strconv.Itoa(AffiliateRebateDurationDaysDefault),
-		SettingKeyAffiliateRebatePerInviteeCap:             strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 8, 64),
-		SettingKeyDefaultUserRPMLimit:                      "0",
-		SettingKeyDefaultSubscriptions:                     "[]",
-		SettingKeyAuthSourceDefaultEmailBalance:            "0",
-		SettingKeyAuthSourceDefaultEmailConcurrency:        "5",
-		SettingKeyAuthSourceDefaultEmailSubscriptions:      "[]",
-		SettingKeyAuthSourceDefaultEmailGrantOnSignup:      "false",
-		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind:   "false",
-		SettingKeyAuthSourceDefaultLinuxDoBalance:          "0",
-		SettingKeyAuthSourceDefaultLinuxDoConcurrency:      "5",
-		SettingKeyAuthSourceDefaultLinuxDoSubscriptions:    "[]",
-		SettingKeyAuthSourceDefaultLinuxDoGrantOnSignup:    "false",
-		SettingKeyAuthSourceDefaultLinuxDoGrantOnFirstBind: "false",
-		SettingKeyAuthSourceDefaultOIDCBalance:             "0",
-		SettingKeyAuthSourceDefaultOIDCConcurrency:         "5",
-		SettingKeyAuthSourceDefaultOIDCSubscriptions:       "[]",
-		SettingKeyAuthSourceDefaultOIDCGrantOnSignup:       "false",
-		SettingKeyAuthSourceDefaultOIDCGrantOnFirstBind:    "false",
-		SettingKeyAuthSourceDefaultWeChatBalance:           "0",
-		SettingKeyAuthSourceDefaultWeChatConcurrency:       "5",
-		SettingKeyAuthSourceDefaultWeChatSubscriptions:     "[]",
-		SettingKeyAuthSourceDefaultWeChatGrantOnSignup:     "false",
-		SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind:  "false",
-		SettingKeyAuthSourceDefaultGitHubBalance:           "0",
-		SettingKeyAuthSourceDefaultGitHubConcurrency:       "5",
-		SettingKeyAuthSourceDefaultGitHubSubscriptions:     "[]",
-		SettingKeyAuthSourceDefaultGitHubGrantOnSignup:     "false",
-		SettingKeyAuthSourceDefaultGitHubGrantOnFirstBind:  "false",
-		SettingKeyAuthSourceDefaultGoogleBalance:           "0",
-		SettingKeyAuthSourceDefaultGoogleConcurrency:       "5",
-		SettingKeyAuthSourceDefaultGoogleSubscriptions:     "[]",
-		SettingKeyAuthSourceDefaultGoogleGrantOnSignup:     "false",
-		SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind:  "false",
-		SettingKeyForceEmailOnThirdPartySignup:             "false",
-		SettingKeySMTPPort:                                 "587",
-		SettingKeySMTPUseTLS:                               "false",
+		SettingKeyRegistrationEnabled:                       "true",
+		SettingKeyEmailVerifyEnabled:                        "false",
+		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
+		SettingKeyPromoCodeEnabled:                          "true", // 默认启用优惠码功能
+		SettingKeyLoginAgreementEnabled:                     "false",
+		SettingKeyLoginAgreementMode:                        defaultLoginAgreementMode,
+		SettingKeyLoginAgreementUpdatedAt:                   defaultLoginAgreementDate,
+		SettingKeyLoginAgreementDocuments:                   loginAgreementDocumentsJSON,
+		SettingKeySiteName:                                  "Sub2API",
+		SettingKeySiteLogo:                                  "",
+		SettingKeyPurchaseSubscriptionEnabled:               "false",
+		SettingKeyPurchaseSubscriptionURL:                   "",
+		SettingKeyTableDefaultPageSize:                      "20",
+		SettingKeyTablePageSizeOptions:                      "[10,20,50,100]",
+		SettingKeyHiddenAdminMenuItems:                      "[]",
+		SettingKeyCustomMenuItems:                           "[]",
+		SettingKeyCustomEndpoints:                           "[]",
+		SettingKeyLinuxDoConnectEnabled:                     "false",
+		SettingKeyDingTalkConnectEnabled:                    "false",
+		SettingKeyDingTalkConnectClientID:                   "",
+		SettingKeyDingTalkConnectClientSecret:               "",
+		SettingKeyDingTalkConnectRedirectURL:                "",
+		SettingKeyDingTalkConnectCorpRestrictionPolicy:      "",
+		SettingKeyDingTalkConnectInternalCorpID:             "",
+		SettingKeyDingTalkConnectBypassRegistration:         "false",
+		SettingKeyDingTalkConnectSyncCorpEmail:              "false",
+		SettingKeyDingTalkConnectSyncDisplayName:            "false",
+		SettingKeyDingTalkConnectSyncDept:                   "false",
+		SettingKeyDingTalkConnectSyncCorpEmailAttrKey:       "dingtalk_email",
+		SettingKeyDingTalkConnectSyncDisplayNameAttrKey:     "dingtalk_name",
+		SettingKeyDingTalkConnectSyncDeptAttrKey:            "dingtalk_department",
+		SettingKeyDingTalkConnectSyncCorpEmailAttrName:      "钉钉企业邮箱",
+		SettingKeyDingTalkConnectSyncDisplayNameAttrName:    "钉钉姓名",
+		SettingKeyDingTalkConnectSyncDeptAttrName:           "钉钉部门",
+		SettingKeyWeChatConnectEnabled:                      "false",
+		SettingKeyWeChatConnectAppID:                        "",
+		SettingKeyWeChatConnectAppSecret:                    "",
+		SettingKeyWeChatConnectOpenAppID:                    "",
+		SettingKeyWeChatConnectOpenAppSecret:                "",
+		SettingKeyWeChatConnectMPAppID:                      "",
+		SettingKeyWeChatConnectMPAppSecret:                  "",
+		SettingKeyWeChatConnectMobileAppID:                  "",
+		SettingKeyWeChatConnectMobileAppSecret:              "",
+		SettingKeyWeChatConnectOpenEnabled:                  "false",
+		SettingKeyWeChatConnectMPEnabled:                    "false",
+		SettingKeyWeChatConnectMobileEnabled:                "false",
+		SettingKeyWeChatConnectMode:                         defaultWeChatConnectMode,
+		SettingKeyWeChatConnectScopes:                       defaultWeChatConnectScopes,
+		SettingKeyWeChatConnectRedirectURL:                  "",
+		SettingKeyWeChatConnectFrontendRedirectURL:          defaultWeChatConnectFrontend,
+		SettingKeyGitHubOAuthEnabled:                        "false",
+		SettingKeyGitHubOAuthClientID:                       "",
+		SettingKeyGitHubOAuthClientSecret:                   "",
+		SettingKeyGitHubOAuthRedirectURL:                    "",
+		SettingKeyGitHubOAuthFrontendRedirectURL:            defaultGitHubOAuthFrontend,
+		SettingKeyGoogleOAuthEnabled:                        "false",
+		SettingKeyGoogleOAuthClientID:                       "",
+		SettingKeyGoogleOAuthClientSecret:                   "",
+		SettingKeyGoogleOAuthRedirectURL:                    "",
+		SettingKeyGoogleOAuthFrontendRedirectURL:            defaultGoogleOAuthFrontend,
+		SettingKeyOIDCConnectEnabled:                        "false",
+		SettingKeyOIDCConnectProviderName:                   "OIDC",
+		SettingKeyOIDCConnectClientID:                       "",
+		SettingKeyOIDCConnectClientSecret:                   "",
+		SettingKeyOIDCConnectIssuerURL:                      "",
+		SettingKeyOIDCConnectDiscoveryURL:                   "",
+		SettingKeyOIDCConnectAuthorizeURL:                   "",
+		SettingKeyOIDCConnectTokenURL:                       "",
+		SettingKeyOIDCConnectUserInfoURL:                    "",
+		SettingKeyOIDCConnectJWKSURL:                        "",
+		SettingKeyOIDCConnectScopes:                         "openid email profile",
+		SettingKeyOIDCConnectRedirectURL:                    "",
+		SettingKeyOIDCConnectFrontendRedirectURL:            "/auth/oidc/callback",
+		SettingKeyOIDCConnectTokenAuthMethod:                "client_secret_post",
+		SettingKeyOIDCConnectUsePKCE:                        strconv.FormatBool(oidcUsePKCEDefault),
+		SettingKeyOIDCConnectValidateIDToken:                strconv.FormatBool(oidcValidateIDTokenDefault),
+		SettingKeyOIDCConnectAllowedSigningAlgs:             "RS256,ES256,PS256",
+		SettingKeyOIDCConnectClockSkewSeconds:               "120",
+		SettingKeyOIDCConnectRequireEmailVerified:           "false",
+		SettingKeyOIDCConnectUserInfoEmailPath:              "",
+		SettingKeyOIDCConnectUserInfoIDPath:                 "",
+		SettingKeyOIDCConnectUserInfoUsernamePath:           "",
+		SettingKeyDefaultConcurrency:                        strconv.Itoa(s.cfg.Default.UserConcurrency),
+		SettingKeyDefaultBalance:                            strconv.FormatFloat(s.cfg.Default.UserBalance, 'f', 8, 64),
+		SettingKeyAffiliateEnabled:                          strconv.FormatBool(AffiliateEnabledDefault),
+		SettingKeyAffiliateRebateRate:                       strconv.FormatFloat(AffiliateRebateRateDefault, 'f', 8, 64),
+		SettingKeyAffiliateRebateFreezeHours:                strconv.Itoa(AffiliateRebateFreezeHoursDefault),
+		SettingKeyAffiliateRebateDurationDays:               strconv.Itoa(AffiliateRebateDurationDaysDefault),
+		SettingKeyAffiliateRebatePerInviteeCap:              strconv.FormatFloat(AffiliateRebatePerInviteeCapDefault, 'f', 8, 64),
+		SettingKeyDefaultUserRPMLimit:                       "0",
+		SettingKeyDefaultSubscriptions:                      "[]",
+		SettingKeyAuthSourceDefaultEmailBalance:             "0",
+		SettingKeyAuthSourceDefaultEmailConcurrency:         "5",
+		SettingKeyAuthSourceDefaultEmailSubscriptions:       "[]",
+		SettingKeyAuthSourceDefaultEmailGrantOnSignup:       "false",
+		SettingKeyAuthSourceDefaultEmailGrantOnFirstBind:    "false",
+		SettingKeyAuthSourceDefaultLinuxDoBalance:           "0",
+		SettingKeyAuthSourceDefaultLinuxDoConcurrency:       "5",
+		SettingKeyAuthSourceDefaultLinuxDoSubscriptions:     "[]",
+		SettingKeyAuthSourceDefaultLinuxDoGrantOnSignup:     "false",
+		SettingKeyAuthSourceDefaultLinuxDoGrantOnFirstBind:  "false",
+		SettingKeyAuthSourceDefaultOIDCBalance:              "0",
+		SettingKeyAuthSourceDefaultOIDCConcurrency:          "5",
+		SettingKeyAuthSourceDefaultOIDCSubscriptions:        "[]",
+		SettingKeyAuthSourceDefaultOIDCGrantOnSignup:        "false",
+		SettingKeyAuthSourceDefaultOIDCGrantOnFirstBind:     "false",
+		SettingKeyAuthSourceDefaultWeChatBalance:            "0",
+		SettingKeyAuthSourceDefaultWeChatConcurrency:        "5",
+		SettingKeyAuthSourceDefaultWeChatSubscriptions:      "[]",
+		SettingKeyAuthSourceDefaultWeChatGrantOnSignup:      "false",
+		SettingKeyAuthSourceDefaultWeChatGrantOnFirstBind:   "false",
+		SettingKeyAuthSourceDefaultGitHubBalance:            "0",
+		SettingKeyAuthSourceDefaultGitHubConcurrency:        "5",
+		SettingKeyAuthSourceDefaultGitHubSubscriptions:      "[]",
+		SettingKeyAuthSourceDefaultGitHubGrantOnSignup:      "false",
+		SettingKeyAuthSourceDefaultGitHubGrantOnFirstBind:   "false",
+		SettingKeyAuthSourceDefaultGoogleBalance:            "0",
+		SettingKeyAuthSourceDefaultGoogleConcurrency:        "5",
+		SettingKeyAuthSourceDefaultGoogleSubscriptions:      "[]",
+		SettingKeyAuthSourceDefaultGoogleGrantOnSignup:      "false",
+		SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind:   "false",
+		SettingKeyAuthSourceDefaultDingTalkBalance:          "0",
+		SettingKeyAuthSourceDefaultDingTalkConcurrency:      "5",
+		SettingKeyAuthSourceDefaultDingTalkSubscriptions:    "[]",
+		SettingKeyAuthSourceDefaultDingTalkGrantOnSignup:    "false",
+		SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind: "false",
+		SettingKeyForceEmailOnThirdPartySignup:              "false",
+		SettingKeySMTPPort:                                  "587",
+		SettingKeySMTPUseTLS:                                "false",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:    "false",
 		SettingKeyFallbackModelAnthropic: "claude-3-5-sonnet-20241022",
@@ -1737,6 +1807,131 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.LinuxDoConnectClientSecret = strings.TrimSpace(linuxDoBase.ClientSecret)
 	}
 	result.LinuxDoConnectClientSecretConfigured = result.LinuxDoConnectClientSecret != ""
+
+	// DingTalk Connect 设置：
+	// - 兼容 config.yaml/env
+	// - 支持后台系统设置覆盖并持久化（存储于 DB）
+	dingTalkBase := config.DingTalkConnectConfig{}
+	if s.cfg != nil {
+		dingTalkBase = s.cfg.DingTalk
+	}
+
+	if raw, ok := settings[SettingKeyDingTalkConnectEnabled]; ok {
+		result.DingTalkConnectEnabled = raw == "true"
+	} else {
+		result.DingTalkConnectEnabled = dingTalkBase.Enabled
+	}
+
+	if v, ok := settings[SettingKeyDingTalkConnectClientID]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectClientID = strings.TrimSpace(v)
+	} else {
+		result.DingTalkConnectClientID = dingTalkBase.ClientID
+	}
+
+	if v, ok := settings[SettingKeyDingTalkConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectRedirectURL = strings.TrimSpace(v)
+	} else {
+		result.DingTalkConnectRedirectURL = dingTalkBase.RedirectURL
+	}
+
+	result.DingTalkConnectClientSecret = strings.TrimSpace(settings[SettingKeyDingTalkConnectClientSecret])
+	if result.DingTalkConnectClientSecret == "" {
+		result.DingTalkConnectClientSecret = strings.TrimSpace(dingTalkBase.ClientSecret)
+	}
+	result.DingTalkConnectClientSecretConfigured = result.DingTalkConnectClientSecret != ""
+
+	if v, ok := settings[SettingKeyDingTalkConnectCorpRestrictionPolicy]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectCorpRestrictionPolicy = strings.TrimSpace(v)
+	} else {
+		result.DingTalkConnectCorpRestrictionPolicy = dingTalkBase.CorpRestrictionPolicy
+	}
+	result.DingTalkConnectCorpRestrictionPolicy = coerceDeprecatedDingTalkCorpPolicy(result.DingTalkConnectCorpRestrictionPolicy)
+
+	if v, ok := settings[SettingKeyDingTalkConnectInternalCorpID]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectInternalCorpID = strings.TrimSpace(v)
+	} else {
+		result.DingTalkConnectInternalCorpID = dingTalkBase.InternalCorpID
+	}
+
+	if v, ok := settings[SettingKeyDingTalkConnectBypassRegistration]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectBypassRegistration = strings.EqualFold(strings.TrimSpace(v), "true")
+	} else {
+		result.DingTalkConnectBypassRegistration = dingTalkBase.BypassRegistration
+	}
+	if result.DingTalkConnectCorpRestrictionPolicy != "internal_only" {
+		result.DingTalkConnectBypassRegistration = false
+	}
+
+	if v, ok := settings[SettingKeyDingTalkConnectSyncCorpEmail]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectSyncCorpEmail = strings.EqualFold(strings.TrimSpace(v), "true")
+	} else {
+		result.DingTalkConnectSyncCorpEmail = dingTalkBase.SyncCorpEmail
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectSyncDisplayName]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectSyncDisplayName = strings.EqualFold(strings.TrimSpace(v), "true")
+	} else {
+		result.DingTalkConnectSyncDisplayName = dingTalkBase.SyncDisplayName
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectSyncDept]; ok && strings.TrimSpace(v) != "" {
+		result.DingTalkConnectSyncDept = strings.EqualFold(strings.TrimSpace(v), "true")
+	} else {
+		result.DingTalkConnectSyncDept = dingTalkBase.SyncDept
+	}
+	if result.DingTalkConnectCorpRestrictionPolicy != "internal_only" {
+		result.DingTalkConnectSyncCorpEmail = false
+		result.DingTalkConnectSyncDisplayName = false
+		result.DingTalkConnectSyncDept = false
+	}
+
+	result.DingTalkConnectSyncCorpEmailAttrKey = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncCorpEmailAttrKey])
+	if result.DingTalkConnectSyncCorpEmailAttrKey == "" {
+		if v := strings.TrimSpace(dingTalkBase.SyncCorpEmailAttrKey); v != "" {
+			result.DingTalkConnectSyncCorpEmailAttrKey = v
+		} else {
+			result.DingTalkConnectSyncCorpEmailAttrKey = "dingtalk_email"
+		}
+	}
+	result.DingTalkConnectSyncDisplayNameAttrKey = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDisplayNameAttrKey])
+	if result.DingTalkConnectSyncDisplayNameAttrKey == "" {
+		if v := strings.TrimSpace(dingTalkBase.SyncDisplayNameAttrKey); v != "" {
+			result.DingTalkConnectSyncDisplayNameAttrKey = v
+		} else {
+			result.DingTalkConnectSyncDisplayNameAttrKey = "dingtalk_name"
+		}
+	}
+	result.DingTalkConnectSyncDeptAttrKey = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDeptAttrKey])
+	if result.DingTalkConnectSyncDeptAttrKey == "" {
+		if v := strings.TrimSpace(dingTalkBase.SyncDeptAttrKey); v != "" {
+			result.DingTalkConnectSyncDeptAttrKey = v
+		} else {
+			result.DingTalkConnectSyncDeptAttrKey = "dingtalk_department"
+		}
+	}
+
+	result.DingTalkConnectSyncCorpEmailAttrName = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncCorpEmailAttrName])
+	if result.DingTalkConnectSyncCorpEmailAttrName == "" {
+		if v := strings.TrimSpace(dingTalkBase.SyncCorpEmailAttrName); v != "" {
+			result.DingTalkConnectSyncCorpEmailAttrName = v
+		} else {
+			result.DingTalkConnectSyncCorpEmailAttrName = "钉钉企业邮箱"
+		}
+	}
+	result.DingTalkConnectSyncDisplayNameAttrName = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDisplayNameAttrName])
+	if result.DingTalkConnectSyncDisplayNameAttrName == "" {
+		if v := strings.TrimSpace(dingTalkBase.SyncDisplayNameAttrName); v != "" {
+			result.DingTalkConnectSyncDisplayNameAttrName = v
+		} else {
+			result.DingTalkConnectSyncDisplayNameAttrName = "钉钉姓名"
+		}
+	}
+	result.DingTalkConnectSyncDeptAttrName = strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDeptAttrName])
+	if result.DingTalkConnectSyncDeptAttrName == "" {
+		if v := strings.TrimSpace(dingTalkBase.SyncDeptAttrName); v != "" {
+			result.DingTalkConnectSyncDeptAttrName = v
+		} else {
+			result.DingTalkConnectSyncDeptAttrName = "钉钉部门"
+		}
+	}
 
 	// WeChat Connect 设置：
 	// - 兼容 config.yaml/env 的兜底值
@@ -2354,6 +2549,144 @@ func (s *SettingService) GetLinuxDoConnectOAuthConfig(ctx context.Context) (conf
 		return config.LinuxDoConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "oauth token_auth_method invalid")
 	}
 
+	return effective, nil
+}
+
+// GetDingTalkConnectOAuthConfig 返回用于登录的"最终生效" DingTalk Connect 配置。
+//
+// 优先级：
+// - 若对应系统设置键存在，则覆盖 config.yaml/env 的值
+// - 否则回退到 config.yaml/env 的值
+func (s *SettingService) GetDingTalkConnectOAuthConfig(ctx context.Context) (config.DingTalkConnectConfig, error) {
+	if s == nil || s.cfg == nil {
+		return config.DingTalkConnectConfig{}, infraerrors.ServiceUnavailable("CONFIG_NOT_READY", "config not loaded")
+	}
+
+	effective := s.cfg.DingTalk
+
+	keys := []string{
+		SettingKeyDingTalkConnectEnabled,
+		SettingKeyDingTalkConnectClientID,
+		SettingKeyDingTalkConnectClientSecret,
+		SettingKeyDingTalkConnectRedirectURL,
+		SettingKeyDingTalkConnectCorpRestrictionPolicy,
+		SettingKeyDingTalkConnectInternalCorpID,
+		SettingKeyDingTalkConnectBypassRegistration,
+		SettingKeyDingTalkConnectSyncCorpEmail,
+		SettingKeyDingTalkConnectSyncDisplayName,
+		SettingKeyDingTalkConnectSyncDept,
+		SettingKeyDingTalkConnectSyncCorpEmailAttrKey,
+		SettingKeyDingTalkConnectSyncDisplayNameAttrKey,
+		SettingKeyDingTalkConnectSyncDeptAttrKey,
+	}
+	settings, err := s.settingRepo.GetMultiple(ctx, keys)
+	if err != nil {
+		return config.DingTalkConnectConfig{}, fmt.Errorf("get dingtalk connect settings: %w", err)
+	}
+
+	if raw, ok := settings[SettingKeyDingTalkConnectEnabled]; ok {
+		effective.Enabled = raw == "true"
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectClientID]; ok && strings.TrimSpace(v) != "" {
+		effective.ClientID = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectClientSecret]; ok && strings.TrimSpace(v) != "" {
+		effective.ClientSecret = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectRedirectURL]; ok && strings.TrimSpace(v) != "" {
+		effective.RedirectURL = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectCorpRestrictionPolicy]; ok && strings.TrimSpace(v) != "" {
+		effective.CorpRestrictionPolicy = strings.TrimSpace(v)
+	}
+	effective.CorpRestrictionPolicy = coerceDeprecatedDingTalkCorpPolicy(effective.CorpRestrictionPolicy)
+	if v, ok := settings[SettingKeyDingTalkConnectInternalCorpID]; ok && strings.TrimSpace(v) != "" {
+		effective.InternalCorpID = strings.TrimSpace(v)
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectBypassRegistration]; ok && strings.TrimSpace(v) != "" {
+		effective.BypassRegistration = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	if effective.CorpRestrictionPolicy != "internal_only" {
+		effective.BypassRegistration = false
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectSyncCorpEmail]; ok && strings.TrimSpace(v) != "" {
+		effective.SyncCorpEmail = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectSyncDisplayName]; ok && strings.TrimSpace(v) != "" {
+		effective.SyncDisplayName = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	if v, ok := settings[SettingKeyDingTalkConnectSyncDept]; ok && strings.TrimSpace(v) != "" {
+		effective.SyncDept = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
+	if effective.CorpRestrictionPolicy != "internal_only" {
+		effective.SyncCorpEmail = false
+		effective.SyncDisplayName = false
+		effective.SyncDept = false
+	}
+	if v := strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncCorpEmailAttrKey]); v != "" {
+		effective.SyncCorpEmailAttrKey = v
+	}
+	if effective.SyncCorpEmailAttrKey == "" {
+		effective.SyncCorpEmailAttrKey = "dingtalk_email"
+	}
+	if v := strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDisplayNameAttrKey]); v != "" {
+		effective.SyncDisplayNameAttrKey = v
+	}
+	if effective.SyncDisplayNameAttrKey == "" {
+		effective.SyncDisplayNameAttrKey = "dingtalk_name"
+	}
+	if v := strings.TrimSpace(settings[SettingKeyDingTalkConnectSyncDeptAttrKey]); v != "" {
+		effective.SyncDeptAttrKey = v
+	}
+	if effective.SyncDeptAttrKey == "" {
+		effective.SyncDeptAttrKey = "dingtalk_department"
+	}
+
+	if !effective.Enabled {
+		return config.DingTalkConnectConfig{}, infraerrors.NotFound("OAUTH_DISABLED", "dingtalk oauth login is disabled")
+	}
+	if strings.TrimSpace(effective.ClientID) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth client id not configured")
+	}
+	if strings.TrimSpace(effective.AuthorizeURL) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth authorize url not configured")
+	}
+	if strings.TrimSpace(effective.TokenURL) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth token url not configured")
+	}
+	if strings.TrimSpace(effective.UserInfoURL) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth userinfo url not configured")
+	}
+	if strings.TrimSpace(effective.RedirectURL) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth redirect url not configured")
+	}
+	if strings.TrimSpace(effective.FrontendRedirectURL) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth frontend redirect url not configured")
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.AuthorizeURL); err != nil {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth authorize url invalid")
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.TokenURL); err != nil {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth token url invalid")
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.UserInfoURL); err != nil {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth userinfo url invalid")
+	}
+	if err := config.ValidateAbsoluteHTTPURL(effective.RedirectURL); err != nil {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth redirect url invalid")
+	}
+	if err := config.ValidateFrontendRedirectURL(effective.FrontendRedirectURL); err != nil {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth frontend redirect url invalid")
+	}
+	if strings.TrimSpace(effective.ClientSecret) == "" {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", "dingtalk oauth client secret not configured")
+	}
+	if effective.CorpRestrictionPolicy == "internal_only" {
+		effective.AppType = "internal"
+	}
+	if err := config.ValidateDingTalkConfig(effective); err != nil {
+		return config.DingTalkConnectConfig{}, infraerrors.InternalServer("OAUTH_CONFIG_INVALID", err.Error())
+	}
 	return effective, nil
 }
 

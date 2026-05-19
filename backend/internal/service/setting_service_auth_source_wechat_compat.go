@@ -25,6 +25,7 @@ type AuthSourceDefaultSettings struct {
 	WeChat                       ProviderDefaultGrantSettings
 	GitHub                       ProviderDefaultGrantSettings
 	Google                       ProviderDefaultGrantSettings
+	DingTalk                     ProviderDefaultGrantSettings
 	ForceEmailOnThirdPartySignup bool
 }
 
@@ -79,6 +80,13 @@ var (
 		grantOnSignup:    SettingKeyAuthSourceDefaultGoogleGrantOnSignup,
 		grantOnFirstBind: SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind,
 	}
+	dingTalkAuthSourceDefaultKeys = authSourceDefaultKeySet{
+		balance:          SettingKeyAuthSourceDefaultDingTalkBalance,
+		concurrency:      SettingKeyAuthSourceDefaultDingTalkConcurrency,
+		subscriptions:    SettingKeyAuthSourceDefaultDingTalkSubscriptions,
+		grantOnSignup:    SettingKeyAuthSourceDefaultDingTalkGrantOnSignup,
+		grantOnFirstBind: SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind,
+	}
 )
 
 const (
@@ -132,6 +140,11 @@ func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*Aut
 		SettingKeyAuthSourceDefaultGoogleSubscriptions,
 		SettingKeyAuthSourceDefaultGoogleGrantOnSignup,
 		SettingKeyAuthSourceDefaultGoogleGrantOnFirstBind,
+		SettingKeyAuthSourceDefaultDingTalkBalance,
+		SettingKeyAuthSourceDefaultDingTalkConcurrency,
+		SettingKeyAuthSourceDefaultDingTalkSubscriptions,
+		SettingKeyAuthSourceDefaultDingTalkGrantOnSignup,
+		SettingKeyAuthSourceDefaultDingTalkGrantOnFirstBind,
 		SettingKeyForceEmailOnThirdPartySignup,
 	}
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -146,6 +159,7 @@ func (s *SettingService) GetAuthSourceDefaultSettings(ctx context.Context) (*Aut
 		WeChat:                       parseProviderDefaultGrantSettings(settings, weChatAuthSourceDefaultKeys),
 		GitHub:                       parseProviderDefaultGrantSettings(settings, gitHubAuthSourceDefaultKeys),
 		Google:                       parseProviderDefaultGrantSettings(settings, googleAuthSourceDefaultKeys),
+		DingTalk:                     parseProviderDefaultGrantSettings(settings, dingTalkAuthSourceDefaultKeys),
 		ForceEmailOnThirdPartySignup: parseBool(settings[SettingKeyForceEmailOnThirdPartySignup]),
 	}, nil
 }
@@ -204,6 +218,7 @@ func (s *SettingService) buildAuthSourceDefaultUpdates(ctx context.Context, sett
 	collectAuthSourceDefaultUpdate(updates, weChatAuthSourceDefaultKeys, settings.WeChat)
 	collectAuthSourceDefaultUpdate(updates, gitHubAuthSourceDefaultKeys, settings.GitHub)
 	collectAuthSourceDefaultUpdate(updates, googleAuthSourceDefaultKeys, settings.Google)
+	collectAuthSourceDefaultUpdate(updates, dingTalkAuthSourceDefaultKeys, settings.DingTalk)
 	updates[SettingKeyForceEmailOnThirdPartySignup] = strconv.FormatBool(settings.ForceEmailOnThirdPartySignup)
 	return updates, nil
 }
@@ -228,12 +243,11 @@ func parseProviderDefaultGrantSettings(settings map[string]string, keys authSour
 
 func mergeProviderDefaultGrantSettings(globalDefaults ProviderDefaultGrantSettings, providerDefaults ProviderDefaultGrantSettings) ProviderDefaultGrantSettings {
 	result := globalDefaults
-	// balance=0 / concurrency=5 / subscriptions=[] 视为“沿用全局默认”，
-	// 仅当来源配置给出明确的覆盖值时才覆盖全局默认。
-	if providerDefaults.Concurrency > 0 && providerDefaults.Concurrency != defaultAuthSourceConcurrency {
+	// 管理员显式设置来源并发（包括 5）应覆盖全局默认，不能把 5 当成“未配置”哨兵值。
+	if providerDefaults.Concurrency > 0 {
 		result.Concurrency = providerDefaults.Concurrency
 	}
-	if providerDefaults.Balance > defaultAuthSourceBalance {
+	if providerDefaults.Balance >= 0 {
 		result.Balance = providerDefaults.Balance
 	}
 	if len(providerDefaults.Subscriptions) > 0 {
