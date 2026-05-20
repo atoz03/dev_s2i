@@ -3,11 +3,14 @@
 package admin
 
 import (
-	"errors"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -419,111 +422,56 @@ func TestPricingRequestToService_NilPriceFields(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. validatePricingBillingMode
+// 3. SyncPricingModels handler
 // ---------------------------------------------------------------------------
 
-func TestValidatePricingBillingMode(t *testing.T) {
-	tests := []struct {
-		name    string
-		pricing []service.ChannelModelPricing
-		wantErr bool
-	}{
-		{
-			name: "token mode - valid",
-			pricing: []service.ChannelModelPricing{
-				{BillingMode: service.BillingModeToken},
-			},
-			wantErr: false,
-		},
-		{
-			name: "per_request with price - valid",
-			pricing: []service.ChannelModelPricing{
-				{
-					BillingMode:     service.BillingModePerRequest,
-					PerRequestPrice: float64Ptr(0.5),
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "per_request with intervals - valid",
-			pricing: []service.ChannelModelPricing{
-				{
-					BillingMode: service.BillingModePerRequest,
-					Intervals: []service.PricingInterval{
-						{MinTokens: 0, MaxTokens: intPtr(1000), PerRequestPrice: float64Ptr(0.1)},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "per_request no price no intervals - invalid",
-			pricing: []service.ChannelModelPricing{
-				{BillingMode: service.BillingModePerRequest},
-			},
-			wantErr: true,
-		},
-		{
-			name: "image with price - valid",
-			pricing: []service.ChannelModelPricing{
-				{
-					BillingMode:     service.BillingModeImage,
-					PerRequestPrice: float64Ptr(0.2),
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "image no price no intervals - invalid",
-			pricing: []service.ChannelModelPricing{
-				{BillingMode: service.BillingModeImage},
-			},
-			wantErr: true,
-		},
-		{
-			name:    "empty list - valid",
-			pricing: []service.ChannelModelPricing{},
-			wantErr: false,
-		},
-		{
-			name: "mixed modes with invalid image - invalid",
-			pricing: []service.ChannelModelPricing{
-				{
-					BillingMode: service.BillingModeToken,
-					InputPrice:  float64Ptr(0.01),
-				},
-				{
-					BillingMode:     service.BillingModePerRequest,
-					PerRequestPrice: float64Ptr(0.5),
-				},
-				{
-					BillingMode: service.BillingModeImage,
-				},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validatePricingBillingMode(tt.pricing)
-			if tt.wantErr {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "per-request price or intervals required")
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
+func setupSyncPricingModelsRouter(pricingSvc *service.PricingService) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	h := &ChannelHandler{pricingService: pricingSvc}
+	router.GET("/channels/pricing/sync-models", h.SyncPricingModels)
+	return router
 }
 
-func validatePricingBillingMode(pricing []service.ChannelModelPricing) error {
-	for _, p := range pricing {
-		if (p.BillingMode == service.BillingModePerRequest || p.BillingMode == service.BillingModeImage) &&
-			p.PerRequestPrice == nil && len(p.Intervals) == 0 {
-			return errors.New("per-request price or intervals required")
+func TestSyncPricingModels_MissingPlatform(t *testing.T) {
+	svc := service.NewPricingService(nil, nil)
+	router := setupSyncPricingModelsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/channels/pricing/sync-models", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSyncPricingModels_UnsupportedPlatform(t *testing.T) {
+	svc := service.NewPricingService(nil, nil)
+	router := setupSyncPricingModelsRouter(svc)
+
+	req := httptest.NewRequest(http.MethodGet, "/channels/pricing/sync-models?platform=unknown", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSyncPricingModels_ValidPlatform_EmptyService(t *testing.T) {
+	svc := service.NewPricingService(nil, nil)
+	router := setupSyncPricingModelsRouter(svc)
+
+	for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity"} {
+		req := httptest.NewRequest(http.MethodGet, "/channels/pricing/sync-models?platform="+platform, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "platform=%s", platform)
+
+		var body struct {
+			Data struct {
+				Models []string `json:"models"`
+			} `json:"data"`
 		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.NotNil(t, body.Data.Models, "models must not be null for platform=%s", platform)
 	}
-	return nil
 }
