@@ -2017,7 +2017,10 @@ export default {
       },
       imagePricing: {
         title: 'Image Generation Pricing',
-        description: 'Configure pricing for image generation models. Leave empty to use default prices.'
+        description: 'Configure image generation permission and pricing. Leave empty to use default prices.',
+        allowImageGeneration: 'Allow image generation',
+        enabled: 'Image generation enabled',
+        disabled: 'Image generation disabled'
       },
       soraPricing: {
         title: 'Sora Per-Request Pricing',

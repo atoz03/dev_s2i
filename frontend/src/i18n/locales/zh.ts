@@ -2102,7 +2102,10 @@ export default {
       },
       imagePricing: {
         title: '图片生成计费',
-        description: '配置图片生成模型的图片生成价格，留空则使用默认价格'
+        description: '配置图片生成权限与图片价格，留空则使用默认价格',
+        allowImageGeneration: '允许图片生成',
+        enabled: '已启用图片生成',
+        disabled: '已禁用图片生成'
       },
       soraPricing: {
         title: 'Sora 按次计费',

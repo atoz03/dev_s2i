@@ -631,9 +631,10 @@
           </div>
         </div>
 
-        <!-- 图片生成计费配置（antigravity 和 gemini 平台） -->
+        <!-- 图片生成计费配置（openai、antigravity 和 gemini 平台） -->
         <div
           v-if="
+            createForm.platform === 'openai' ||
             createForm.platform === 'antigravity' ||
             createForm.platform === 'gemini'
           "
@@ -646,6 +647,40 @@
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
             {{ t("admin.groups.imagePricing.description") }}
+          </p>
+          <div class="mb-3 flex items-center justify-between">
+            <label class="text-sm text-gray-600 dark:text-gray-400">{{
+              t("admin.groups.imagePricing.allowImageGeneration")
+            }}</label>
+            <button
+              type="button"
+              @click="
+                createForm.allow_image_generation =
+                  !createForm.allow_image_generation
+              "
+              class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+              :class="
+                createForm.allow_image_generation
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600'
+              "
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="
+                  createForm.allow_image_generation
+                    ? 'translate-x-6'
+                    : 'translate-x-1'
+                "
+              />
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{
+              createForm.allow_image_generation
+                ? t("admin.groups.imagePricing.enabled")
+                : t("admin.groups.imagePricing.disabled")
+            }}
           </p>
           <div class="grid grid-cols-3 gap-3">
             <div>
@@ -1773,9 +1808,10 @@
           </div>
         </div>
 
-        <!-- 图片生成计费配置（antigravity 和 gemini 平台） -->
+        <!-- 图片生成计费配置（openai、antigravity 和 gemini 平台） -->
         <div
           v-if="
+            editForm.platform === 'openai' ||
             editForm.platform === 'antigravity' ||
             editForm.platform === 'gemini'
           "
@@ -1788,6 +1824,37 @@
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
             {{ t("admin.groups.imagePricing.description") }}
+          </p>
+          <div class="mb-3 flex items-center justify-between">
+            <label class="text-sm text-gray-600 dark:text-gray-400">{{
+              t("admin.groups.imagePricing.allowImageGeneration")
+            }}</label>
+            <button
+              type="button"
+              @click="editForm.allow_image_generation = !editForm.allow_image_generation"
+              class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+              :class="
+                editForm.allow_image_generation
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600'
+              "
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="
+                  editForm.allow_image_generation
+                    ? 'translate-x-6'
+                    : 'translate-x-1'
+                "
+              />
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{
+              editForm.allow_image_generation
+                ? t("admin.groups.imagePricing.enabled")
+                : t("admin.groups.imagePricing.disabled")
+            }}
           </p>
           <div class="grid grid-cols-3 gap-3">
             <div>
@@ -2993,7 +3060,8 @@ const createForm = reactive({
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
-  // 图片生成计费配置（仅 antigravity 平台使用）
+  // 图片生成计费配置（openai、antigravity 和 gemini 平台使用）
+  allow_image_generation: true,
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
@@ -3274,7 +3342,8 @@ const editForm = reactive({
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
-  // 图片生成计费配置（仅 antigravity 平台使用）
+  // 图片生成计费配置（openai、antigravity 和 gemini 平台使用）
+  allow_image_generation: true,
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
@@ -3460,6 +3529,7 @@ const closeCreateModal = () => {
   createForm.daily_limit_usd = null
   createForm.weekly_limit_usd = null
   createForm.monthly_limit_usd = null
+  createForm.allow_image_generation = true
   createForm.image_price_1k = null
   createForm.image_price_2k = null
   createForm.image_price_4k = null
@@ -3557,6 +3627,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.daily_limit_usd = group.daily_limit_usd
   editForm.weekly_limit_usd = group.weekly_limit_usd
   editForm.monthly_limit_usd = group.monthly_limit_usd
+  editForm.allow_image_generation = group.allow_image_generation ?? true
   editForm.image_price_1k = group.image_price_1k ?? null
   editForm.image_price_2k = group.image_price_2k ?? null
   editForm.image_price_4k = group.image_price_4k ?? null
