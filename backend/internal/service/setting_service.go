@@ -859,6 +859,9 @@ func (s *SettingService) UpdateSettings(ctx context.Context, settings *SystemSet
 
 	err = s.settingRepo.SetMultiple(ctx, updates)
 	if err == nil {
+		if s.cfg != nil {
+			s.cfg.SetTrustForwardedIPForAPIKeyACL(settings.APIKeyACLTrustForwardedIP)
+		}
 		// 先使 inflight singleflight 失效，再刷新缓存，缩小旧值覆盖新值的竞态窗口
 		versionBoundsSF.Forget("version_bounds")
 		versionBoundsCache.Store(&cachedVersionBounds{
