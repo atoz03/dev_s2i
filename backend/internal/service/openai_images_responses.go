@@ -28,6 +28,138 @@ type openAIResponsesImageResult struct {
 	Model         string
 }
 
+type OpenAIImagesUpstreamError struct {
+	StatusCode        int
+	ErrorType         string
+	Code              string
+	Message           string
+	Param             string
+	UpstreamRequestID string
+}
+
+func (e *OpenAIImagesUpstreamError) Error() string {
+	if e == nil {
+		return ""
+	}
+	code := strings.TrimSpace(e.Code)
+	if code == "" {
+		code = strings.TrimSpace(e.ErrorType)
+	}
+	message := strings.TrimSpace(e.Message)
+	if code != "" && message != "" {
+		return fmt.Sprintf("openai images upstream error: %s: %s", code, message)
+	}
+	if message != "" {
+		return "openai images upstream error: " + message
+	}
+	if code != "" {
+		return "openai images upstream error: " + code
+	}
+	return "openai images upstream error"
+}
+
+//nolint:unused // 预留给 OAuth 生图错误回包分流。
+func (e *OpenAIImagesUpstreamError) clientStatusCode() int {
+	if e == nil {
+		return http.StatusBadGateway
+	}
+	if e.StatusCode > 0 {
+		return e.StatusCode
+	}
+	return http.StatusBadGateway
+}
+
+//nolint:unused // 预留给 OAuth 生图错误回包分流。
+func (e *OpenAIImagesUpstreamError) clientErrorType() string {
+	if e == nil {
+		return "upstream_error"
+	}
+	if trimmed := strings.TrimSpace(e.ErrorType); trimmed != "" {
+		return trimmed
+	}
+	return "upstream_error"
+}
+
+//nolint:unused // 预留给 OAuth 生图错误回包分流。
+func (e *OpenAIImagesUpstreamError) clientMessage() string {
+	if e == nil {
+		return "Upstream request failed"
+	}
+	if trimmed := strings.TrimSpace(e.Message); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := strings.TrimSpace(e.Code); trimmed != "" {
+		return trimmed
+	}
+	return "Upstream request failed"
+}
+
+//nolint:unused // 预留给 OAuth 生图错误解析链路。
+func extractOpenAIImagesUpstreamError(body []byte) *OpenAIImagesUpstreamError {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return nil
+	}
+
+	errNode := gjson.GetBytes(body, "error")
+	if !errNode.Exists() {
+		return nil
+	}
+
+	upstreamErr := &OpenAIImagesUpstreamError{
+		StatusCode: int(gjson.GetBytes(body, "status").Int()),
+		ErrorType:  strings.TrimSpace(errNode.Get("type").String()),
+		Code:       strings.TrimSpace(errNode.Get("code").String()),
+		Message:    strings.TrimSpace(errNode.Get("message").String()),
+		Param:      strings.TrimSpace(errNode.Get("param").String()),
+	}
+	if upstreamErr.StatusCode <= 0 {
+		upstreamErr.StatusCode = int(errNode.Get("status").Int())
+	}
+
+	requestID := strings.TrimSpace(gjson.GetBytes(body, "request_id").String())
+	if requestID == "" {
+		requestID = strings.TrimSpace(gjson.GetBytes(body, "error.request_id").String())
+	}
+	upstreamErr.UpstreamRequestID = requestID
+
+	if upstreamErr.StatusCode <= 0 && upstreamErr.ErrorType == "" && upstreamErr.Code == "" && upstreamErr.Message == "" {
+		return nil
+	}
+	return upstreamErr
+}
+
+//nolint:unused // 预留给 OAuth 生图错误回包链路。
+func writeOpenAIImagesUpstreamErrorResponse(c *gin.Context, upstreamErr *OpenAIImagesUpstreamError) {
+	if c == nil || c.Writer == nil || c.Writer.Written() {
+		return
+	}
+	if upstreamErr == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": gin.H{
+				"type":    "upstream_error",
+				"message": "Upstream request failed",
+			},
+		})
+		return
+	}
+
+	statusCode := upstreamErr.clientStatusCode()
+	errType := upstreamErr.clientErrorType()
+	message := upstreamErr.clientMessage()
+
+	errBody := gin.H{
+		"type":    errType,
+		"message": message,
+	}
+	if code := strings.TrimSpace(upstreamErr.Code); code != "" {
+		errBody["code"] = code
+	}
+	if param := strings.TrimSpace(upstreamErr.Param); param != "" {
+		errBody["param"] = param
+	}
+	c.JSON(statusCode, gin.H{"error": errBody})
+}
+
 func openAIResponsesImageResultKey(itemID string, result openAIResponsesImageResult) string {
 	if strings.TrimSpace(result.Result) != "" {
 		return strings.TrimSpace(result.OutputFormat) + "|" + strings.TrimSpace(result.Result)
@@ -555,6 +687,11 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		return OpenAIUsage{}, 0, nil, err
 	}
 	if len(results) == 0 {
+		if upstreamErr := extractOpenAIImagesUpstreamError(body); upstreamErr != nil {
+			setOpsUpstreamError(c, upstreamErr.clientStatusCode(), upstreamErr.clientMessage(), "")
+			writeOpenAIImagesUpstreamErrorResponse(c, upstreamErr)
+			return OpenAIUsage{}, 0, nil, upstreamErr
+		}
 		return OpenAIUsage{}, 0, nil, fmt.Errorf("upstream did not return image output")
 	}
 	if strings.TrimSpace(firstMeta.Model) == "" {

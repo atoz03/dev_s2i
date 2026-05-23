@@ -122,19 +122,23 @@ export default {
     dateRangeToday: '今日',
     dateRange7d: '7 天',
     dateRange30d: '30 天',
+    dateRange90d: '90 天',
     dateRangeCustom: '自定义',
     apply: '应用',
     used: '已使用',
     detailInfo: '详细信息',
     tokenStats: 'Token 统计',
+    dailyDetail: '按日明细',
     modelStats: '模型用量统计',
     // Table headers
+    date: '日期',
     model: '模型',
     requests: '请求数',
     inputTokens: '输入 Tokens',
     outputTokens: '输出 Tokens',
     cacheCreationTokens: '缓存创建',
     cacheReadTokens: '缓存读取',
+    cacheWriteTokens: '缓存写入',
     totalTokens: '总 Tokens',
     cost: '费用',
     // Status
@@ -178,6 +182,7 @@ export default {
     querySuccess: '查询成功',
     queryFailed: '查询失败',
     queryFailedRetry: '查询失败，请稍后重试',
+    noDailyUsage: '暂无按日用量数据',
   },
 
   // Setup Wizard
@@ -400,6 +405,7 @@ export default {
     registrationFailed: '注册失败，请重试。',
     emailSuffixNotAllowed: '该邮箱域名不在允许注册范围内。',
     emailSuffixNotAllowedWithAllowed: '该邮箱域名不被允许。可用域名：{suffixes}',
+    emailSuffixAllowedMore: '等 {count} 项',
     loginSuccess: '登录成功！欢迎回来。',
     accountCreatedSuccess: '账户创建成功！欢迎使用 {siteName}。',
     reloginRequired: '会话已过期，请重新登录。',
@@ -2296,6 +2302,8 @@ export default {
         webSearchEmulationGlobalDisabled: '请先在系统设置 → 网关 → Web Search 模拟中启用全局开关',
         codexImageGenerationBridge: 'Codex 图片生成桥接',
         codexImageGenerationBridgeHint: '开启后，OpenAI 分组的 Codex /responses 文本请求可能会被自动注入 image_generation 工具。仅在路由账号支持图片生成时开启。',
+        bedrockCCCompat: 'Bedrock CC 兼容',
+        bedrockCCCompatHint: '⚠️ 开启后，该渠道下 Bedrock 账号的请求将进行 Claude Code 兼容处理（thinking 类型转换、tool_use ID 清理）',
         basicSettings: '基础设置',
         addPlatform: '添加平台',
         noPlatforms: '点击"添加平台"开始配置渠道',
@@ -3572,6 +3580,9 @@ export default {
       createProxy: '添加代理',
       editProxy: '编辑代理',
       deleteProxy: '删除代理',
+      ad: {
+        inline: '正在寻找合适的代理 IP？'
+      },
       deleteConfirmMessage: "确定要删除代理 '{name}' 吗？",
       testProxy: '测试代理',
       dataImport: '导入',
@@ -3779,6 +3790,22 @@ export default {
       used: '已使用',
       searchCodes: '搜索兑换码或邮箱...',
       exportCsv: '导出 CSV',
+      batchUpdate: '批量修改',
+      batchUpdateTitle: '批量修改兑换码',
+      selectedCount: '已选择 {count} 个兑换码',
+      clearSelection: '清空选择',
+      selectCodesFirst: '请先选择兑换码',
+      noBatchFieldsSelected: '请至少勾选一个要修改的字段',
+      batchUpdateSuccess: '成功修改 {count} 个兑换码',
+      failedToBatchUpdate: '批量修改兑换码失败',
+      batchFields: {
+        status: '状态',
+        expiresAt: '过期时间',
+        notes: '备注',
+        group: '分组'
+      },
+      batchNotesPlaceholder: '输入新的备注，留空可清空备注',
+      clearGroup: '清空分组',
       deleteAllUnused: '删除全部未使用',
       deleteCodeConfirm: '确定要删除此兑换码吗？此操作无法撤销。',
       deleteAllUnusedConfirm: '确定要删除全部未使用的兑换码吗？此操作无法撤销。',
@@ -4879,9 +4906,9 @@ export default {
         emailVerificationHint: '新用户注册时需要验证邮箱',
         emailSuffixWhitelist: '邮箱域名白名单',
         emailSuffixWhitelistHint:
-          "仅允许使用指定域名的邮箱注册账号（例如 {'@'}qq.com, {'@'}gmail.com）",
-        emailSuffixWhitelistPlaceholder: 'example.com',
-        emailSuffixWhitelistInputHint: '留空则不限制',
+          "仅允许使用指定域名的邮箱注册账号（例如 {'@'}qq.com, {'@'}gmail.com, *.edu.cn）",
+        emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
+        emailSuffixWhitelistInputHint: '留空则不限制。使用 *.edu.cn 可匹配 edu.cn 及其子域名。',
         promoCode: '优惠码',
         promoCodeHint: '允许用户在注册时使用优惠码',
         invitationCode: '邀请码注册',
@@ -4907,6 +4934,13 @@ export default {
         cloudflareDashboard: 'Cloudflare Dashboard',
         secretKeyHint: '服务端验证密钥（请保密）',
         secretKeyConfiguredHint: '密钥已配置，留空以保留当前值。'
+      },
+      apiKeyAcl: {
+        title: 'API Key IP 访问控制',
+        description: '控制 API Key 白名单和黑名单使用哪个客户端 IP 判断',
+        trustForwardedIp: '信任反代传递的客户端 IP',
+        trustForwardedIpHint:
+          '默认关闭。仅在源站只允许 Cloudflare 或 Nginx 反代访问时开启；开启后 API Key IP 白/黑名单会使用 CF-Connecting-IP、X-Real-IP 或 X-Forwarded-For，与使用记录中的请求 IP 保持一致。'
       },
       linuxdo: {
         title: 'LinuxDo Connect 登录',
@@ -5344,6 +5378,12 @@ export default {
         emailsHint: '留空则不发送通知',
         addEmail: '添加邮箱',
         emailPlaceholder: '输入邮箱地址',
+      },
+      subscriptionExpiryNotify: {
+        title: '订阅到期提醒',
+        description: '控制是否向用户发送订阅即将到期的邮件提醒。',
+        enabled: '启用订阅到期提醒',
+        enabledHint: '开启后，系统会在订阅到期前 7 天、3 天、1 天各发送一次提醒。'
       },
       smtp: {
         title: 'SMTP 设置',

@@ -122,19 +122,23 @@ export default {
     dateRangeToday: 'Today',
     dateRange7d: '7 Days',
     dateRange30d: '30 Days',
+    dateRange90d: '90 Days',
     dateRangeCustom: 'Custom',
     apply: 'Apply',
     used: 'Used',
     detailInfo: 'Detail Information',
     tokenStats: 'Token Statistics',
+    dailyDetail: 'Daily Detail',
     modelStats: 'Model Usage Statistics',
     // Table headers
+    date: 'Date',
     model: 'Model',
     requests: 'Requests',
     inputTokens: 'Input Tokens',
     outputTokens: 'Output Tokens',
     cacheCreationTokens: 'Cache Creation',
     cacheReadTokens: 'Cache Read',
+    cacheWriteTokens: 'Cache Write',
     totalTokens: 'Total Tokens',
     cost: 'Cost',
     // Status
@@ -178,6 +182,7 @@ export default {
     querySuccess: 'Query successful',
     queryFailed: 'Query failed',
     queryFailedRetry: 'Query failed, please try again later',
+    noDailyUsage: 'No daily usage data',
   },
 
   // Setup Wizard
@@ -401,6 +406,7 @@ export default {
     emailSuffixNotAllowed: 'This email domain is not allowed for registration.',
     emailSuffixNotAllowedWithAllowed:
       'This email domain is not allowed. Allowed domains: {suffixes}',
+    emailSuffixAllowedMore: 'and {count} more',
     loginSuccess: 'Login successful! Welcome back.',
     accountCreatedSuccess: 'Account created successfully! Welcome to {siteName}.',
     reloginRequired: 'Session expired. Please log in again.',
@@ -2217,6 +2223,8 @@ export default {
         webSearchEmulationGlobalDisabled: 'Please enable the global switch first in Settings → Gateway → Web Search Emulation',
         codexImageGenerationBridge: 'Codex Image Generation Bridge',
         codexImageGenerationBridgeHint: 'When enabled, Codex /responses text requests in OpenAI groups may be automatically given the image_generation tool. Keep off unless the routed accounts support image generation.',
+        bedrockCCCompat: 'Bedrock CC Compatibility',
+        bedrockCCCompatHint: '⚠️ When enabled, requests to Bedrock accounts in this channel will be transformed for Claude Code compatibility (thinking type conversion, tool_use ID sanitization).',
         basicSettings: 'Basic Settings',
         addPlatform: 'Add Platform',
         noPlatforms: 'Click "Add Platform" to start configuring the channel',
@@ -3475,6 +3483,9 @@ export default {
       createProxy: 'Create Proxy',
       editProxy: 'Edit Proxy',
       deleteProxy: 'Delete Proxy',
+      ad: {
+        inline: 'Need proxy IP?'
+      },
       dataImport: 'Import',
       dataExportSelected: 'Export Selected',
       dataImportTitle: 'Import Proxies',
@@ -3643,6 +3654,22 @@ export default {
       },
       userPrefix: 'User #{id}',
       exportCsv: 'Export CSV',
+      batchUpdate: 'Batch Update',
+      batchUpdateTitle: 'Batch Update Redeem Codes',
+      selectedCount: '{count} redeem code(s) selected',
+      clearSelection: 'Clear selection',
+      selectCodesFirst: 'Select redeem codes first',
+      noBatchFieldsSelected: 'Select at least one field to update',
+      batchUpdateSuccess: 'Updated {count} redeem code(s)',
+      failedToBatchUpdate: 'Failed to batch update redeem codes',
+      batchFields: {
+        status: 'Status',
+        expiresAt: 'Expires At',
+        notes: 'Notes',
+        group: 'Group'
+      },
+      batchNotesPlaceholder: 'Enter the new note, or leave blank to clear it',
+      clearGroup: 'Clear group',
       deleteAllUnused: 'Delete All Unused Codes',
       deleteCode: 'Delete Redeem Code',
       deleteCodeConfirm:
@@ -4714,9 +4741,9 @@ export default {
         emailVerificationHint: 'Require email verification for new registrations',
         emailSuffixWhitelist: 'Email Domain Whitelist',
         emailSuffixWhitelistHint:
-          "Only email addresses from the specified domains can register (for example, {'@'}qq.com, {'@'}gmail.com)",
-        emailSuffixWhitelistPlaceholder: 'example.com',
-        emailSuffixWhitelistInputHint: 'Leave empty for no restriction',
+          "Only email addresses from the specified domains can register (for example, {'@'}qq.com, {'@'}gmail.com, *.edu.cn)",
+        emailSuffixWhitelistPlaceholder: "{'@'}example.com, *.edu.cn",
+        emailSuffixWhitelistInputHint: 'Leave empty for no restriction. Use *.edu.cn to match edu.cn and its subdomains.',
         promoCode: 'Promo Code',
         promoCodeHint: 'Allow users to use promo codes during registration',
         invitationCode: 'Invitation Code Registration',
@@ -4741,7 +4768,15 @@ export default {
         siteKeyHint: 'Get this from your Cloudflare Dashboard',
         cloudflareDashboard: 'Cloudflare Dashboard',
         secretKeyHint: 'Server-side verification key (keep this secret)',
-        secretKeyConfiguredHint: 'Secret key configured. Leave empty to keep the current value.'      },
+        secretKeyConfiguredHint: 'Secret key configured. Leave empty to keep the current value.'
+      },
+      apiKeyAcl: {
+        title: 'API Key IP Access Control',
+        description: 'Choose which client IP is used by API Key allowlists and denylists',
+        trustForwardedIp: 'Trust forwarded client IP',
+        trustForwardedIpHint:
+          'Disabled by default. Enable only when the origin is reachable only through Cloudflare or Nginx reverse proxy. When enabled, API Key IP allowlists and denylists use CF-Connecting-IP, X-Real-IP, or X-Forwarded-For, matching the request IP shown in usage records.'
+      },
       linuxdo: {
         title: 'LinuxDo Connect Login',
         description: 'Configure LinuxDo Connect OAuth for Sub2API end-user login',
@@ -5180,6 +5215,12 @@ export default {
         emailsHint: 'Leave empty to disable notifications',
         addEmail: 'Add Email',
         emailPlaceholder: 'Enter email address',
+      },
+      subscriptionExpiryNotify: {
+        title: 'Subscription Expiry Reminder',
+        description: 'Control whether users receive subscription expiry reminder emails.',
+        enabled: 'Enable Subscription Expiry Reminder',
+        enabledHint: 'When enabled, the system sends reminders 7, 3, and 1 day before expiry.'
       },
       smtp: {
         title: 'SMTP Settings',
