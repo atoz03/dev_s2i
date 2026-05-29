@@ -494,13 +494,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { adminAPI } from '@/api/admin'
-import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
-import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
-import { formatCompactNumber } from '@/utils/format'
+import {computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch} from 'vue'
+import {useI18n} from 'vue-i18n'
+import {adminAPI} from '@/api/admin'
+import type {Account, AccountUsageInfo, GeminiCredentials, WindowStats} from '@/types'
+import {buildOpenAIUsageRefreshKey} from '@/utils/accountUsageRefresh'
+import {enqueueUsageRequest} from '@/utils/usageLoadQueue'
+import {formatCompactNumber} from '@/utils/format'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 
@@ -664,6 +664,7 @@ const antigravityClaudeUsageFromAPI = computed(() =>
   getAntigravityUsageFromAPI([
     'claude-sonnet-4-5', 'claude-opus-4-5-thinking',
     'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-6-thinking',
+    'claude-opus-4-7', 'claude-opus-4-8',
   ])
 )
 

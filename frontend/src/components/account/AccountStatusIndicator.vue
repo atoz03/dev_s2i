@@ -155,11 +155,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import {computed} from 'vue'
+import {useI18n} from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import type { Account } from '@/types'
-import { formatCountdown, formatDateTime, formatCountdownWithSuffix, formatTime } from '@/utils/format'
+import type {Account} from '@/types'
+import {formatCountdown, formatCountdownWithSuffix, formatDateTime, formatTime} from '@/utils/format'
 
 const { t } = useI18n()
 
@@ -222,6 +222,8 @@ const formatScopeName = (scope: string): string => {
     // Claude 系列
     'claude-opus-4-6': 'COpus46',
     'claude-opus-4-6-thinking': 'COpus46T',
+    'claude-opus-4-7': 'COpus47',
+    'claude-opus-4-8': 'COpus48',
     'claude-sonnet-4-6': 'CSon46',
     'claude-sonnet-4-5': 'CSon45',
     'claude-sonnet-4-5-thinking': 'CSon45T',

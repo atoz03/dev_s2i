@@ -1,15 +1,14 @@
-import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('@/api/admin/accounts', () => ({
-  getAntigravityDefaultModelMapping: vi.fn()
-}))
-
+import {describe, expect, it, vi} from 'vitest'
 import {
   buildModelMappingObject,
   getDefaultWhitelistModelsByPlatform,
   getModelsByPlatform,
   splitModelMappingObject
 } from '../useModelWhitelist'
+
+vi.mock('@/api/admin/accounts', () => ({
+  getAntigravityDefaultModelMapping: vi.fn()
+}))
 
 describe('useModelWhitelist', () => {
   it('openai 模型列表包含 GPT-5.5 与 GPT-5.4 官方快照', () => {
@@ -38,6 +37,11 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gemini-2.5-flash-image')
     expect(models).toContain('gemini-3.1-flash-image')
     expect(models).toContain('gemini-3-pro-image')
+  })
+
+  it('Claude 模型列表包含 Opus 4.8', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
   })
 
   it('gemini 模型列表包含原生生图模型', () => {
