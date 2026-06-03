@@ -12,5 +12,5 @@ SET credentials = jsonb_set(
                   )
 WHERE platform = 'antigravity'
   AND deleted_at IS NULL
-  AND jsonb_typeof(credentials - > 'model_mapping') = 'object'
-  AND credentials - > 'model_mapping' ->>'claude-opus-4-8' IS NULL;
+  AND jsonb_typeof(credentials -> 'model_mapping') = 'object'
+  AND credentials -> 'model_mapping' ->> 'claude-opus-4-8' IS NULL;
