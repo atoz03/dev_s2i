@@ -339,17 +339,17 @@
           <span
             class="pointer-events-none absolute left-0 top-full z-50 mt-1 w-80 whitespace-normal break-words rounded bg-gray-900 px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 dark:bg-gray-700"
           >
-            <div class="font-semibold mb-1">{{ t('admin.accounts.gemini.quotaPolicy.title') }}</div>
-            <div class="mb-2 text-gray-300">{{ t('admin.accounts.gemini.quotaPolicy.note') }}</div>
-            <div class="space-y-1">
-              <div><strong>{{ geminiQuotaPolicyChannel }}:</strong></div>
-              <div class="pl-2">• {{ geminiQuotaPolicyLimits }}</div>
-              <div class="mt-2">
+            <span class="mb-1 block font-semibold">{{ t('admin.accounts.gemini.quotaPolicy.title') }}</span>
+            <span class="mb-2 block text-gray-300">{{ t('admin.accounts.gemini.quotaPolicy.note') }}</span>
+            <span class="block space-y-1">
+              <span class="block"><strong>{{ geminiQuotaPolicyChannel }}:</strong></span>
+              <span class="block pl-2">• {{ geminiQuotaPolicyLimits }}</span>
+              <span class="mt-2 block">
                 <a :href="geminiQuotaPolicyDocsUrl" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">
                   {{ t('admin.accounts.gemini.quotaPolicy.columns.docs') }} →
                 </a>
-              </div>
-            </div>
+              </span>
+            </span>
           </span>
         </span>
       </div>
