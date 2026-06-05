@@ -163,4 +163,13 @@ func TestIsMigrationChecksumCompatible(t *testing.T) {
 		)
 		require.False(t, ok)
 	})
+
+	t.Run("144生产已应用checksum可兼容当前修复文件", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"144_add_opus48_to_model_mapping.sql",
+			"a9db755c09ef5a815f0c88ca0d5a0ce9f89e6f29602acf66d78beddbd1630aa1",
+			"15c7ed5f440bebc495618cde74a24710a9c68c99a61561e9087f52b0475d5d2f",
+		)
+		require.True(t, ok)
+	})
 }
