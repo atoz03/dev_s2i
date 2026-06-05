@@ -365,10 +365,8 @@ function resolvePendingOAuthCallbackRoute(provider: string): string {
   switch (provider.trim().toLowerCase()) {
     case 'linuxdo':
       return '/auth/linuxdo/callback'
-    case 'oidc':
-      return '/auth/oidc/callback'
-    case 'wechat':
-      return '/auth/wechat/callback'
+    case 'dingtalk':
+      return '/auth/dingtalk/callback'
     default:
       return '/auth/callback'
   }

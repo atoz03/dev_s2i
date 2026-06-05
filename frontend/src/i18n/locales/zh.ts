@@ -5087,8 +5087,8 @@ export default {
         allowUngroupedKeyHint: '关闭后，未分配到任何分组的 API Key 将无法发起请求（返回 403）。建议保持关闭以确保所有 Key 都归属明确的分组。'
       },
       hiddenAdminMenus: {
-        title: '隐藏管理端菜单',
-        description: '选择后，将从管理端左侧导航中隐藏对应的内置菜单项；如果某个分组只剩 1 个子菜单，则直接展示该子菜单。'
+        title: '管理端菜单显示',
+        description: '打开表示展示对应的内置菜单项，关闭表示从管理端左侧导航中隐藏；如果某个分组只剩 1 个子菜单，则直接展示该子菜单。'
       },
       gatewayForwarding: {
         title: '请求转发行为',

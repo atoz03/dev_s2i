@@ -4,16 +4,11 @@
  */
 
 import { apiClient } from './client'
-import {
-  resolveWeChatOAuthStartStrict,
-  prepareOAuthBindAccessTokenCookie,
-  type WeChatOAuthPublicSettings,
-} from './auth'
+import { prepareOAuthBindAccessTokenCookie } from './auth'
 import type {
   User,
   ChangePasswordRequest,
   NotifyEmailEntry,
-  UserAuthProvider,
   UserAffiliateDetail,
   AffiliateTransferResponse
 } from '@/types'
@@ -114,27 +109,10 @@ export async function unbindAuthIdentity(provider: BindableOAuthProvider): Promi
   return data
 }
 
-export type BindableOAuthProvider = Exclude<UserAuthProvider, 'email'>
+export type BindableOAuthProvider = 'linuxdo' | 'dingtalk'
 
 interface BuildOAuthBindingStartURLOptions {
   redirectTo?: string
-  wechatOAuthSettings?: WeChatOAuthPublicSettings | null
-}
-
-export function resolveWeChatOAuthMode(): 'open' | 'mp' {
-  if (typeof navigator === 'undefined') {
-    return 'open'
-  }
-  return /MicroMessenger/i.test(navigator.userAgent) ? 'mp' : 'open'
-}
-
-function resolveWeChatOAuthBindingMode(
-  settings?: WeChatOAuthPublicSettings | null
-): 'open' | 'mp' | null {
-  if (settings) {
-    return resolveWeChatOAuthStartStrict(settings).mode
-  }
-  return resolveWeChatOAuthMode()
 }
 
 export function buildOAuthBindingStartURL(
@@ -148,14 +126,6 @@ export function buildOAuthBindingStartURL(
     redirect: redirectTo,
     intent: 'bind_current_user'
   })
-
-  if (provider === 'wechat') {
-    const mode = resolveWeChatOAuthBindingMode(options.wechatOAuthSettings)
-    if (!mode) {
-      return null
-    }
-    params.set('mode', mode)
-  }
 
   return `${normalized}/auth/oauth/${provider}/bind/start?${params.toString()}`
 }

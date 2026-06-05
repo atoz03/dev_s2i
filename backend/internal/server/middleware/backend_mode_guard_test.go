@@ -211,18 +211,6 @@ func TestBackendModeAuthGuard(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "enabled_blocks_wechat_oauth_start",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/wechat/start",
-			wantStatus: http.StatusForbidden,
-		},
-		{
-			name:       "enabled_allows_wechat_oauth_callback",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/wechat/callback",
-			wantStatus: http.StatusOK,
-		},
-		{
 			name:       "enabled_blocks_wechat_payment_oauth_start",
 			enabled:    "true",
 			path:       "/api/v1/auth/oauth/wechat/payment/start",
@@ -232,30 +220,6 @@ func TestBackendModeAuthGuard(t *testing.T) {
 			name:       "enabled_allows_wechat_payment_oauth_callback",
 			enabled:    "true",
 			path:       "/api/v1/auth/oauth/wechat/payment/callback",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "enabled_blocks_oidc_oauth_start",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/oidc/start",
-			wantStatus: http.StatusForbidden,
-		},
-		{
-			name:       "enabled_allows_oidc_oauth_callback",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/oidc/callback",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "enabled_blocks_github_oauth_start",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/github/start",
-			wantStatus: http.StatusForbidden,
-		},
-		{
-			name:       "enabled_allows_github_oauth_callback",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/github/callback",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -322,18 +286,6 @@ func TestBackendModeAuthGuard(t *testing.T) {
 			name:       "enabled_allows_oauth_pending_bind_login",
 			enabled:    "true",
 			path:       "/api/v1/auth/oauth/pending/bind-login",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "enabled_allows_provider_bind_login",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/oidc/bind-login",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "enabled_allows_provider_create_account",
-			enabled:    "true",
-			path:       "/api/v1/auth/oauth/wechat/create-account",
 			wantStatus: http.StatusOK,
 		},
 		{

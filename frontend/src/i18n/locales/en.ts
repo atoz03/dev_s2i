@@ -4928,8 +4928,8 @@ export default {
         allowUngroupedKeyHint: 'When disabled, API Keys not assigned to any group cannot make requests (403 Forbidden). Keep disabled to ensure all Keys belong to a specific group.'
       },
       hiddenAdminMenus: {
-        title: 'Hide Admin Menu Items',
-        description: 'Selected built-in items are hidden from the admin sidebar. If a group only has one visible child left, that child is shown directly.'
+        title: 'Admin Menu Visibility',
+        description: 'Turn on to show a built-in item in the admin sidebar. Turn off to hide it. If a group only has one visible child left, that child is shown directly.'
       },
       gatewayForwarding: {
         title: 'Request Forwarding',

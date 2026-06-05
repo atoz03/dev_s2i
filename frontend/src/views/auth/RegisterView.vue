@@ -255,7 +255,6 @@
         <EmailOAuthButtons
           :disabled="registrationActionDisabled"
           :aff-code="formData.aff_code"
-          :github-enabled="githubOAuthEnabled"
           :google-enabled="googleOAuthEnabled"
           :show-divider="false"
         />
@@ -263,19 +262,6 @@
         <LinuxDoOAuthSection
           v-if="linuxdoOAuthEnabled"
           :disabled="registrationActionDisabled"
-          :aff-code="formData.aff_code"
-          :show-divider="false"
-        />
-        <WechatOAuthSection
-          v-if="wechatOAuthEnabled"
-          :disabled="registrationActionDisabled"
-          :aff-code="formData.aff_code"
-          :show-divider="false"
-        />
-        <OidcOAuthSection
-          v-if="oidcOAuthEnabled"
-          :disabled="registrationActionDisabled"
-          :provider-name="oidcOAuthProviderName"
           :aff-code="formData.aff_code"
           :show-divider="false"
         />
@@ -303,8 +289,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import LinuxDoOAuthSection from '@/components/auth/LinuxDoOAuthSection.vue'
-import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
-import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -312,7 +296,6 @@ import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import {
   getPublicSettings,
-  isWeChatWebOAuthEnabled,
   validatePromoCode,
   validateInvitationCode
 } from '@/api/auth'
@@ -355,10 +338,6 @@ const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
 const siteName = ref<string>('Sub2API')
 const linuxdoOAuthEnabled = ref<boolean>(false)
-const wechatOAuthEnabled = ref<boolean>(false)
-const oidcOAuthEnabled = ref<boolean>(false)
-const oidcOAuthProviderName = ref<string>('OIDC')
-const githubOAuthEnabled = ref<boolean>(false)
 const googleOAuthEnabled = ref<boolean>(false)
 const registrationEmailSuffixWhitelist = ref<string[]>([])
 const loginAgreementEnabled = ref<boolean>(false)
@@ -420,9 +399,6 @@ const validationToastMessage = computed(() =>
 const showOAuthLogin = computed(
   () =>
     linuxdoOAuthEnabled.value ||
-    wechatOAuthEnabled.value ||
-    oidcOAuthEnabled.value ||
-    githubOAuthEnabled.value ||
     googleOAuthEnabled.value
 )
 
@@ -463,10 +439,6 @@ onMounted(async () => {
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Sub2API'
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
-    wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
-    oidcOAuthEnabled.value = settings.oidc_oauth_enabled
-    oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
-    githubOAuthEnabled.value = settings.github_oauth_enabled
     googleOAuthEnabled.value = settings.google_oauth_enabled
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
       settings.registration_email_suffix_whitelist || []

@@ -142,7 +142,6 @@
 
           <EmailOAuthButtons
             :disabled="authActionDisabled"
-            :github-enabled="githubOAuthEnabled"
             :google-enabled="googleOAuthEnabled"
             :show-divider="false"
           />
@@ -155,17 +154,6 @@
           <DingTalkOAuthSection
             v-if="dingtalkOAuthEnabled"
             :disabled="authActionDisabled"
-            :show-divider="false"
-          />
-          <WechatOAuthSection
-            v-if="wechatOAuthEnabled"
-            :disabled="authActionDisabled"
-            :show-divider="false"
-          />
-          <OidcOAuthSection
-            v-if="oidcOAuthEnabled"
-            :disabled="authActionDisabled"
-            :provider-name="oidcOAuthProviderName"
             :show-divider="false"
           />
         </div>
@@ -204,15 +192,13 @@ import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import LinuxDoOAuthSection from '@/components/auth/LinuxDoOAuthSection.vue'
 import DingTalkOAuthSection from '@/components/auth/DingTalkOAuthSection.vue'
-import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
-import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/TurnstileWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
-import { getPublicSettings, isTotp2FARequired, isWeChatWebOAuthEnabled } from '@/api/auth'
+import { getPublicSettings, isTotp2FARequired } from '@/api/auth'
 import type { LoginAgreementDocument, TotpLoginResponse } from '@/types'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
@@ -238,11 +224,7 @@ const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const dingtalkOAuthEnabled = ref<boolean>(false)
-const wechatOAuthEnabled = ref<boolean>(false)
 const backendModeEnabled = ref<boolean>(false)
-const oidcOAuthEnabled = ref<boolean>(false)
-const oidcOAuthProviderName = ref<string>('OIDC')
-const githubOAuthEnabled = ref<boolean>(false)
 const googleOAuthEnabled = ref<boolean>(false)
 const passwordResetEnabled = ref<boolean>(false)
 const loginAgreementEnabled = ref<boolean>(false)
@@ -291,9 +273,6 @@ const showOAuthLogin = computed(
     !backendModeEnabled.value &&
     (linuxdoOAuthEnabled.value ||
       dingtalkOAuthEnabled.value ||
-      wechatOAuthEnabled.value ||
-      oidcOAuthEnabled.value ||
-      githubOAuthEnabled.value ||
       googleOAuthEnabled.value)
 )
 
@@ -320,11 +299,7 @@ onMounted(async () => {
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled ?? false
-    wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
     backendModeEnabled.value = settings.backend_mode_enabled
-    oidcOAuthEnabled.value = settings.oidc_oauth_enabled
-    oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
-    githubOAuthEnabled.value = settings.github_oauth_enabled
     googleOAuthEnabled.value = settings.google_oauth_enabled
     backendModeEnabled.value = settings.backend_mode_enabled
     passwordResetEnabled.value = settings.password_reset_enabled

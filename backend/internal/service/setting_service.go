@@ -306,20 +306,6 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	} else {
 		dingTalkEnabled = s.cfg != nil && s.cfg.DingTalk.Enabled
 	}
-	oidcEnabled := false
-	if raw, ok := settings[SettingKeyOIDCConnectEnabled]; ok {
-		oidcEnabled = raw == "true"
-	} else {
-		oidcEnabled = s.cfg != nil && s.cfg.OIDC.Enabled
-	}
-	oidcProviderName := strings.TrimSpace(settings[SettingKeyOIDCConnectProviderName])
-	if oidcProviderName == "" && s.cfg != nil {
-		oidcProviderName = strings.TrimSpace(s.cfg.OIDC.ProviderName)
-	}
-	if oidcProviderName == "" {
-		oidcProviderName = "OIDC"
-	}
-
 	// Password reset requires email verification to be enabled
 	emailVerifyEnabled := settings[SettingKeyEmailVerifyEnabled] == "true"
 	passwordResetEnabled := emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true"
@@ -340,8 +326,6 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
 		balanceLowNotifyThreshold = v
 	}
-	weChatCfg := s.buildWeChatConnectOAuthConfig(settings)
-	weChatWebOAuthEnabled := weChatCfg.Enabled && (weChatCfg.OpenEnabled || weChatCfg.MPEnabled)
 
 	return &PublicSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
@@ -374,15 +358,15 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		CustomEndpoints:                  settings[SettingKeyCustomEndpoints],
 		LinuxDoOAuthEnabled:              linuxDoEnabled,
 		DingTalkOAuthEnabled:             dingTalkEnabled,
-		WeChatOAuthEnabled:               weChatWebOAuthEnabled,
-		WeChatOAuthOpenEnabled:           weChatCfg.Enabled && weChatCfg.OpenEnabled,
-		WeChatOAuthMPEnabled:             weChatCfg.Enabled && weChatCfg.MPEnabled,
-		WeChatOAuthMobileEnabled:         weChatCfg.Enabled && weChatCfg.MobileEnabled,
+		WeChatOAuthEnabled:               false,
+		WeChatOAuthOpenEnabled:           false,
+		WeChatOAuthMPEnabled:             false,
+		WeChatOAuthMobileEnabled:         false,
 		BackendModeEnabled:               settings[SettingKeyBackendModeEnabled] == "true",
 		PaymentEnabled:                   settings[SettingPaymentEnabled] == "true",
-		OIDCOAuthEnabled:                 oidcEnabled,
-		OIDCOAuthProviderName:            oidcProviderName,
-		GitHubOAuthEnabled:               s.emailOAuthPublicEnabled(settings, "github"),
+		OIDCOAuthEnabled:                 false,
+		OIDCOAuthProviderName:            "",
+		GitHubOAuthEnabled:               false,
 		GoogleOAuthEnabled:               s.emailOAuthPublicEnabled(settings, "google"),
 		ForceEmailOnThirdPartySignup:     settings[SettingKeyForceEmailOnThirdPartySignup] == "true",
 		BalanceLowNotifyEnabled:          settings[SettingKeyBalanceLowNotifyEnabled] == "true",

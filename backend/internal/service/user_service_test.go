@@ -546,16 +546,10 @@ func TestGetProfileIdentitySummaries_UsesBindStartRoute(t *testing.T) {
 		"/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile",
 		summaries.LinuxDo.BindStartPath,
 	)
-	require.Equal(
-		t,
-		"/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile",
-		summaries.OIDC.BindStartPath,
-	)
-	require.Equal(
-		t,
-		"/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile",
-		summaries.WeChat.BindStartPath,
-	)
+	require.False(t, summaries.OIDC.CanBind)
+	require.Empty(t, summaries.OIDC.BindStartPath)
+	require.False(t, summaries.WeChat.CanBind)
+	require.Empty(t, summaries.WeChat.BindStartPath)
 }
 
 func TestUpdateBalance_NilBillingCache_NoPanic(t *testing.T) {

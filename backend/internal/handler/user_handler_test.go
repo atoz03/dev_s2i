@@ -257,8 +257,8 @@ func TestUserHandlerGetProfileReturnsIdentitySummaries(t *testing.T) {
 	require.Equal(t, "OIDC Display", resp.Data.Identities.OIDC.DisplayName)
 	require.Equal(t, "https://issuer.example.com", resp.Data.Identities.OIDC.ProviderKey)
 	require.False(t, resp.Data.Identities.WeChat.Bound)
-	require.True(t, resp.Data.Identities.WeChat.CanBind)
-	require.Contains(t, resp.Data.Identities.WeChat.BindStartPath, "/api/v1/auth/oauth/wechat/bind/start")
+	require.False(t, resp.Data.Identities.WeChat.CanBind)
+	require.Empty(t, resp.Data.Identities.WeChat.BindStartPath)
 }
 
 func TestUserHandlerGetProfileReturnsLegacyCompatibilityFields(t *testing.T) {
@@ -757,7 +757,7 @@ func TestUserHandlerStartIdentityBindingReturnsAuthorizeURL(t *testing.T) {
 	}
 	handler := NewUserHandler(service.NewUserService(repo, nil, nil, nil), nil, nil, nil, nil)
 
-	body := []byte(`{"provider":"wechat","redirect_to":"/settings/profile"}`)
+	body := []byte(`{"provider":"linuxdo","redirect_to":"/settings/profile"}`)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/user/auth-identities/bind/start", bytes.NewReader(body))
@@ -779,10 +779,10 @@ func TestUserHandlerStartIdentityBindingReturnsAuthorizeURL(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
 	require.Equal(t, 0, resp.Code)
-	require.Equal(t, "wechat", resp.Data.Provider)
+	require.Equal(t, "linuxdo", resp.Data.Provider)
 	require.Equal(t, "GET", resp.Data.Method)
 	require.True(t, resp.Data.UseBrowserRedirect)
-	require.Contains(t, resp.Data.AuthorizeURL, "/api/v1/auth/oauth/wechat/bind/start")
+	require.Contains(t, resp.Data.AuthorizeURL, "/api/v1/auth/oauth/linuxdo/bind/start")
 	require.Contains(t, resp.Data.AuthorizeURL, "intent=bind_current_user")
 	require.Contains(t, resp.Data.AuthorizeURL, "redirect=%2Fsettings%2Fprofile")
 }

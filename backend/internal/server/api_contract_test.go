@@ -94,17 +94,15 @@ func TestAPIContracts(t *testing.T) {
 							"provider": "oidc",
 							"bound": false,
 							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"can_bind": false,
+							"can_unbind": false
 						},
 						"wechat": {
 							"provider": "wechat",
 							"bound": false,
 							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"can_bind": false,
+							"can_unbind": false
 						},
 						"dingtalk": {
 							"provider": "dingtalk",
@@ -140,17 +138,15 @@ func TestAPIContracts(t *testing.T) {
 							"provider": "oidc",
 							"bound": false,
 							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"can_bind": false,
+							"can_unbind": false
 						},
 						"wechat": {
 							"provider": "wechat",
 							"bound": false,
 							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"can_bind": false,
+							"can_unbind": false
 						},
 						"dingtalk": {
 							"provider": "dingtalk",
@@ -186,17 +182,15 @@ func TestAPIContracts(t *testing.T) {
 							"provider": "oidc",
 							"bound": false,
 							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"can_bind": false,
+							"can_unbind": false
 						},
 						"wechat": {
 							"provider": "wechat",
 							"bound": false,
 							"bound_count": 0,
-							"can_bind": true,
-							"can_unbind": false,
-							"bind_start_path": "/api/v1/auth/oauth/wechat/bind/start?intent=bind_current_user&redirect=%2Fsettings%2Fprofile"
+							"can_bind": false,
+							"can_unbind": false
 						},
 						"dingtalk": {
 							"provider": "dingtalk",

@@ -273,6 +273,8 @@ func (s *UserService) GetProfileIdentitySummaries(ctx context.Context, userID in
 		DingTalk: s.buildProviderIdentitySummary("dingtalk", user, records),
 	}
 
+	disableIdentityBindAction(&summaries.OIDC)
+	disableIdentityBindAction(&summaries.WeChat)
 	s.applyExplicitProviderAvailability(ctx, &summaries)
 	return summaries, nil
 }
@@ -779,10 +781,6 @@ func buildUserIdentityBindAuthorizeURL(provider, redirectTo string) (string, err
 	switch provider {
 	case "linuxdo":
 		path = "/api/v1/auth/oauth/linuxdo/bind/start"
-	case "oidc":
-		path = "/api/v1/auth/oauth/oidc/bind/start"
-	case "wechat":
-		path = "/api/v1/auth/oauth/wechat/bind/start"
 	case "dingtalk":
 		path = "/api/v1/auth/oauth/dingtalk/bind/start"
 	default:

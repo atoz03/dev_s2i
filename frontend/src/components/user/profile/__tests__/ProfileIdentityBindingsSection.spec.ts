@@ -131,29 +131,23 @@ describe('ProfileIdentityBindingsSection', () => {
           auth_bindings: {
             email: { bound: true },
             linuxdo: { bound: true },
-            oidc: { bound: false },
-            wechat: false,
+            dingtalk: { bound: false },
           },
         }),
         linuxdoEnabled: true,
-        oidcEnabled: true,
-        oidcProviderName: 'ExampleID',
-        wechatEnabled: true,
-        wechatOpenEnabled: true,
-        wechatMpEnabled: false,
+        dingtalkEnabled: true,
       },
     })
 
     expect(wrapper.get('[data-testid="profile-binding-email-status"]').text()).toBe('Bound')
     expect(wrapper.get('[data-testid="profile-binding-linuxdo-status"]').text()).toBe('Bound')
-    expect(wrapper.get('[data-testid="profile-binding-oidc-status"]').text()).toBe('Not bound')
-    expect(wrapper.get('[data-testid="profile-binding-oidc-action"]').text()).toBe(
-      'Bind ExampleID'
-    )
-    expect(wrapper.get('[data-testid="profile-binding-wechat-action"]').text()).toBe('Bind WeChat')
+    expect(wrapper.get('[data-testid="profile-binding-dingtalk-status"]').text()).toBe('Not bound')
+    expect(wrapper.get('[data-testid="profile-binding-dingtalk-action"]').text()).toBe('Bind profile.authBindings.providers.dingtalk')
+    expect(wrapper.find('[data-testid="profile-binding-oidc-action"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(false)
   })
 
-  it('starts the WeChat bind flow for the current profile page', async () => {
+  it('starts the dingtalk bind flow for the current profile page', async () => {
     const wrapper = mount(ProfileIdentityBindingsSection, {
       global: {
         plugins: [pinia],
@@ -161,22 +155,18 @@ describe('ProfileIdentityBindingsSection', () => {
       props: {
         user: createUser(),
         linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-        wechatOpenEnabled: true,
-        wechatMpEnabled: false,
+        dingtalkEnabled: true,
       },
     })
 
-    await wrapper.get('[data-testid="profile-binding-wechat-action"]').trigger('click')
+    await wrapper.get('[data-testid="profile-binding-dingtalk-action"]').trigger('click')
 
-    expect(locationState.current.href).toContain('/api/v1/auth/oauth/wechat/bind/start?')
-    expect(locationState.current.href).toContain('mode=open')
+    expect(locationState.current.href).toContain('/api/v1/auth/oauth/dingtalk/bind/start?')
     expect(locationState.current.href).toContain('intent=bind_current_user')
     expect(locationState.current.href).toContain('redirect=%2Fprofile')
   })
 
-  it('hides the WeChat bind action outside the WeChat browser when only mp mode is configured', () => {
+  it('does not render removed oidc and wechat bind actions even when legacy props are present', () => {
     const wrapper = mount(ProfileIdentityBindingsSection, {
       global: {
         plugins: [pinia],
@@ -186,103 +176,11 @@ describe('ProfileIdentityBindingsSection', () => {
         linuxdoEnabled: false,
         oidcEnabled: false,
         wechatEnabled: true,
-        wechatOpenEnabled: false,
-        wechatMpEnabled: true,
       },
     })
 
     expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(false)
-  })
-
-  it('keeps the WeChat bind action visible when only the legacy aggregate setting is present', () => {
-    const wrapper = mount(ProfileIdentityBindingsSection, {
-      global: {
-        plugins: [pinia],
-      },
-      props: {
-        user: createUser(),
-        linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-      },
-    })
-
-    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(true)
-  })
-
-  it('starts the WeChat bind flow when only the legacy aggregate setting is present', async () => {
-    const wrapper = mount(ProfileIdentityBindingsSection, {
-      global: {
-        plugins: [pinia],
-      },
-      props: {
-        user: createUser(),
-        linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-      },
-    })
-
-    await wrapper.get('[data-testid="profile-binding-wechat-action"]').trigger('click')
-
-    expect(locationState.current.href).toContain('/api/v1/auth/oauth/wechat/bind/start?')
-    expect(locationState.current.href).toContain('mode=open')
-    expect(locationState.current.href).toContain('intent=bind_current_user')
-    expect(locationState.current.href).toContain('redirect=%2Fprofile')
-  })
-
-  it('uses explicit cached WeChat capabilities and ignores legacy prop fallbacks', () => {
-    const appStore = useAppStore()
-    appStore.cachedPublicSettings = {
-      registration_enabled: false,
-      email_verify_enabled: false,
-      force_email_on_third_party_signup: false,
-      registration_email_suffix_whitelist: [],
-      promo_code_enabled: true,
-      password_reset_enabled: false,
-      invitation_code_enabled: false,
-      turnstile_enabled: false,
-      turnstile_site_key: '',
-      site_name: 'Sub2API',
-      site_logo: '',
-      site_subtitle: '',
-      api_base_url: '',
-      contact_info: '',
-      doc_url: '',
-      home_content: '',
-      hide_ccs_import_button: false,
-      payment_enabled: false,
-      table_default_page_size: 20,
-      table_page_size_options: [10, 20, 50, 100],
-      custom_menu_items: [],
-      custom_endpoints: [],
-      linuxdo_oauth_enabled: false,
-      wechat_oauth_enabled: true,
-      wechat_oauth_open_enabled: true,
-      wechat_oauth_mp_enabled: false,
-      oidc_oauth_enabled: false,
-      oidc_oauth_provider_name: 'OIDC',
-      backend_mode_enabled: false,
-      version: 'test',
-      balance_low_notify_enabled: false,
-      account_quota_notify_enabled: false,
-      balance_low_notify_threshold: 0,
-    }
-    appStore.publicSettingsLoaded = true
-
-    const wrapper = mount(ProfileIdentityBindingsSection, {
-      global: {
-        plugins: [pinia],
-      },
-      props: {
-        user: createUser(),
-        linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: true,
-      },
-    })
-
-    expect(wrapper.find('[data-testid="profile-binding-wechat-action"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="profile-binding-oidc-action"]').exists()).toBe(false)
   })
 
   it('sends email verification code and binds email from the profile card', async () => {
@@ -616,16 +514,15 @@ describe('ProfileIdentityBindingsSection', () => {
         user: createUser({
           auth_bindings: {
             linuxdo: { bound: false, can_bind: true },
-            oidc: { bound: false, can_bind: true },
+            dingtalk: { bound: false, can_bind: true },
           },
         }),
         linuxdoEnabled: false,
-        oidcEnabled: false,
-        wechatEnabled: false,
+        dingtalkEnabled: false,
       },
     })
 
     expect(wrapper.find('[data-testid="profile-binding-linuxdo-action"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="profile-binding-oidc-action"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-binding-dingtalk-action"]').exists()).toBe(false)
   })
 })

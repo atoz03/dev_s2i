@@ -140,11 +140,6 @@
             :user="user"
             :linuxdo-enabled="linuxdoEnabled"
             :dingtalk-enabled="dingtalkEnabled"
-            :oidc-enabled="oidcEnabled"
-            :oidc-provider-name="oidcProviderName"
-            :wechat-enabled="wechatEnabled"
-            :wechat-open-enabled="wechatOpenEnabled"
-            :wechat-mp-enabled="wechatMpEnabled"
             embedded
             compact
           />

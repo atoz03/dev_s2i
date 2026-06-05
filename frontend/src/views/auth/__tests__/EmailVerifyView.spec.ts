@@ -129,7 +129,7 @@ describe('EmailVerifyView', () => {
     authStoreState.pendingAuthSession = {
       token: 'pending-token-1',
       token_field: 'pending_auth_token',
-      provider: 'wechat',
+      provider: 'linuxdo',
       redirect: '/profile',
     }
     sessionStorage.setItem(
@@ -165,7 +165,7 @@ describe('EmailVerifyView', () => {
     authStoreState.pendingAuthSession = {
       token: 'pending-token-2',
       token_field: 'pending_auth_token',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile',
     }
     getPublicSettingsMock.mockResolvedValue({
@@ -206,7 +206,7 @@ describe('EmailVerifyView', () => {
     authStoreState.pendingAuthSession = {
       token: '',
       token_field: 'pending_oauth_token',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile',
     }
     getPublicSettingsMock.mockResolvedValue({
@@ -248,7 +248,7 @@ describe('EmailVerifyView', () => {
     authStoreState.pendingAuthSession = {
       token: '',
       token_field: 'pending_oauth_token',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile/security',
     }
     getPublicSettingsMock.mockResolvedValue({
@@ -259,7 +259,7 @@ describe('EmailVerifyView', () => {
     })
     sendPendingOAuthVerifyCodeMock.mockResolvedValue({
       auth_result: 'pending_session',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile/security',
     })
     sessionStorage.setItem(
@@ -286,10 +286,10 @@ describe('EmailVerifyView', () => {
     expect(setPendingAuthSessionMock).toHaveBeenCalledWith({
       token: '',
       token_field: 'pending_oauth_token',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile/security',
     })
-    expect(pushMock).toHaveBeenCalledWith('/auth/oidc/callback')
+    expect(pushMock).toHaveBeenCalledWith('/auth/linuxdo/callback')
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
@@ -297,7 +297,7 @@ describe('EmailVerifyView', () => {
     authStoreState.pendingAuthSession = {
       token: 'pending-token-1',
       token_field: 'pending_auth_token',
-      provider: 'wechat',
+      provider: 'linuxdo',
       redirect: '/profile',
     }
     sessionStorage.setItem(
@@ -353,7 +353,7 @@ describe('EmailVerifyView', () => {
     authStoreState.pendingAuthSession = {
       token: '',
       token_field: 'pending_oauth_token',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile/security',
     }
     getPublicSettingsMock.mockResolvedValue({
@@ -372,7 +372,7 @@ describe('EmailVerifyView', () => {
     apiClientPostMock.mockResolvedValue({
       data: {
         auth_result: 'pending_session',
-        provider: 'oidc',
+        provider: 'linuxdo',
         step: 'bind_login_required',
         redirect: '/profile/security',
         email: 'fresh@example.com',
@@ -403,10 +403,10 @@ describe('EmailVerifyView', () => {
     expect(setPendingAuthSessionMock).toHaveBeenCalledWith({
       token: '',
       token_field: 'pending_oauth_token',
-      provider: 'oidc',
+      provider: 'linuxdo',
       redirect: '/profile/security',
     })
-    expect(pushMock).toHaveBeenCalledWith('/auth/oidc/callback')
+    expect(pushMock).toHaveBeenCalledWith('/auth/linuxdo/callback')
     expect(setTokenMock).not.toHaveBeenCalled()
     expect(persistOAuthTokenContextMock).not.toHaveBeenCalled()
     expect(clearPendingAuthSessionMock).not.toHaveBeenCalled()

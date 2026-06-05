@@ -16,17 +16,8 @@ describe('user api oauth binding urls', () => {
     expect(buildOAuthBindingStartURL('linuxdo', { redirectTo: '/settings/profile' })).toBe(
       'https://api.example.com/api/v1/auth/oauth/linuxdo/bind/start?redirect=%2Fsettings%2Fprofile&intent=bind_current_user'
     )
-    expect(
-      buildOAuthBindingStartURL('wechat', {
-        redirectTo: '/settings/profile',
-        wechatOAuthSettings: {
-          wechat_oauth_open_enabled: true,
-          wechat_oauth_mp_enabled: false,
-          wechat_oauth_mobile_enabled: false
-        }
-      })
-    ).toBe(
-      'https://api.example.com/api/v1/auth/oauth/wechat/bind/start?redirect=%2Fsettings%2Fprofile&intent=bind_current_user&mode=open'
+    expect(buildOAuthBindingStartURL('dingtalk', { redirectTo: '/settings/profile' })).toBe(
+      'https://api.example.com/api/v1/auth/oauth/dingtalk/bind/start?redirect=%2Fsettings%2Fprofile&intent=bind_current_user'
     )
   })
 })
