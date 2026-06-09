@@ -282,18 +282,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
-		safeErr := sanitizeUpstreamErrorMessage(err.Error())
-		setOpsUpstreamError(c, 0, safeErr, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: 0,
-			Kind:               "request_error",
-			Message:            safeErr,
-		})
-		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -359,7 +348,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	var result *OpenAIForwardResult
 	var handleErr error
 	if clientStream {
-		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, originalModel, billingModel, upstreamModel, startTime)
+		result, handleErr = s.handleAnthropicStreamingResponse(resp, c, account, originalModel, billingModel, upstreamModel, startTime)
 	} else {
 		// Client wants JSON: buffer the streaming response and assemble a JSON reply.
 		result, handleErr = s.handleAnthropicBufferedStreamingResponse(resp, c, originalModel, billingModel, upstreamModel, startTime)
@@ -635,6 +624,7 @@ func (s *OpenAIGatewayService) readOpenAICompatBufferedTerminal(
 func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -649,7 +639,6 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.WriteHeader(http.StatusOK)
 
 	state := apicompat.NewResponsesEventToAnthropicState()
 	state.Model = originalModel
@@ -658,6 +647,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	var firstTokenMs *int
 	firstChunk := true
 	clientDisconnected := false
+	clientOutputStarted := false
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -683,15 +673,16 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
-			RequestID:     requestID,
-			ResponseID:    responseID,
-			Usage:         usage,
-			Model:         originalModel,
-			BillingModel:  billingModel,
-			UpstreamModel: upstreamModel,
-			Stream:        true,
-			Duration:      time.Since(startTime),
-			FirstTokenMs:  firstTokenMs,
+			RequestID:        requestID,
+			ResponseID:       responseID,
+			Usage:            usage,
+			Model:            originalModel,
+			BillingModel:     billingModel,
+			UpstreamModel:    upstreamModel,
+			Stream:           true,
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ClientDisconnect: clientDisconnected,
 		}
 	}
 
@@ -742,6 +733,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					)
 					break
 				}
+				clientOutputStarted = true
 			}
 		}
 		if len(events) > 0 && !clientDisconnected {
@@ -765,6 +757,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					)
 					break
 				}
+				clientOutputStarted = true
 			}
 			if !clientDisconnected {
 				c.Writer.Flush()
@@ -783,7 +776,18 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 	}
 	missingTerminalErr := func() (*OpenAIForwardResult, error) {
-		return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
+		result := resultWithUsage()
+		if clientDisconnected {
+			return result, fmt.Errorf("stream usage incomplete: missing terminal event")
+		}
+
+		message := "OpenAI messages stream ended before a terminal event"
+		if !clientOutputStarted {
+			return result, s.newOpenAIMessagesStreamFailoverError(c, account, requestID, message)
+		}
+
+		s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "stream_missing_terminal", message)
+		return result, fmt.Errorf("stream usage incomplete: missing terminal event")
 	}
 	processFrame := func(frame openAICompatSSEFrame) bool {
 		payload := openAICompatPayloadWithEventType(frame.Data, frame.EventType)
@@ -933,9 +937,61 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				clientDisconnected = true
 				continue
 			}
+			clientOutputStarted = true
 			c.Writer.Flush()
 		}
 	}
+}
+
+func (s *OpenAIGatewayService) newOpenAIMessagesStreamFailoverError(c *gin.Context, account *Account, upstreamRequestID, message string) error {
+	message = sanitizeUpstreamErrorMessage(strings.TrimSpace(message))
+	if message == "" {
+		message = "OpenAI messages stream ended before a terminal event"
+	}
+	s.recordOpenAIMessagesStreamUpstreamError(c, account, upstreamRequestID, "failover", message)
+	body, err := json.Marshal(gin.H{
+		"error": gin.H{
+			"type":    "upstream_error",
+			"message": message,
+		},
+	})
+	if err != nil {
+		body = []byte(`{"error":{"type":"upstream_error","message":"Upstream request failed"}}`)
+	}
+	headers := http.Header{}
+	if requestID := strings.TrimSpace(upstreamRequestID); requestID != "" {
+		headers.Set("x-request-id", requestID)
+	}
+	return &UpstreamFailoverError{
+		StatusCode:      http.StatusBadGateway,
+		ResponseBody:    body,
+		ResponseHeaders: headers,
+	}
+}
+
+func (s *OpenAIGatewayService) recordOpenAIMessagesStreamUpstreamError(c *gin.Context, account *Account, upstreamRequestID, kind, message string) {
+	accountID := int64(0)
+	accountName := ""
+	platform := PlatformOpenAI
+	if account != nil {
+		accountID = account.ID
+		accountName = account.Name
+		platform = account.Platform
+	}
+	message = sanitizeUpstreamErrorMessage(strings.TrimSpace(message))
+	if message == "" {
+		message = "OpenAI messages stream ended before a terminal event"
+	}
+	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform:           platform,
+		AccountID:          accountID,
+		AccountName:        accountName,
+		UpstreamStatusCode: http.StatusBadGateway,
+		UpstreamRequestID:  strings.TrimSpace(upstreamRequestID),
+		Kind:               kind,
+		Message:            message,
+	})
 }
 
 // writeAnthropicError writes an error response in Anthropic Messages API format.

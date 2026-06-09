@@ -353,6 +353,9 @@ func chatMessageToResponsesOutput(message ChatMessage) []ResponsesOutput {
 	}
 
 	text := chatMessageContentText(message.Content)
+	if text == "" && strings.TrimSpace(message.ReasoningContent) != "" && len(message.ToolCalls) == 0 {
+		text = message.ReasoningContent
+	}
 	if text != "" || len(message.ToolCalls) == 0 {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "message",
@@ -565,6 +568,7 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	}
 	var events []ResponsesStreamEvent
 	events = append(events, ensureChatToResponsesCreated(state)...)
+	events = append(events, synthesizeChatReasoningFallbackMessage(state)...)
 	if state.MessageItemID != "" {
 		events = append(events, chatToResponsesEvent(state, "response.output_text.done", &ResponsesStreamEvent{
 			OutputIndex:  0,
@@ -635,6 +639,28 @@ func ensureChatToResponsesMessageItem(state *ChatCompletionsToResponsesStreamSta
 			Status: "in_progress",
 		},
 	})}
+}
+
+func synthesizeChatReasoningFallbackMessage(state *ChatCompletionsToResponsesStreamState) []ResponsesStreamEvent {
+	if state == nil ||
+		state.MessageItemID != "" ||
+		state.Text.Len() > 0 ||
+		state.Reasoning.Len() == 0 ||
+		len(state.ToolCalls) > 0 {
+		return nil
+	}
+
+	text := state.Reasoning.String()
+	var events []ResponsesStreamEvent
+	events = append(events, ensureChatToResponsesMessageItem(state)...)
+	_, _ = state.Text.WriteString(text)
+	events = append(events, chatToResponsesEvent(state, "response.output_text.delta", &ResponsesStreamEvent{
+		OutputIndex:  0,
+		ContentIndex: 0,
+		Delta:        text,
+		ItemID:       state.MessageItemID,
+	}))
+	return events
 }
 
 func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutput {

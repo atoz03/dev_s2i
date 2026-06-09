@@ -1663,7 +1663,7 @@ func TestForwardAsAnthropic_BufferedEventNamedTerminalWithoutUpstreamCloseReturn
 	}
 }
 
-func TestForwardAsAnthropic_DoneSentinelWithoutTerminalReturnsError(t *testing.T) {
+func TestForwardAsAnthropic_DoneSentinelWithoutTerminalReturnsFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -1673,9 +1673,12 @@ func TestForwardAsAnthropic_DoneSentinelWithoutTerminalReturnsError(t *testing.T
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	upstreamBody := "data: [DONE]\n\n"
+	upstreamHeader := http.Header{}
+	upstreamHeader.Set("Content-Type", "text/event-stream")
+	upstreamHeader.Set("x-request-id", "rid_missing_terminal")
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_missing_terminal"}},
+		Header:     upstreamHeader,
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}}
 
@@ -1694,10 +1697,16 @@ func TestForwardAsAnthropic_DoneSentinelWithoutTerminalReturnsError(t *testing.T
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.1")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "missing terminal event")
 	require.NotNil(t, result)
 	require.Zero(t, result.Usage.InputTokens)
 	require.Zero(t, result.Usage.OutputTokens)
+
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "未输出过内容时缺少 terminal event 应触发账号 failover")
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Contains(t, ExtractUpstreamErrorMessage(failoverErr.ResponseBody), "terminal event")
+	require.Equal(t, "rid_missing_terminal", failoverErr.ResponseHeaders.Get("x-request-id"))
+	require.Empty(t, rec.Body.String(), "服务层未输出内容时不应提前写入响应体")
 }
 
 func TestForwardAsAnthropic_UpstreamRequestIgnoresClientCancel(t *testing.T) {

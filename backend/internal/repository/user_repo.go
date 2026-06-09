@@ -360,21 +360,24 @@ func normalizeEmailAuthIdentitySubject(email string) string {
 }
 
 func (r *userRepository) Delete(ctx context.Context, id int64) error {
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return translatePersistenceError(err, service.ErrUserNotFound, nil)
-	}
-
 	var txClient *dbent.Client
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
+	var tx *dbent.Tx
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		txClient = existingTx.Client()
 	} else {
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
-			txClient = r.client
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return translatePersistenceError(err, service.ErrUserNotFound, nil)
 		}
+		if err != nil {
+			txClient = r.client
+		} else {
+			txClient = tx.Client()
+		}
+	}
+	if tx != nil {
+		defer func() { _ = tx.Rollback() }()
 	}
 
 	identityIDs, err := txClient.AuthIdentity.Query().

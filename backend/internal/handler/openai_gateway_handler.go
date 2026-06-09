@@ -709,6 +709,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if channelMappingMsg.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMappingMsg.MappedModel)
 		}
+		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -732,6 +733,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				if streamStarted || c.Writer.Size() != writerSizeBeforeForward {
+					h.handleAnthropicFailoverExhausted(c, failoverErr, true)
+					return
+				}
 				// 池模式：同账号重试
 				if failoverErr.RetryableOnSameAccount {
 					retryLimit := account.GetPoolModeRetryCount()
@@ -768,6 +773,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				continue
 			}
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+			if result != nil && result.ClientDisconnect {
+				reqLog.Info("openai_messages.client_disconnected",
+					zap.Int64("account_id", account.ID),
+					zap.String("request_id", result.RequestID),
+				)
+				return
+			}
 			wroteFallback := h.ensureAnthropicErrorResponse(c, streamStarted)
 			reqLog.Warn("openai_messages.forward_failed",
 				zap.Int64("account_id", account.ID),
@@ -1335,6 +1347,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	wsFirstMessage := firstMessage
 	if channelMappingWS.Mapped {
 		wsFirstMessage = h.gatewayService.ReplaceModelInBody(firstMessage, channelMappingWS.MappedModel)
+	}
+	// 切组/会话失配防护：首包 previous_response_id 未在当前分组命中粘连账号时，
+	// 剥离该字段并使用首包 input 重建上下文；function_call_output 续链不能安全重建，保持原样。
+	if previousResponseID != "" && !scheduleDecision.StickyPreviousHit &&
+		!gjson.GetBytes(wsFirstMessage, `input.#(type=="function_call_output")`).Exists() {
+		wsFirstMessage = service.RemovePreviousResponseIDFromBody(wsFirstMessage)
+		reqLog.Debug("openai.websocket_previous_response_id_stripped_cross_group",
+			zap.Int64("account_id", account.ID),
+			zap.String("schedule_layer", scheduleDecision.Layer),
+		)
 	}
 
 	if err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks); err != nil {

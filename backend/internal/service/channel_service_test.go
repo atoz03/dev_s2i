@@ -321,6 +321,16 @@ func TestReplaceModelInBody(t *testing.T) {
 	}
 }
 
+func TestRemovePreviousResponseIDFromBody(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.1","previous_response_id":"resp_old","input":[{"type":"input_text","text":"hello"}]}`)
+
+	result := RemovePreviousResponseIDFromBody(body)
+
+	require.NotContains(t, string(result), "previous_response_id")
+	require.Contains(t, string(result), `"model":"gpt-5.1"`)
+	require.Contains(t, string(result), `"input"`)
+}
+
 // ===========================================================================
 // 3. validateNoConflictingModels + validateNoConflictingMappings
 // ===========================================================================

@@ -609,6 +609,79 @@ func TestResponsesToChatCompletions_WebSearch(t *testing.T) {
 	assert.Equal(t, "search results", content)
 }
 
+func TestChatCompletionsResponseToResponses_ReasoningOnlySynthesizesMessage(t *testing.T) {
+	resp := &ChatCompletionsResponse{
+		ID:    "chatcmpl_reasoning_only",
+		Model: "deepseek-reasoner",
+		Choices: []ChatChoice{
+			{
+				Message: ChatMessage{
+					Role:             "assistant",
+					ReasoningContent: "internal plan",
+				},
+				FinishReason: "stop",
+			},
+		},
+	}
+
+	out := ChatCompletionsResponseToResponses(resp, "")
+	require.Len(t, out.Output, 2)
+	assert.Equal(t, "reasoning", out.Output[0].Type)
+	assert.Equal(t, "message", out.Output[1].Type)
+	require.Len(t, out.Output[1].Content, 1)
+	assert.Equal(t, "output_text", out.Output[1].Content[0].Type)
+	assert.Equal(t, "internal plan", out.Output[1].Content[0].Text)
+}
+
+func TestChatCompletionsToResponsesStream_ReasoningOnlySynthesizesMessage(t *testing.T) {
+	state := NewChatCompletionsToResponsesStreamState("deepseek-reasoner")
+	reasoning := "internal plan"
+	finishReason := "stop"
+
+	events := ChatCompletionsChunkToResponsesEvents(&ChatCompletionsChunk{
+		ID:    "chatcmpl_reasoning_only_stream",
+		Model: "deepseek-reasoner",
+		Choices: []ChatChunkChoice{
+			{
+				Delta: ChatDelta{ReasoningContent: &reasoning},
+			},
+			{
+				FinishReason: &finishReason,
+			},
+		},
+	}, state)
+
+	require.NotEmpty(t, events)
+	assert.Equal(t, "response.created", events[0].Type)
+
+	events = FinalizeChatCompletionsResponsesStream(state)
+	var types []string
+	var messageDelta *ResponsesStreamEvent
+	var completed *ResponsesStreamEvent
+	for i := range events {
+		types = append(types, events[i].Type)
+		switch events[i].Type {
+		case "response.output_text.delta":
+			messageDelta = &events[i]
+		case "response.completed":
+			completed = &events[i]
+		}
+	}
+
+	require.Contains(t, types, "response.output_item.added")
+	require.Contains(t, types, "response.output_text.delta")
+	require.Contains(t, types, "response.output_text.done")
+	require.Contains(t, types, "response.output_item.done")
+	require.NotNil(t, messageDelta)
+	assert.Equal(t, "internal plan", messageDelta.Delta)
+	require.NotNil(t, completed)
+	require.NotNil(t, completed.Response)
+	require.Len(t, completed.Response.Output, 2)
+	assert.Equal(t, "reasoning", completed.Response.Output[0].Type)
+	assert.Equal(t, "message", completed.Response.Output[1].Type)
+	assert.Equal(t, "internal plan", completed.Response.Output[1].Content[0].Text)
+}
+
 // ---------------------------------------------------------------------------
 // Streaming: ResponsesEventToChatChunks tests
 // ---------------------------------------------------------------------------
