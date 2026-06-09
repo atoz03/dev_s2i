@@ -52,7 +52,9 @@ func TestHandleOpenAIUpstreamTransportError_ReturnsFailoverAndBlocksPersistentEr
 
 	msg, ok := c.Get(OpsUpstreamErrorMessageKey)
 	require.True(t, ok)
-	require.Contains(t, msg.(string), "connection refused")
+	msgText, ok := msg.(string)
+	require.True(t, ok)
+	require.Contains(t, msgText, "connection refused")
 	require.Empty(t, rec.Body.String())
 }
 
