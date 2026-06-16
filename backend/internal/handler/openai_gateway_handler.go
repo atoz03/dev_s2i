@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -78,31 +77,6 @@ func newOpenAIModelMappedBodyCache(body []byte, replace openAIModelBodyReplaceFu
 		replacedBody := openAIModelMappedBody(body, true, mappedModel, replace)
 		replacedBodies[mappedModel] = replacedBody
 		return replacedBody
-	}
-}
-
-func usageRecordContext(parent context.Context, base context.Context) context.Context {
-	if base == nil {
-		base = context.Background()
-	}
-	if parent == nil {
-		return base
-	}
-	if clientRequestID, _ := parent.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
-		base = context.WithValue(base, ctxkey.ClientRequestID, strings.TrimSpace(clientRequestID))
-	}
-	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
-		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
-	}
-	return base
-}
-
-func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecordTask) service.UsageRecordTask {
-	if task == nil {
-		return nil
-	}
-	return func(ctx context.Context) {
-		task(usageRecordContext(parent, ctx))
 	}
 }
 

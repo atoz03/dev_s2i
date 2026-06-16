@@ -1754,8 +1754,7 @@ func TestForwardAsAnthropic_MissingTerminalAfterOutputRecordsOpsWithoutFailover(
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.1")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing terminal event")
-	var failoverErr *UpstreamFailoverError
-	failoverErr = nil
+	var failoverErr *UpstreamFailoverError = nil
 	require.False(t, errors.As(err, &failoverErr), "partial output must not be replayed through failover")
 	require.NotNil(t, result)
 	require.False(t, result.ClientDisconnect)

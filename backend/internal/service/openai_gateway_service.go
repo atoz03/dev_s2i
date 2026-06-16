@@ -50,8 +50,6 @@ const (
 	// OpenAI WS Mode 失败后的重连次数上限（不含首次尝试）。
 	// 与 Codex 客户端保持一致：失败后最多重连 5 次。
 	openAIWSReconnectRetryLimit = 5
-	// 上游错误体读取上限，避免一次错误把大响应体完整拉进日志和内存。
-	openAIUpstreamErrorBodyReadLimit int64 = 512 << 10
 	// OpenAI WS Mode 重连退避默认值（可由配置覆盖）。
 	openAIWSRetryBackoffInitialDefault = 120 * time.Millisecond
 	openAIWSRetryBackoffMaxDefault     = 2 * time.Second
@@ -2199,40 +2197,6 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
 }
 
-func marshalOpenAIUpstreamJSON(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	out := buf.Bytes()
-	if len(out) > 0 && out[len(out)-1] == '\n' {
-		out = out[:len(out)-1]
-	}
-	return out, nil
-}
-
-func openAIUpstreamErrorBodyReadLimitForConfig(cfg *config.Config) int64 {
-	limit := openAIUpstreamErrorBodyReadLimit
-	if cfg != nil && cfg.Gateway.LogUpstreamErrorBody && cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {
-		limit = int64(cfg.Gateway.LogUpstreamErrorBodyMaxBytes)
-	}
-	return limit
-}
-
-func (s *OpenAIGatewayService) readUpstreamErrorBody(resp *http.Response) []byte {
-	if resp == nil || resp.Body == nil {
-		return nil
-	}
-	cfg := (*config.Config)(nil)
-	if s != nil {
-		cfg = s.cfg
-	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, openAIUpstreamErrorBodyReadLimitForConfig(cfg)))
-	return body
-}
-
 func (s *OpenAIGatewayService) handleFailoverSideEffects(ctx context.Context, resp *http.Response, account *Account, responseBody []byte, requestedModel ...string) {
 	s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, responseBody)
 }
@@ -3406,116 +3370,6 @@ type openaiNonStreamingResultPassthrough struct {
 	responseID       string
 	imageCount       int
 	imageOutputSizes []string
-}
-
-func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
-	if localStarted {
-		return true
-	}
-	return c != nil && c.Writer != nil && c.Writer.Written()
-}
-
-func openAIStreamEventIsPreamble(eventType string) bool {
-	switch strings.TrimSpace(eventType) {
-	case "response.created", "response.in_progress":
-		return true
-	default:
-		return false
-	}
-}
-
-func openAIStreamDataStartsClientOutput(data, eventType string) bool {
-	trimmed := strings.TrimSpace(data)
-	if trimmed == "" {
-		return false
-	}
-	if strings.TrimSpace(eventType) == "response.failed" {
-		return false
-	}
-	return !openAIStreamEventIsPreamble(eventType)
-}
-
-func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool {
-	if isOpenAITransientProcessingError(http.StatusBadRequest, message, payload) {
-		return true
-	}
-	code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.code").String()))
-	if code == "" {
-		code = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.code").String()))
-	}
-	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
-	if errType == "" {
-		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.type").String()))
-	}
-	combined := strings.ToLower(strings.TrimSpace(message + " " + code + " " + errType))
-	if combined == "" {
-		return true
-	}
-	nonRetryableMarkers := []string{
-		"invalid_request",
-		"content_policy",
-		"policy",
-		"safety",
-		"high-risk cyber",
-		"not allowed",
-		"violat",
-	}
-	for _, marker := range nonRetryableMarkers {
-		if strings.Contains(combined, marker) {
-			return false
-		}
-	}
-	return true
-}
-
-func (s *OpenAIGatewayService) newOpenAIStreamFailoverError(
-	c *gin.Context,
-	account *Account,
-	passthrough bool,
-	upstreamRequestID string,
-	payload []byte,
-	message string,
-) *UpstreamFailoverError {
-	message = sanitizeUpstreamErrorMessage(strings.TrimSpace(message))
-	if message == "" {
-		message = "OpenAI stream disconnected before completion"
-	}
-	detail := ""
-	if len(payload) > 0 && s != nil && s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-		maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-		if maxBytes <= 0 {
-			maxBytes = 2048
-		}
-		detail = truncateString(string(payload), maxBytes)
-	}
-	if c != nil {
-		setOpsUpstreamError(c, http.StatusBadGateway, message, detail)
-		event := OpsUpstreamErrorEvent{
-			Platform:           PlatformOpenAI,
-			UpstreamStatusCode: http.StatusBadGateway,
-			UpstreamRequestID:  strings.TrimSpace(upstreamRequestID),
-			Passthrough:        passthrough,
-			Kind:               "failover",
-			Message:            message,
-			Detail:             detail,
-		}
-		if account != nil {
-			event.Platform = account.Platform
-			event.AccountID = account.ID
-			event.AccountName = account.Name
-		}
-		appendOpsUpstreamError(c, event)
-	}
-	body, _ := json.Marshal(gin.H{
-		"error": gin.H{
-			"type":    "upstream_error",
-			"message": message,
-		},
-	})
-	return &UpstreamFailoverError{
-		StatusCode:   http.StatusBadGateway,
-		ResponseBody: body,
-	}
 }
 
 func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
