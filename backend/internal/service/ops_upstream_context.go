@@ -34,9 +34,13 @@ const (
 
 	// Client-side configuration denials should remain visible in ops_error_logs,
 	// but should be excluded from SLA/error-rate calculations.
-	OpsClientBusinessLimitedKey                 = "ops_client_business_limited"
-	OpsClientBusinessLimitedReasonKey           = "ops_client_business_limited_reason"
-	OpsClientBusinessLimitedReasonIPRestriction = "api_key_ip_restriction"
+	// ResponseCommittedKey 表示该请求已经写出最终 HTTP 错误响应。
+	// 兜底错误写入逻辑在检测到该标记时应直接返回，避免重复写响应。
+	ResponseCommittedKey                                 = "response_committed"
+	OpsClientBusinessLimitedKey                          = "ops_client_business_limited"
+	OpsClientBusinessLimitedReasonKey                    = "ops_client_business_limited_reason"
+	OpsClientBusinessLimitedReasonIPRestriction          = "api_key_ip_restriction"
+	OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable = "api_key_group_unavailable"
 )
 
 func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
@@ -61,6 +65,25 @@ func HasOpsClientBusinessLimited(c *gin.Context) bool {
 		return false
 	}
 	v, ok := c.Get(OpsClientBusinessLimitedKey)
+	if !ok {
+		return false
+	}
+	marked, _ := v.(bool)
+	return marked
+}
+
+func MarkResponseCommitted(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	c.Set(ResponseCommittedKey, true)
+}
+
+func IsResponseCommitted(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get(ResponseCommittedKey)
 	if !ok {
 		return false
 	}

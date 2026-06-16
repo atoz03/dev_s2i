@@ -598,7 +598,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesViaResponses(
 				Kind:               "failover",
 				Message:            upstreamMsg,
 			})
-			s.handleFailoverSideEffects(ctx, resp, account)
+			s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,

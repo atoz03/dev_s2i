@@ -788,6 +788,11 @@ func (a *Account) IsPoolMode() bool {
 	return false
 }
 
+// IsPoolModeRetryableStatus 返回池模式下允许同账号重试的状态码。
+func (a *Account) IsPoolModeRetryableStatus(statusCode int) bool {
+	return isPoolModeRetryableStatus(statusCode)
+}
+
 const (
 	defaultPoolModeRetryCount = 3
 	maxPoolModeRetryCount     = 10
