@@ -5553,6 +5553,47 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 	return usage
 }
 
+func (s *GatewayService) invalidNonStreamingJSONFailoverError(
+	ctx context.Context,
+	resp *http.Response,
+	account *Account,
+	body []byte,
+	parseErr error,
+	requestedModel ...string,
+) error {
+	const statusCode = http.StatusBadGateway
+
+	accountID := int64(0)
+	accountName := ""
+	retryableOnSameAccount := false
+	if account != nil {
+		accountID = account.ID
+		accountName = account.Name
+		retryableOnSameAccount = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
+	}
+
+	logger.LegacyPrintf(
+		"service.gateway",
+		"Account %d(%s): upstream returned non-JSON 2xx response, attempting failover: status=%d request_id=%s error=%v",
+		accountID,
+		accountName,
+		resp.StatusCode,
+		resp.Header.Get("x-request-id"),
+		parseErr,
+	)
+
+	if s.rateLimitService != nil && account != nil {
+		s.rateLimitService.HandleUpstreamError(ctx, account, statusCode, resp.Header, body)
+	}
+
+	return &UpstreamFailoverError{
+		StatusCode:             statusCode,
+		ResponseBody:           body,
+		ResponseHeaders:        resp.Header,
+		RetryableOnSameAccount: retryableOnSameAccount,
+	}
+}
+
 func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	ctx context.Context,
 	resp *http.Response,
@@ -5566,6 +5607,13 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		var raw json.RawMessage
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, s.invalidNonStreamingJSONFailoverError(ctx, resp, account, body, err)
+		}
 	}
 
 	usage := parseClaudeUsageFromResponseBody(body)
@@ -5597,15 +5645,25 @@ func writeAnthropicPassthroughResponseHeaders(dst http.Header, src http.Header, 
 }
 
 // ApplyBedrockCCCompat 应用 Bedrock CC 兼容转换（渠道级模型映射后调用）
-// 清理 Anthropic API 专有字段、注入 Bedrock 必需字段、修复 thinking/tool_use ID
-func (s *GatewayService) ApplyBedrockCCCompat(ctx context.Context, body []byte, model string, account *Account, groupID *int64) []byte {
-	if !s.isBedrockCCCompatEnabled(ctx, account, groupID) {
+// 清理 Anthropic API 专有字段、修复 thinking/tool_use ID，并过滤 Bedrock 不支持的 beta token。
+func (s *GatewayService) ApplyBedrockCCCompat(c *gin.Context, body []byte, model string, account *Account, groupID *int64) []byte {
+	if c == nil {
+		return body
+	}
+	if !s.isBedrockCCCompatEnabled(c.Request.Context(), account, groupID) {
 		return body
 	}
 	body = sanitizeBedrockCCFields(body)
 	body = sanitizeBedrockThinking(body, model)
 	body = sanitizeBedrockToolUseIDs(body)
 	body = sanitizeBedrockCCBetaTokens(body, model)
+	if betaHeader := strings.TrimSpace(c.GetHeader("anthropic-beta")); betaHeader != "" {
+		if filtered := ResolveBedrockBetaTokens(betaHeader, body, model); len(filtered) > 0 {
+			c.Request.Header.Set("anthropic-beta", strings.Join(filtered, ", "))
+		} else {
+			c.Request.Header.Del("anthropic-beta")
+		}
+	}
 	return body
 }
 
@@ -6897,6 +6955,7 @@ func isCountTokensUnsupported404(statusCode int, body []byte) bool {
 }
 
 func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+	MarkResponseCommitted(c)
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 
 	// 调试日志：打印上游错误响应
@@ -7068,6 +7127,7 @@ func (s *GatewayService) handleFailoverSideEffects(ctx context.Context, resp *ht
 // OAuth 403：标记账号异常
 // API Key 未配置错误码：仅返回错误，不标记账号
 func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *http.Response, c *gin.Context, account *Account) (*ForwardResult, error) {
+	MarkResponseCommitted(c)
 	// Capture upstream error body before side-effects consume the stream.
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	_ = resp.Body.Close()
@@ -7815,6 +7875,9 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		Usage ClaudeUsage `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			return nil, s.invalidNonStreamingJSONFailoverError(ctx, resp, account, body, err, mappedModel)
+		}
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 

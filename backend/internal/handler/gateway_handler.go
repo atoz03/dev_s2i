@@ -204,39 +204,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 获取订阅信息（可能为nil）- 提前获取用于后续检查
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
-	// 0. 检查wait队列是否已满
-	maxWait := service.CalculateMaxWait(subject.Concurrency)
-	canWait, err := h.concurrencyHelper.IncrementWaitCount(c.Request.Context(), subject.UserID, maxWait)
-	waitCounted := false
-	if err != nil {
-		reqLog.Warn("gateway.user_wait_counter_increment_failed", zap.Error(err))
-		// On error, allow request to proceed
-	} else if !canWait {
-		reqLog.Info("gateway.user_wait_queue_full", zap.Int("max_wait", maxWait))
-		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", "Too many pending requests, please retry later")
-		return
-	}
-	if err == nil && canWait {
-		waitCounted = true
-	}
-	// Ensure we decrement if we exit before acquiring the user slot.
-	defer func() {
-		if waitCounted {
-			h.concurrencyHelper.DecrementWaitCount(c.Request.Context(), subject.UserID)
-		}
-	}()
-
 	// 1. 首先获取用户并发槽位
 	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
 	if err != nil {
 		reqLog.Warn("gateway.user_slot_acquire_failed", zap.Error(err))
 		h.handleConcurrencyError(c, err, "user", streamStarted)
 		return
-	}
-	// User slot acquired: no longer waiting in the queue.
-	if waitCounted {
-		h.concurrencyHelper.DecrementWaitCount(c.Request.Context(), subject.UserID)
-		waitCounted = false
 	}
 	// 在请求结束或 Context 取消时确保释放槽位，避免客户端断开造成泄漏
 	userReleaseFunc = wrapReleaseOnDone(c.Request.Context(), userReleaseFunc)
@@ -423,12 +396,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 				}
-				wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
+				upstreamErrorAlreadyCommunicated := gatewayForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
+				wroteFallback := false
+				if !upstreamErrorAlreadyCommunicated {
+					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
+				}
 				forwardFailedFields := []zap.Field{
 					zap.Int64("account_id", account.ID),
 					zap.String("account_name", account.Name),
 					zap.String("account_platform", account.Platform),
 					zap.Bool("fallback_error_response_written", wroteFallback),
+					zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 					zap.Error(err),
 				}
 				if account.Proxy != nil {
@@ -656,8 +634,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				parsedReq.Model = channelMapping.MappedModel
 				parsedReq.Body = h.gatewayService.ReplaceModelInBody(parsedReq.Body, channelMapping.MappedModel)
 			}
-			// Bedrock CC 兼容：渠道模型映射后，清理 Anthropic API 专有字段、注入 Bedrock 必需字段
-			parsedReq.Body = h.gatewayService.ApplyBedrockCCCompat(c.Request.Context(), parsedReq.Body, parsedReq.Model, account, apiKey.GroupID)
+			// Bedrock CC 兼容：渠道模型映射后，清理 Anthropic API 专有字段、过滤 beta token
+			parsedReq.Body = h.gatewayService.ApplyBedrockCCCompat(c, parsedReq.Body, parsedReq.Model, account, apiKey.GroupID)
 			body = parsedReq.Body
 
 			// 转发请求 - 根据账号平台分流
@@ -707,12 +685,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 				}
-				wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
+				upstreamErrorAlreadyCommunicated := gatewayForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
+				wroteFallback := false
+				if !upstreamErrorAlreadyCommunicated {
+					wroteFallback = h.ensureForwardErrorResponse(c, streamStarted)
+				}
 				forwardFailedFields := []zap.Field{
 					zap.Int64("account_id", account.ID),
 					zap.String("account_name", account.Name),
 					zap.String("account_platform", account.Platform),
 					zap.Bool("fallback_error_response_written", wroteFallback),
+					zap.Bool("upstream_error_response_already_written", upstreamErrorAlreadyCommunicated),
 					zap.Error(err),
 				}
 				if account.Proxy != nil {
@@ -1174,6 +1157,11 @@ func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, su
 
 // handleConcurrencyError handles concurrency-related errors with proper 429 response
 func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+	var waitQueueFullErr *WaitQueueFullError
+	if errors.As(err, &waitQueueFullErr) {
+		h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "Too many pending requests, please retry later", streamStarted)
+		return
+	}
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error",
 		fmt.Sprintf("Concurrency limit exceeded for %s, please retry later", slotType), streamStarted)
 }
@@ -1280,11 +1268,39 @@ func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarte
 	if c == nil || c.Writer == nil {
 		return false
 	}
+	if service.IsResponseCommitted(c) {
+		return false
+	}
 	if c.Writer.Written() {
 		streamStarted = true
 	}
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", streamStarted)
 	return true
+}
+
+// gatewayForwardErrorAlreadyCommunicated reports whether a Forward implementation
+// has already written a complete error response to the client before returning
+// an error to the handler.
+//
+// This is intentionally narrower than "writer size changed": a stream may have
+// only emitted keepalive pings or partial data, in which case the handler still
+// needs to append a protocol-level terminal error. Non-SSE output from Forward
+// is different: service-level helpers such as handleErrorResponse/writeClaudeError
+// already wrote the client-visible JSON body, so adding the generic streaming
+// fallback would corrupt the response by appending a second `data: ...` frame.
+func gatewayForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForward int, err error) bool {
+	if err == nil || c == nil || c.Writer == nil {
+		return false
+	}
+	if c.Writer.Size() <= 0 || c.Writer.Size() == writerSizeBeforeForward {
+		return false
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(c.Writer.Header().Get("Content-Type")))
+	if contentType == "" {
+		return false
+	}
+	return !strings.Contains(contentType, "text/event-stream")
 }
 
 // checkClaudeCodeVersion 检查 Claude Code 客户端版本是否满足版本要求

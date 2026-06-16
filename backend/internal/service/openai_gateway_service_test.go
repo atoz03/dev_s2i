@@ -120,6 +120,30 @@ func (r stubOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx context.Co
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+type groupAwareStubOpenAIAccountRepo struct {
+	stubOpenAIAccountRepo
+}
+
+func (r groupAwareStubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if acc.Platform == platform && openAIStickyAccountMatchesGroup(&acc, &groupID) {
+			result = append(result, acc)
+		}
+	}
+	return result, nil
+}
+
+func (r groupAwareStubOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if acc.Platform == platform && openAIStickyAccountMatchesGroup(&acc, nil) {
+			result = append(result, acc)
+		}
+	}
+	return result, nil
+}
+
 type stubConcurrencyCache struct {
 	ConcurrencyCache
 	loadBatchErr    error
@@ -271,6 +295,65 @@ func TestOpenAIGatewayService_GenerateSessionHash_AttachesLegacyHashToContext(t 
 	require.NotNil(t, c.Request)
 	require.NotNil(t, c.Request.Context())
 	require.NotEmpty(t, openAILegacySessionHashFromContext(c.Request.Context()))
+}
+
+func TestExtractOpenAIResponseIDFromJSONBytes(t *testing.T) {
+	require.Equal(t, "resp_json", extractOpenAIResponseIDFromJSONBytes([]byte(`{"id":"resp_json"}`)))
+	require.Equal(t, "resp_sse", extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.completed","response":{"id":"resp_sse"}}`)))
+	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`{"response":{}}`)))
+	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`not-json`)))
+}
+
+func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	groupID := int64(4201)
+	c.Set("api_key", &APIKey{ID: 501, GroupID: &groupID})
+
+	svc := &OpenAIGatewayService{}
+	account := &Account{ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	svc.bindHTTPResponseAccount(context.Background(), c, account, "resp_http_001")
+
+	got, err := svc.getOpenAIWSStateStore().GetResponseAccount(context.Background(), groupID, "resp_http_001")
+	require.NoError(t, err)
+	require.Equal(t, account.ID, got)
+}
+
+func TestOpenAIGatewayService_GenerateExplicitSessionHash_SkipsContentFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{}
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat"}`)
+
+	t.Run("stateless image body stays unstuck", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+
+		require.Empty(t, svc.GenerateExplicitSessionHash(c, body))
+		require.Empty(t, openAILegacySessionHashFromContext(c.Request.Context()))
+	})
+
+	t.Run("prompt_cache_key is explicit", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+
+		got := svc.GenerateExplicitSessionHash(c, []byte(`{"model":"gpt-image-2","prompt_cache_key":"image-session"}`))
+		require.Equal(t, fmt.Sprintf("%016x", xxhash.Sum64String("image-session")), got)
+		require.NotEmpty(t, openAILegacySessionHashFromContext(c.Request.Context()))
+	})
+
+	t.Run("header overrides body", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+		c.Request.Header.Set("session_id", "header-session")
+
+		got := svc.GenerateExplicitSessionHash(c, []byte(`{"prompt_cache_key":"body-session"}`))
+		require.Equal(t, fmt.Sprintf("%016x", xxhash.Sum64String("header-session")), got)
+	})
 }
 
 func TestOpenAIGatewayService_GenerateSessionHashWithFallback(t *testing.T) {
@@ -685,6 +768,41 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyUnschedulableClearsSess
 	}
 }
 
+func TestOpenAISelectAccountForModelWithExclusions_StickyOutsideGroupClearsSession(t *testing.T) {
+	sessionHash := "session-outside-group"
+	groupID := int64(1001)
+	repo := groupAwareStubOpenAIAccountRepo{
+		stubOpenAIAccountRepo{
+			accounts: []Account{
+				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1},
+				{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: groupID}}},
+			},
+		},
+	}
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{"openai:" + sessionHash: 1},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo: repo,
+		cache:       cache,
+	}
+
+	acc, err := svc.SelectAccountForModelWithExclusions(context.Background(), &groupID, sessionHash, "gpt-4", nil)
+	if err != nil {
+		t.Fatalf("SelectAccountForModelWithExclusions error: %v", err)
+	}
+	if acc == nil || acc.ID != 2 {
+		t.Fatalf("expected account 2, got %+v", acc)
+	}
+	if cache.deletedSessions["openai:"+sessionHash] != 1 {
+		t.Fatalf("expected sticky session to be deleted")
+	}
+	if cache.sessionBindings["openai:"+sessionHash] != 2 {
+		t.Fatalf("expected sticky session to bind to account 2")
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_StickyUnschedulableClearsSession(t *testing.T) {
 	sessionHash := "session-2"
 	groupID := int64(1)
@@ -692,6 +810,45 @@ func TestOpenAISelectAccountWithLoadAwareness_StickyUnschedulableClearsSession(t
 		accounts: []Account{
 			{ID: 1, Platform: PlatformOpenAI, Status: StatusDisabled, Schedulable: true, Concurrency: 1},
 			{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1},
+		},
+	}
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{"openai:" + sessionHash: 1},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, sessionHash, "gpt-4", nil)
+	if err != nil {
+		t.Fatalf("SelectAccountWithLoadAwareness error: %v", err)
+	}
+	if selection == nil || selection.Account == nil || selection.Account.ID != 2 {
+		t.Fatalf("expected account 2, got %+v", selection)
+	}
+	if cache.deletedSessions["openai:"+sessionHash] != 1 {
+		t.Fatalf("expected sticky session to be deleted")
+	}
+	if cache.sessionBindings["openai:"+sessionHash] != 2 {
+		t.Fatalf("expected sticky session to bind to account 2")
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAISelectAccountWithLoadAwareness_StickyOutsideGroupClearsSession(t *testing.T) {
+	sessionHash := "session-load-outside-group"
+	groupID := int64(1002)
+	repo := groupAwareStubOpenAIAccountRepo{
+		stubOpenAIAccountRepo{
+			accounts: []Account{
+				{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1},
+				{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, AccountGroups: []AccountGroup{{GroupID: groupID}}},
+			},
 		},
 	}
 	cache := &stubGatewayCache{

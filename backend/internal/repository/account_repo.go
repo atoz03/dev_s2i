@@ -647,6 +647,62 @@ func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, 
 	return r.accountsToService(ctx, accounts)
 }
 
+func (r *accountRepository) ListOAuthRefreshCandidates(ctx context.Context) ([]service.Account, error) {
+	if r.sql == nil {
+		return nil, errors.New("account repository SQL executor not configured")
+	}
+	// (cond) IS NOT TRUE 把 NULL 和 FALSE 都视为"可被刷新"。直接写
+	// NOT (a AND b) 在 PG 三值逻辑下会把 a 或 b 为 NULL 的行（即绝大多数
+	// 健康账号：temp_unschedulable_until=NULL）也排除，导致后台 token
+	// 刷新工作器漏掉所有正常账号 → access_token 到期后请求开始 401。
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT id
+		FROM accounts
+		WHERE deleted_at IS NULL
+			AND status = 'active'
+			AND type = 'oauth'
+			AND platform IN ('anthropic', 'openai', 'gemini', 'antigravity')
+			AND credentials ? 'refresh_token'
+			AND btrim(credentials->>'refresh_token') <> ''
+			AND (
+				temp_unschedulable_until > NOW()
+				AND temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'
+			) IS NOT TRUE
+		ORDER BY priority ASC, id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return []service.Account{}, nil
+	}
+
+	accounts, err := r.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			out = append(out, *account)
+		}
+	}
+	return out, nil
+}
+
 func (r *accountRepository) ListByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
 	accounts, err := r.client.Account.Query().
 		Where(
@@ -1139,7 +1195,7 @@ func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until t
 }
 
 func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
-	_, err := r.sql.ExecContext(ctx, `
+	result, err := r.sql.ExecContext(ctx, `
 		UPDATE accounts
 		SET temp_unschedulable_until = $1,
 			temp_unschedulable_reason = $2,
@@ -1150,6 +1206,13 @@ func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, 
 	`, until, reason, id)
 	if err != nil {
 		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected <= 0 {
+		return nil
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue temp unschedulable failed: account=%d err=%v", id, err)
@@ -1173,6 +1236,7 @@ func (r *accountRepository) ClearTempUnschedulable(ctx context.Context, id int64
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear temp unschedulable failed: account=%d err=%v", id, err)
 	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
 }
 
@@ -1238,6 +1302,7 @@ func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) 
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue clear model rate limit failed: account=%d err=%v", id, err)
 	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
 }
 
