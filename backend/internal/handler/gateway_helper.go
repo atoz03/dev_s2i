@@ -258,6 +258,7 @@ func (h *ConcurrencyHelper) AcquireUserSlotWithWait(c *gin.Context, userID int64
 
 func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userID int64, maxConcurrency int, timeout time.Duration, isStream bool, streamStarted *bool) (func(), error) {
 	ctx := c.Request.Context()
+	cleanupCtx := context.Background()
 
 	// Try to acquire immediately
 	releaseFunc, acquired, err := h.TryAcquireUserSlot(ctx, userID, maxConcurrency)
@@ -280,7 +281,7 @@ func (h *ConcurrencyHelper) acquireUserSlotWithWaitTimeout(c *gin.Context, userI
 	if !canWait {
 		return nil, &WaitQueueFullError{SlotType: "user"}
 	}
-	defer h.DecrementWaitCount(ctx, userID)
+	defer h.DecrementWaitCount(cleanupCtx, userID)
 
 	// Need to wait - handle streaming ping if needed
 	return h.waitForSlotWithPingTimeout(c, "user", userID, maxConcurrency, timeout, isStream, streamStarted, false)

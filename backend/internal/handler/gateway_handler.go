@@ -1292,7 +1292,7 @@ func gatewayForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForw
 	if err == nil || c == nil || c.Writer == nil {
 		return false
 	}
-	if c.Writer.Size() == writerSizeBeforeForward {
+	if c.Writer.Size() <= 0 || c.Writer.Size() == writerSizeBeforeForward {
 		return false
 	}
 

@@ -361,6 +361,25 @@ func TestAcquireUserSlotWithWait_RequestCancelDecrementsWaitQueue(t *testing.T) 
 	require.Equal(t, 0, cache.userReleaseCalls)
 }
 
+func TestAcquireUserSlotWithWait_WaitQueueFullError(t *testing.T) {
+	cache := &helperConcurrencyCacheStub{
+		userSeq:     []bool{false},
+		waitAllowed: false,
+	}
+	concurrency := service.NewConcurrencyService(cache)
+	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
+	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
+	streamStarted := false
+
+	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, false, &streamStarted)
+	require.Nil(t, release)
+	var queueErr *WaitQueueFullError
+	require.ErrorAs(t, err, &queueErr)
+	require.Equal(t, 1, cache.waitIncrementCalls)
+	require.Equal(t, 0, cache.waitDecrementCalls)
+	require.Equal(t, 0, cache.userReleaseCalls)
+}
+
 func TestWaitForSlotWithPingTimeout_TimeoutAndStreamPing(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
 		accountSeq: []bool{false, false, false},

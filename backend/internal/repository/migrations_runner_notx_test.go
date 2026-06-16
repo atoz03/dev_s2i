@@ -116,6 +116,16 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_t_b ON t(b);
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestDropInvalidIndexIfPresentRejectsUnknownIndex(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	err = dropInvalidIndexIfPresent(context.Background(), db, "idx_not_whitelisted")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "refuse to drop unrecognized migration index")
+}
+
 func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_FailsFastOnDuplicatePrecheck(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

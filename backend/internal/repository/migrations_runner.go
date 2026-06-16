@@ -56,6 +56,11 @@ const paymentOrdersOutTradeNoUniqueIndex = "paymentorder_out_trade_no_unique"
 const schedulerOutboxPendingDedupKeyMigration = "153_scheduler_outbox_pending_dedup_key_index_notx.sql"
 const schedulerOutboxPendingDedupKeyIndex = "idx_scheduler_outbox_pending_dedup_key"
 
+var droppableInvalidMigrationIndexes = map[string]struct{}{
+	paymentOrdersOutTradeNoUniqueIndex:  {},
+	schedulerOutboxPendingDedupKeyIndex: {},
+}
+
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
 	acceptedDBChecksum map[string]struct{}
@@ -285,6 +290,10 @@ func preparePaymentOrdersOutTradeNoUniqueMigration(ctx context.Context, db *sql.
 }
 
 func dropInvalidIndexIfPresent(ctx context.Context, db *sql.DB, indexName string) error {
+	if _, ok := droppableInvalidMigrationIndexes[indexName]; !ok {
+		return fmt.Errorf("refuse to drop unrecognized migration index %q", indexName)
+	}
+
 	invalid, err := indexIsInvalid(ctx, db, indexName)
 	if err != nil {
 		return fmt.Errorf("check invalid index %s: %w", indexName, err)
