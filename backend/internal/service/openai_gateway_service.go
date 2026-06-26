@@ -4899,16 +4899,6 @@ func openAIStreamFailedEventShouldFailover(payload []byte, failedMessage string)
 		strings.Contains(failedMessage, "upstream processing failed")
 }
 
-func extractOpenAIResponseIDFromJSONBytes(body []byte) string {
-	if len(body) == 0 || !gjson.ValidBytes(body) {
-		return ""
-	}
-	if id := strings.TrimSpace(gjson.GetBytes(body, "id").String()); id != "" {
-		return id
-	}
-	return strings.TrimSpace(gjson.GetBytes(body, "response.id").String())
-}
-
 func normalizeResponsesStreamingTerminalOutput(data []byte, acc *apicompat.BufferedResponseAccumulator, imageOutputs []json.RawMessage) ([]byte, bool) {
 	eventType := strings.TrimSpace(gjson.GetBytes(data, "type").String())
 	switch eventType {
