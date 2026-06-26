@@ -26,6 +26,12 @@ type openaiTransportAccountRepoStub struct {
 	tempUnschedCalls []tempUnschedCall
 }
 
+type tempUnschedCall struct {
+	accountID int64
+	until     time.Time
+	reason    string
+}
+
 func (r *openaiTransportAccountRepoStub) SetTempUnschedulable(_ context.Context, id int64, until time.Time, reason string) error {
 	r.tempUnschedCalls = append(r.tempUnschedCalls, tempUnschedCall{accountID: id, until: until, reason: reason})
 	return nil

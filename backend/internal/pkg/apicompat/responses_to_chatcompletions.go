@@ -131,6 +131,8 @@ type ResponsesEventToChatState struct {
 	Finalized              bool        // true after finish chunk has been emitted
 	NextToolCallIndex      int         // next sequential tool_call index to assign
 	OutputIndexToToolIndex map[int]int // Responses output_index → Chat tool_calls index
+	Reasoning              strings.Builder
+	ToolCalls              map[int]*ChatToolCall
 	IncludeUsage           bool
 	Usage                  *ChatUsage
 }
@@ -141,6 +143,7 @@ func NewResponsesEventToChatState() *ResponsesEventToChatState {
 		ID:                     generateChatCmplID(),
 		Created:                time.Now().Unix(),
 		OutputIndexToToolIndex: make(map[int]int),
+		ToolCalls:              make(map[int]*ChatToolCall),
 	}
 }
 
@@ -248,6 +251,14 @@ func resToChatHandleOutputItemAdded(evt *ResponsesStreamEvent, state *ResponsesE
 	idx := state.NextToolCallIndex
 	state.OutputIndexToToolIndex[evt.OutputIndex] = idx
 	state.NextToolCallIndex++
+	state.ToolCalls[idx] = &ChatToolCall{
+		Index: &idx,
+		ID:    evt.Item.CallID,
+		Type:  "function",
+		Function: ChatFunctionCall{
+			Name: evt.Item.Name,
+		},
+	}
 
 	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{
 		ToolCalls: []ChatToolCall{{
@@ -270,6 +281,9 @@ func resToChatHandleFuncArgsDelta(evt *ResponsesStreamEvent, state *ResponsesEve
 	if !ok {
 		return nil
 	}
+	if stored, ok := state.ToolCalls[idx]; ok && stored != nil {
+		stored.Function.Arguments += evt.Delta
+	}
 
 	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{
 		ToolCalls: []ChatToolCall{{
@@ -285,6 +299,7 @@ func resToChatHandleReasoningDelta(evt *ResponsesStreamEvent, state *ResponsesEv
 	if evt.Delta == "" {
 		return nil
 	}
+	_, _ = state.Reasoning.WriteString(evt.Delta)
 	reasoning := evt.Delta
 	return []ChatCompletionsChunk{makeChatDeltaChunk(state, ChatDelta{ReasoningContent: &reasoning})}
 }
@@ -325,6 +340,11 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 
 	var chunks []ChatCompletionsChunk
 	chunks = append(chunks, makeChatFinishChunk(state, finishReason))
+
+	if state.Reasoning.Len() > 0 {
+		reasoning := state.Reasoning.String()
+		chunks = append(chunks, makeChatDeltaChunk(state, ChatDelta{ReasoningContent: &reasoning}))
+	}
 
 	if state.IncludeUsage && state.Usage != nil {
 		chunks = append(chunks, ChatCompletionsChunk{

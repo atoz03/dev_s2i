@@ -21,3 +21,17 @@ exceptions:
     mitigation: "Proxy configuration not user-controlled; upgrade when axios releases fix"
     expires_on: "2026-07-10"
     owner: "security@your-domain"
+  - package: xlsx
+    advisory: "GHSA-4r6h-8v6p-xvw6"
+    severity: high
+    reason: "Frontend only uses trusted workbook parsing for internal admin exports; no untrusted file upload flow"
+    mitigation: "Will upgrade xlsx after a compatible release is available"
+    expires_on: "2026-07-10"
+    owner: "security@your-domain"
+  - package: xlsx
+    advisory: "GHSA-5pgg-2g8v-p4x9"
+    severity: high
+    reason: "Frontend only uses trusted workbook parsing for internal admin exports; no untrusted file upload flow"
+    mitigation: "Will upgrade xlsx after a compatible release is available"
+    expires_on: "2026-07-10"
+    owner: "security@your-domain"

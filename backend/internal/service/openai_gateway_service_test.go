@@ -158,6 +158,13 @@ type cancelReadCloser struct{}
 func (c cancelReadCloser) Read(p []byte) (int, error) { return 0, context.Canceled }
 func (c cancelReadCloser) Close() error               { return nil }
 
+type errReadCloser struct {
+	err error
+}
+
+func (c errReadCloser) Read(p []byte) (int, error) { return 0, c.err }
+func (c errReadCloser) Close() error               { return nil }
+
 type failingGinWriter struct {
 	gin.ResponseWriter
 	failAfter int

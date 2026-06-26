@@ -5569,7 +5569,7 @@ func (s *GatewayService) invalidNonStreamingJSONFailoverError(
 	if account != nil {
 		accountID = account.ID
 		accountName = account.Name
-		retryableOnSameAccount = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
+		retryableOnSameAccount = account.IsPoolMode() && isPoolModeRetryableStatus(statusCode)
 	}
 
 	logger.LegacyPrintf(

@@ -299,7 +299,7 @@ type ResponsesOutput struct {
 	// type=function_call
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
+	Arguments string `json:"arguments"`
 
 	// type=web_search_call
 	Action *WebSearchAction `json:"action,omitempty"`
