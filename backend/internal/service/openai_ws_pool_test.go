@@ -342,6 +342,47 @@ func TestOpenAIWSConnPool_ForceNewConnSkipsReuse(t *testing.T) {
 	require.Equal(t, 2, dialer.DialCount(), "ForceNewConn=true 时应跳过空闲连接复用并新建连接")
 }
 
+func TestOpenAIWSConnPool_AcquireDoesNotReuseDifferentBetaFeatures(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+	cfg.Gateway.OpenAIWS.MinIdlePerAccount = 0
+	cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+
+	pool := newOpenAIWSConnPool(cfg)
+	dialer := &openAIWSCountingDialer{}
+	pool.setClientDialerForTest(dialer)
+	account := &Account{ID: 126, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	plainLease, err := pool.Acquire(context.Background(), openAIWSAcquireRequest{
+		Account: account,
+		WSURL:   "wss://example.com/v1/responses",
+	})
+	require.NoError(t, err)
+	plainConnID := plainLease.ConnID()
+	plainLease.Release()
+
+	betaReq := openAIWSAcquireRequest{
+		Account: account,
+		WSURL:   "wss://example.com/v1/responses",
+		Headers: http.Header{"X-Codex-Beta-Features": {" remote_compaction_v2 ", " responses_websockets_v2 "}},
+	}
+	betaLease, err := pool.Acquire(context.Background(), betaReq)
+	require.NoError(t, err)
+	require.False(t, betaLease.Reused())
+	require.NotEqual(t, plainConnID, betaLease.ConnID())
+	betaConnID := betaLease.ConnID()
+	betaLease.Release()
+
+	betaReq.Headers = http.Header{"X-Codex-Beta-Features": {"responses_websockets_v2,remote_compaction_v2"}}
+	reusedLease, err := pool.Acquire(context.Background(), betaReq)
+	require.NoError(t, err)
+	require.True(t, reusedLease.Reused())
+	require.Equal(t, betaConnID, reusedLease.ConnID())
+	reusedLease.Release()
+
+	require.Equal(t, 2, dialer.DialCount())
+}
+
 func TestOpenAIWSConnPool_AcquireForcePreferredConnUnavailable(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 2

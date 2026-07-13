@@ -225,6 +225,7 @@ type openAIWSConn struct {
 	ws openAIWSClientConn
 
 	handshakeHeaders http.Header
+	betaFeatures     string
 
 	leaseCh   chan struct{}
 	closedCh  chan struct{}
@@ -496,6 +497,10 @@ func (c *openAIWSConn) handshakeHeader(name string) string {
 		return ""
 	}
 	return strings.TrimSpace(c.handshakeHeaders.Get(strings.TrimSpace(name)))
+}
+
+func (c *openAIWSConn) matchesBetaFeatures(betaFeatures string) bool {
+	return c != nil && c.betaFeatures == betaFeatures
 }
 
 func (c *openAIWSConn) isPrewarmed() bool {
@@ -787,6 +792,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 	}
 
 	accountID := req.Account.ID
+	betaFeatures := normalizeOpenAIWSBetaFeatures(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
 		return nil, errOpenAIWSConnQueueFull
@@ -814,7 +820,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 				return nil, errOpenAIWSPreferredConnUnavailable
 			}
 			preferredConn, ok := ap.conns[preferredConnID]
-			if !ok || preferredConn == nil {
+			if !ok || preferredConn == nil || !preferredConn.matchesBetaFeatures(betaFeatures) {
 				p.recordConnPickDuration(time.Since(pickStartedAt))
 				ap.mu.Unlock()
 				closeOpenAIWSConns(evicted)
@@ -895,7 +901,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 		}
 
 		if preferredConnID != "" {
-			if conn, ok := ap.conns[preferredConnID]; ok && conn.tryAcquire() {
+			if conn, ok := ap.conns[preferredConnID]; ok && conn.matchesBetaFeatures(betaFeatures) && conn.tryAcquire() {
 				connPick := time.Since(pickStartedAt)
 				p.recordConnPickDuration(connPick)
 				ap.mu.Unlock()
@@ -917,7 +923,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 			}
 		}
 
-		best := p.pickLeastBusyConnLocked(ap, "")
+		best := p.pickLeastBusyConnLocked(ap, "", betaFeatures)
 		if best != nil && best.tryAcquire() {
 			connPick := time.Since(pickStartedAt)
 			p.recordConnPickDuration(connPick)
@@ -939,7 +945,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 			return lease, nil
 		}
 		for _, conn := range ap.conns {
-			if conn == nil || conn == best {
+			if conn == nil || conn == best || !conn.matchesBetaFeatures(betaFeatures) {
 				continue
 			}
 			if conn.tryAcquire() {
@@ -962,6 +968,15 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 				p.ensureTargetIdleAsync(accountID)
 				return lease, nil
 			}
+		}
+	}
+
+	if !req.ForceNewConn && len(ap.conns)+ap.creating >= effectiveMaxConns &&
+		p.pickLeastBusyConnLocked(ap, "", betaFeatures) == nil {
+		if idle := p.pickOldestIdleConnWithDifferentBetaFeaturesLocked(ap, betaFeatures); idle != nil {
+			delete(ap.conns, idle.id)
+			evicted = append(evicted, idle)
+			p.metrics.scaleDownTotal.Add(1)
 		}
 	}
 
@@ -1016,7 +1031,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 		return nil, errOpenAIWSConnQueueFull
 	}
 
-	target := p.pickLeastBusyConnLocked(ap, req.PreferredConnID)
+	target := p.pickLeastBusyConnLocked(ap, req.PreferredConnID, betaFeatures)
 	connPick := time.Since(pickStartedAt)
 	p.recordConnPickDuration(connPick)
 	if target == nil {
@@ -1080,6 +1095,22 @@ func (p *openAIWSConnPool) pickOldestIdleConnLocked(ap *openAIWSAccountPool) *op
 	var oldest *openAIWSConn
 	for _, conn := range ap.conns {
 		if conn == nil || conn.isLeased() || conn.waiters.Load() > 0 || p.isConnPinnedLocked(ap, conn.id) {
+			continue
+		}
+		if oldest == nil || conn.lastUsedAt().Before(oldest.lastUsedAt()) {
+			oldest = conn
+		}
+	}
+	return oldest
+}
+
+func (p *openAIWSConnPool) pickOldestIdleConnWithDifferentBetaFeaturesLocked(ap *openAIWSAccountPool, betaFeatures string) *openAIWSConn {
+	if ap == nil || len(ap.conns) == 0 {
+		return nil
+	}
+	var oldest *openAIWSConn
+	for _, conn := range ap.conns {
+		if conn == nil || conn.matchesBetaFeatures(betaFeatures) || conn.isLeased() || conn.waiters.Load() > 0 || p.isConnPinnedLocked(ap, conn.id) {
 			continue
 		}
 		if oldest == nil || conn.lastUsedAt().Before(oldest.lastUsedAt()) {
@@ -1216,13 +1247,13 @@ func (p *openAIWSConnPool) cleanupAccountLocked(ap *openAIWSAccountPool, now tim
 	return evicted
 }
 
-func (p *openAIWSConnPool) pickLeastBusyConnLocked(ap *openAIWSAccountPool, preferredConnID string) *openAIWSConn {
+func (p *openAIWSConnPool) pickLeastBusyConnLocked(ap *openAIWSAccountPool, preferredConnID, betaFeatures string) *openAIWSConn {
 	if ap == nil || len(ap.conns) == 0 {
 		return nil
 	}
 	preferredConnID = stringsTrim(preferredConnID)
 	if preferredConnID != "" {
-		if conn, ok := ap.conns[preferredConnID]; ok {
+		if conn, ok := ap.conns[preferredConnID]; ok && conn.matchesBetaFeatures(betaFeatures) {
 			return conn
 		}
 	}
@@ -1230,7 +1261,7 @@ func (p *openAIWSConnPool) pickLeastBusyConnLocked(ap *openAIWSAccountPool, pref
 	var bestWaiters int32
 	var bestLastUsed time.Time
 	for _, conn := range ap.conns {
-		if conn == nil {
+		if conn == nil || !conn.matchesBetaFeatures(betaFeatures) {
 			continue
 		}
 		waiters := conn.waiters.Load()
@@ -1501,7 +1532,9 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 		}
 	}
 	id := p.nextConnID(req.Account.ID)
-	return newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders), nil
+	pooledConn := newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders)
+	pooledConn.betaFeatures = normalizeOpenAIWSBetaFeatures(req.Headers)
+	return pooledConn, nil
 }
 
 func (p *openAIWSConnPool) nextConnID(accountID int64) string {
@@ -1677,6 +1710,31 @@ func cloneOpenAIWSAcquireRequestPtr(req *openAIWSAcquireRequest) *openAIWSAcquir
 	}
 	copied := cloneOpenAIWSAcquireRequest(*req)
 	return &copied
+}
+
+func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
+	features := make(map[string]struct{})
+	for name, values := range headers {
+		if !strings.EqualFold(strings.TrimSpace(name), "x-codex-beta-features") {
+			continue
+		}
+		for _, value := range values {
+			for _, feature := range strings.Split(value, ",") {
+				if feature = strings.TrimSpace(feature); feature != "" {
+					features[feature] = struct{}{}
+				}
+			}
+		}
+	}
+	if len(features) == 0 {
+		return ""
+	}
+	normalized := make([]string, 0, len(features))
+	for feature := range features {
+		normalized = append(normalized, feature)
+	}
+	sort.Strings(normalized)
+	return strings.Join(normalized, ",")
 }
 
 func cloneHeader(src http.Header) http.Header {

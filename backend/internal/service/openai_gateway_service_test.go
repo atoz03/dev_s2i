@@ -481,6 +481,35 @@ func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughInjectsPromptCacheK
 	require.Equal(t, expectedSessionKey, req.Header.Get("conversation_id"))
 }
 
+func TestOpenAIGatewayService_UpstreamRequestsForwardRemoteCompactionV2Header(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Add("x-codex-beta-features", "responses_websockets_v2")
+	c.Request.Header.Add("x-codex-beta-features", "remote_compaction_v2")
+
+	svc := &OpenAIGatewayService{cfg: &config.Config{
+		Security: config.SecurityConfig{
+			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
+		},
+	}}
+	account := &Account{
+		Type:        AccountTypeAPIKey,
+		Platform:    PlatformOpenAI,
+		Credentials: map[string]any{"api_key": "sk-upstream"},
+	}
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"compaction_trigger"}]}`)
+
+	legacyReq, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, body, "sk-upstream", true, "", false)
+	require.NoError(t, err)
+	require.Equal(t, []string{"responses_websockets_v2", "remote_compaction_v2"}, legacyReq.Header.Values("x-codex-beta-features"))
+
+	passthroughReq, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, body, "sk-upstream")
+	require.NoError(t, err)
+	require.Equal(t, []string{"responses_websockets_v2", "remote_compaction_v2"}, passthroughReq.Header.Values("x-codex-beta-features"))
+}
+
 func TestOpenAIGatewayService_BuildUpstreamRequestPassthroughInjectsPromptCacheKeyFromContextFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
@@ -606,6 +635,80 @@ func TestOpenAIGatewayService_BuildOpenAIWSHeadersUsesUnifiedUserAgent(t *testin
 	)
 
 	require.Equal(t, "unified-ws-ua/3.0", headers.Get("user-agent"))
+}
+
+func TestOpenAIGatewayService_BuildOpenAIWSHeadersForwardsRemoteCompactionV2(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	c.Request.Header.Add("x-codex-beta-features", "responses_websockets_v2")
+	c.Request.Header.Add("x-codex-beta-features", "remote_compaction_v2")
+
+	svc := &OpenAIGatewayService{}
+	headers, _ := svc.buildOpenAIWSHeaders(
+		c,
+		&Account{Type: AccountTypeAPIKey, Platform: PlatformOpenAI},
+		"test-token",
+		OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2},
+		true,
+		"",
+		"",
+		"",
+	)
+
+	require.Equal(t, []string{"responses_websockets_v2", "remote_compaction_v2"}, headers.Values("x-codex-beta-features"))
+}
+
+func TestOpenAIGatewayService_ForwardOAuthRemoteCompactionV2KeepsNativeResponsesWire(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(
+				"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"summary\"}}\n\n" +
+					"data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":1,\"output_tokens\":2}}}\n\n" +
+					"data: [DONE]\n\n",
+			)),
+		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          201,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-account",
+		},
+		Status:      StatusActive,
+		Schedulable: true,
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.150.0")
+	c.Request.Header.Set("x-codex-beta-features", "remote_compaction_v2")
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"instructions":"compact","input":[{"type":"message","role":"user","content":"hello"},{"type":"compaction_trigger"}]}`)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, chatgptCodexURL, upstream.lastReq.URL.String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.Equal(t, "compaction_trigger", gjson.GetBytes(upstream.lastBody, "input.#(type==\"compaction_trigger\").type").String())
+	require.Equal(t, "remote_compaction_v2", upstream.lastReq.Header.Get("x-codex-beta-features"))
+	require.Contains(t, rec.Body.String(), `"type":"response.completed"`)
 }
 
 func (c stubConcurrencyCache) GetAccountWaitingCount(ctx context.Context, accountID int64) (int, error) {
