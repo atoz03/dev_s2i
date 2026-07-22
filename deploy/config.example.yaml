@@ -130,6 +130,12 @@ security:
     # Note: __CSP_NONCE__ will be replaced with 'nonce-xxx' at request time for inline script security
     # 注意：__CSP_NONCE__ 会在请求时被替换为 'nonce-xxx'，用于内联脚本安全
     policy: "default-src 'self'; script-src 'self' __CSP_NONCE__ https://challenges.cloudflare.com https://static.cloudflareinsights.com https://*.stripe.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://static.airwallex.com https://checkout.airwallex.com https://static-demo.airwallex.com https://checkout-demo.airwallex.com; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https:; frame-src https://challenges.cloudflare.com https://*.stripe.com https://checkout.airwallex.com https://checkout-demo.airwallex.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+  # Legacy forwarded-header compatibility. Disable to use only server.trusted_proxies.
+  # 原始转发头兼容模式。关闭后仅使用 server.trusted_proxies。
+  trust_forwarded_ip_for_api_key_acl: true
+  # Optional CDN client IP headers, checked before built-in forwarded headers (max 16).
+  # 可选 CDN 客户端 IP 请求头，优先于内置转发头（最多 16 个）。
+  forwarded_client_ip_headers: []
   proxy_probe:
     # Allow skipping TLS verification for proxy probe (debug only)
     # 允许代理探测时跳过 TLS 证书验证（仅用于调试）

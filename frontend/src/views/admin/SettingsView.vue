@@ -1025,6 +1025,46 @@
           </div>
         </div>
 
+        <!-- 客户端 IP 来源设置 -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.apiKeyAcl.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.apiKeyAcl.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="font-medium text-gray-900 dark:text-white">
+                  {{ t('admin.settings.apiKeyAcl.trustForwardedIp') }}
+                </label>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.apiKeyAcl.trustForwardedIpHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.api_key_acl_trust_forwarded_ip" />
+            </div>
+            <div v-if="form.api_key_acl_trust_forwarded_ip" class="border-t border-gray-100 pt-4 dark:border-dark-700">
+              <label for="forwarded-client-ip-headers" class="font-medium text-gray-900 dark:text-white">
+                {{ t('admin.settings.apiKeyAcl.forwardedClientIpHeaders') }}
+              </label>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.apiKeyAcl.forwardedClientIpHeadersHint') }}
+              </p>
+              <textarea
+                id="forwarded-client-ip-headers"
+                v-model="forwardedClientIPHeadersInput"
+                rows="3"
+                class="input mt-3 font-mono text-sm"
+                :placeholder="t('admin.settings.apiKeyAcl.forwardedClientIpHeadersPlaceholder')"
+              />
+            </div>
+          </div>
+        </div>
+
         <!-- LinuxDo Connect OAuth 登录 -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -2688,6 +2728,7 @@ const saving = ref(false)
 const testingSmtp = ref(false)
 const sendingTestEmail = ref(false)
 const smtpPasswordManuallyEdited = ref(false)
+const forwardedClientIPHeadersInput = ref('')
 const testEmailAddress = ref('')
 const registrationEmailSuffixWhitelistTags = ref<string[]>([])
 const registrationEmailSuffixWhitelistDraft = ref('')
@@ -2856,6 +2897,7 @@ const form = reactive<SettingsForm>({
   turnstile_secret_key: '',
   turnstile_secret_key_configured: false,
   api_key_acl_trust_forwarded_ip: false,
+  forwarded_client_ip_headers: [],
   // LinuxDo Connect OAuth 登录
   linuxdo_connect_enabled: false,
   linuxdo_connect_client_id: '',
@@ -3382,6 +3424,33 @@ function parseTablePageSizeOptionsInput(raw: string): number[] | null {
   return deduped
 }
 
+function normalizeForwardedClientIPHeaders(raw: unknown): string[] | null {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'string'
+      ? raw.split(/[,;\r\n]+/)
+      : []
+  const headers: string[] = []
+  const seen = new Set<string>()
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const header = value.trim()
+    if (!header) continue
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(header)) return null
+    const canonical = header
+      .toLowerCase()
+      .split('-')
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join('-')
+    const key = canonical.toLowerCase()
+    if (!seen.has(key)) {
+      seen.add(key)
+      headers.push(canonical)
+    }
+  }
+  return headers.length <= 16 ? headers : null
+}
+
 async function loadSettings() {
   loading.value = true
   loadFailed.value = false
@@ -3406,6 +3475,8 @@ async function loadSettings() {
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       settings.registration_email_suffix_whitelist
     )
+    form.forwarded_client_ip_headers = normalizeForwardedClientIPHeaders(settings.forwarded_client_ip_headers) || []
+    forwardedClientIPHeadersInput.value = form.forwarded_client_ip_headers.join(', ')
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(settings.table_page_size_options) ? settings.table_page_size_options : [10, 20, 50, 100]
     )
@@ -3531,6 +3602,13 @@ async function saveSettings() {
       return
     }
 
+    const forwardedClientIPHeaders = normalizeForwardedClientIPHeaders(forwardedClientIPHeadersInput.value)
+    if (forwardedClientIPHeaders === null) {
+      appStore.showError(t('admin.settings.apiKeyAcl.forwardedClientIpHeadersInvalid'))
+      return
+    }
+    form.forwarded_client_ip_headers = forwardedClientIPHeaders
+
     const payload: UpdateSettingsRequest = {
       registration_enabled: form.registration_enabled,
       email_verify_enabled: form.email_verify_enabled,
@@ -3579,6 +3657,7 @@ async function saveSettings() {
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
       api_key_acl_trust_forwarded_ip: form.api_key_acl_trust_forwarded_ip,
+      forwarded_client_ip_headers: form.forwarded_client_ip_headers,
       linuxdo_connect_enabled: form.linuxdo_connect_enabled,
       linuxdo_connect_client_id: form.linuxdo_connect_client_id,
       linuxdo_connect_client_secret: form.linuxdo_connect_client_secret || undefined,
@@ -3641,6 +3720,8 @@ async function saveSettings() {
     registrationEmailSuffixWhitelistTags.value = normalizeRegistrationEmailSuffixDomains(
       updated.registration_email_suffix_whitelist
     )
+    form.forwarded_client_ip_headers = normalizeForwardedClientIPHeaders(updated.forwarded_client_ip_headers) || []
+    forwardedClientIPHeadersInput.value = form.forwarded_client_ip_headers.join(', ')
     tablePageSizeOptionsInput.value = formatTablePageSizeOptions(
       Array.isArray(updated.table_page_size_options) ? updated.table_page_size_options : [10, 20, 50, 100]
     )

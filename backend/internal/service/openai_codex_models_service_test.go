@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newCodexModelsTestAccount() *Account {
@@ -135,4 +137,20 @@ func TestFetchCodexModelsManifestMissingToken(t *testing.T) {
 	if _, err := s.FetchCodexModelsManifest(context.Background(), account, "0.137.0", ""); err == nil {
 		t.Fatal("expected error for missing access token, got nil")
 	}
+}
+
+func TestFetchCodexModelsManifestOAuth401IsRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"token_revoked"}}`))
+	}))
+	defer server.Close()
+
+	original := chatgptCodexModelsURL
+	chatgptCodexModelsURL = server.URL
+	defer func() { chatgptCodexModelsURL = original }()
+
+	_, err := (&OpenAIGatewayService{}).FetchCodexModelsManifest(context.Background(), newCodexModelsTestAccount(), "0.137.0", "")
+	require.Error(t, err)
+	require.True(t, IsRetryableCodexModelsManifestError(err))
 }

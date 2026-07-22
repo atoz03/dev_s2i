@@ -45,16 +45,20 @@ func ProvideRouter(
 
 	r := gin.New()
 	r.Use(middleware2.Recovery())
-	if len(cfg.Server.TrustedProxies) > 0 {
+	if cfg.Server.TrustedProxiesConfigured {
 		if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
 			log.Printf("Failed to set trusted proxies: %v", err)
+			_ = r.SetTrustedProxies(nil)
+		}
+		if len(cfg.Server.TrustedProxies) == 0 && cfg.Server.Mode == "release" {
+			log.Printf("Warning: server.trusted_proxies is explicitly empty; trusted proxy chain is disabled")
 		}
 	} else {
 		if err := r.SetTrustedProxies(nil); err != nil {
 			log.Printf("Failed to disable trusted proxies: %v", err)
 		}
 		if cfg.Server.Mode == "release" {
-			log.Printf("Warning: server.trusted_proxies is empty in release mode; client IP trust chain is disabled")
+			log.Printf("Warning: server.trusted_proxies is not configured; disabling forwarded IP compatibility uses direct peer addresses")
 		}
 	}
 

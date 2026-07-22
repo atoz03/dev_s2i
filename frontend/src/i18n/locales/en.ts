@@ -4776,7 +4776,11 @@ export default {
         description: 'Choose which client IP is used by API Key allowlists and denylists',
         trustForwardedIp: 'Trust forwarded client IP',
         trustForwardedIpHint:
-          'Disabled by default. Enable only when the origin is reachable only through Cloudflare or Nginx reverse proxy. When enabled, API Key IP allowlists and denylists use CF-Connecting-IP, X-Real-IP, or X-Forwarded-For, matching the request IP shown in usage records.'
+          'Enable only when the origin is reachable only through Cloudflare or a reverse proxy. When disabled, only server.trusted_proxies is used.',
+        forwardedClientIpHeaders: 'Custom client IP headers',
+        forwardedClientIpHeadersHint: 'Comma or newline separated, checked before built-in forwarded headers. At most 16.',
+        forwardedClientIpHeadersPlaceholder: 'True-Client-IP, X-CDN-Client-IP',
+        forwardedClientIpHeadersInvalid: 'Use up to 16 valid HTTP header names.'
       },
       linuxdo: {
         title: 'LinuxDo Connect Login',

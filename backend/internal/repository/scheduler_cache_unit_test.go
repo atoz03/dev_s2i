@@ -3,7 +3,9 @@
 package repository
 
 import (
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -72,4 +74,52 @@ func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
 	require.Nil(t, got.AccountGroups[0].Group)
 	require.Equal(t, int64(11), got.AccountGroups[1].GroupID)
 	require.Nil(t, got.Groups)
+}
+
+func TestBuildSchedulerMetadataAccount_KeepsQuotaState(t *testing.T) {
+	now := time.Now().UTC()
+	account := service.Account{
+		ID:       46690,
+		Platform: service.PlatformGemini,
+		Type:     service.AccountTypeAPIKey,
+		Extra: map[string]any{
+			"quota_daily_limit":      20.0,
+			"quota_daily_used":       20.0,
+			"quota_daily_start":      now.Add(-time.Hour).Format(time.RFC3339),
+			"quota_daily_reset_mode": "rolling",
+			"unrelated":              "drop me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, 20.0, got.Extra["quota_daily_limit"])
+	require.Equal(t, 20.0, got.Extra["quota_daily_used"])
+	require.Equal(t, "rolling", got.Extra["quota_daily_reset_mode"])
+	require.NotContains(t, got.Extra, "unrelated")
+	require.True(t, got.IsQuotaExceeded())
+}
+
+func TestApplySchedulerLastUsedKeepsNewestTimestamp(t *testing.T) {
+	newer := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	account := &service.Account{LastUsedAt: &newer}
+
+	require.NoError(t, applySchedulerLastUsed(account, newer.Add(-time.Minute).UnixMilli()))
+	require.Equal(t, newer, *account.LastUsedAt)
+
+	latest := newer.Add(time.Minute)
+	require.NoError(t, applySchedulerLastUsed(account, latest.UnixMilli()))
+	require.Equal(t, latest, *account.LastUsedAt)
+}
+
+func TestDecodeSchedulerLastUsedSupportsLegacyNanosecondsAndMilliseconds(t *testing.T) {
+	want := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	legacy, err := decodeSchedulerLastUsed(strconv.FormatInt(want.UnixNano(), 10))
+	require.NoError(t, err)
+	require.Equal(t, want, *legacy)
+
+	current, err := decodeSchedulerLastUsed(strconv.FormatInt(want.UnixMilli(), 10))
+	require.NoError(t, err)
+	require.Equal(t, want, *current)
 }

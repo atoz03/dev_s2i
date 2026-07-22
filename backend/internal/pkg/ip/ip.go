@@ -8,6 +8,36 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const forwardedIPSettingsKey = "sub2api.forwarded_ip_settings"
+
+type forwardedIPSettings struct {
+	trustForwarded bool
+	headers        []string
+}
+
+// SetForwardedIPSettings 将转发 IP 信任模式和自定义头快照到当前请求。
+func SetForwardedIPSettings(c *gin.Context, enabled bool, headers []string) {
+	if c == nil {
+		return
+	}
+	c.Set(forwardedIPSettingsKey, forwardedIPSettings{
+		trustForwarded: enabled,
+		headers:        append([]string(nil), headers...),
+	})
+}
+
+func requestForwardedIPSettings(c *gin.Context) (forwardedIPSettings, bool) {
+	if c == nil {
+		return forwardedIPSettings{}, false
+	}
+	value, ok := c.Get(forwardedIPSettingsKey)
+	if !ok {
+		return forwardedIPSettings{}, false
+	}
+	settings, ok := value.(forwardedIPSettings)
+	return settings, ok
+}
+
 // GetClientIP 从 Gin Context 中提取客户端真实 IP 地址。
 // 按以下优先级检查 Header：
 // 1. CF-Connecting-IP (Cloudflare)
@@ -15,14 +45,66 @@ import (
 // 3. X-Forwarded-For (取第一个非私有 IP)
 // 4. c.ClientIP() (Gin 内置方法)
 func GetClientIP(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	settings, hasSettings := requestForwardedIPSettings(c)
+	if hasSettings && !settings.trustForwarded {
+		return GetTrustedClientIP(c)
+	}
+	if customIP, customFallback := resolveCustomForwardedClientIP(c, settings.headers); customIP != "" {
+		return customIP
+	} else if legacyIP, legacyFallback := resolveLegacyForwardedHeaderIP(c); legacyIP != "" {
+		return legacyIP
+	} else if customFallback != "" {
+		return customFallback
+	} else if legacyFallback != "" {
+		return legacyFallback
+	}
+	return normalizeIP(c.ClientIP())
+}
+
+func resolveCustomForwardedClientIP(c *gin.Context, headers []string) (string, string) {
+	var fallback string
+	for _, header := range headers {
+		for _, value := range c.Request.Header.Values(header) {
+			for _, candidate := range strings.Split(value, ",") {
+				parsed := net.ParseIP(strings.TrimSpace(candidate))
+				if parsed == nil {
+					continue
+				}
+				normalized := parsed.String()
+				if isPrivateIP(normalized) {
+					if fallback == "" {
+						fallback = normalized
+					}
+					continue
+				}
+				return normalized, fallback
+			}
+		}
+	}
+	return "", fallback
+}
+
+func resolveLegacyForwardedHeaderIP(c *gin.Context) (string, string) {
+	var fallback string
 	// 1. Cloudflare
-	if ip := c.GetHeader("CF-Connecting-IP"); ip != "" {
-		return normalizeIP(ip)
+	if forwarded := normalizeIP(c.GetHeader("CF-Connecting-IP")); forwarded != "" {
+		fallback = forwarded
+		if !isPrivateIP(forwarded) {
+			return forwarded, fallback
+		}
 	}
 
 	// 2. Nginx X-Real-IP
-	if ip := c.GetHeader("X-Real-IP"); ip != "" {
-		return normalizeIP(ip)
+	if realIP := normalizeIP(c.GetHeader("X-Real-IP")); realIP != "" {
+		if fallback == "" {
+			fallback = realIP
+		}
+		if !isPrivateIP(realIP) {
+			return realIP, fallback
+		}
 	}
 
 	// 3. X-Forwarded-For (多个 IP 时取第一个公网 IP)
@@ -31,17 +113,14 @@ func GetClientIP(c *gin.Context) string {
 		for _, ip := range ips {
 			ip = strings.TrimSpace(ip)
 			if ip != "" && !isPrivateIP(ip) {
-				return normalizeIP(ip)
+				return normalizeIP(ip), fallback
 			}
 		}
-		// 如果都是私有 IP，返回第一个
-		if len(ips) > 0 {
-			return normalizeIP(strings.TrimSpace(ips[0]))
+		if fallback == "" && len(ips) > 0 {
+			fallback = normalizeIP(strings.TrimSpace(ips[0]))
 		}
 	}
-
-	// 4. Gin 内置方法
-	return normalizeIP(c.ClientIP())
+	return "", fallback
 }
 
 // GetTrustedClientIP 从 Gin 的可信代理解析链提取客户端 IP。
@@ -52,6 +131,17 @@ func GetTrustedClientIP(c *gin.Context) string {
 		return ""
 	}
 	return normalizeIP(c.ClientIP())
+}
+
+// GetSecurityClientIP 返回 API Key IP ACL 等安全路径应采用的客户端 IP。
+func GetSecurityClientIP(c *gin.Context, trustForwarded bool) string {
+	if settings, ok := requestForwardedIPSettings(c); ok {
+		trustForwarded = settings.trustForwarded
+	}
+	if trustForwarded {
+		return GetClientIP(c)
+	}
+	return GetTrustedClientIP(c)
 }
 
 // normalizeIP 规范化 IP 地址，去除端口号和空格。

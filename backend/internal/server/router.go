@@ -50,6 +50,8 @@ func SetupRouter(
 	}
 	refreshFrameOrigins() // 启动时初始化
 
+	// 每个请求固定客户端 IP 解析策略，设置更新只影响后续请求。
+	r.Use(middleware2.ForwardedIPContext(cfg))
 	// 应用中间件
 	r.Use(middleware2.RequestLogger())
 	r.Use(middleware2.Logger())

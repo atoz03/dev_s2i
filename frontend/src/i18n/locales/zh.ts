@@ -4941,7 +4941,11 @@ export default {
         description: '控制 API Key 白名单和黑名单使用哪个客户端 IP 判断',
         trustForwardedIp: '信任反代传递的客户端 IP',
         trustForwardedIpHint:
-          '默认关闭。仅在源站只允许 Cloudflare 或 Nginx 反代访问时开启；开启后 API Key IP 白/黑名单会使用 CF-Connecting-IP、X-Real-IP 或 X-Forwarded-For，与使用记录中的请求 IP 保持一致。'
+          '仅在源站只允许 Cloudflare 或反代访问时开启；关闭后只使用 server.trusted_proxies 解析链。',
+        forwardedClientIpHeaders: '自定义客户端 IP 请求头',
+        forwardedClientIpHeadersHint: '用逗号或换行分隔，优先于内置转发头解析，最多 16 个。',
+        forwardedClientIpHeadersPlaceholder: 'True-Client-IP, X-CDN-Client-IP',
+        forwardedClientIpHeadersInvalid: '最多可填写 16 个合法的 HTTP 请求头名称。'
       },
       linuxdo: {
         title: 'LinuxDo Connect 登录',

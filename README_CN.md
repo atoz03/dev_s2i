@@ -508,7 +508,8 @@ gateway:
 - `security.response_headers.enabled` 可启用可配置响应头过滤（关闭时使用默认白名单）
 - `security.csp` 配置 Content-Security-Policy
 - `billing.circuit_breaker` 计费异常时 fail-closed
-- `server.trusted_proxies` 启用可信代理解析 X-Forwarded-For
+- `security.trust_forwarded_ip_for_api_key_acl` 控制旧版原始转发头兼容；关闭后严格使用 `server.trusted_proxies`
+- `security.forwarded_client_ip_headers` 可添加最多 16 个 CDN 客户端 IP 请求头，优先于内置转发头解析
 - `turnstile.required` 在 release 模式强制启用 Turnstile
 
 **网关防御纵深建议（重点）**

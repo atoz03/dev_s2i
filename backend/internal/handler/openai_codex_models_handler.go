@@ -10,6 +10,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
+const maxCodexModelsManifestAttempts = 3
+
 // CodexModels serves the Codex models manifest for Codex clients.
 //
 // Codex CLI and the Codex desktop app refresh their model picker from
@@ -30,24 +32,41 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, "", "")
-	if err != nil {
-		h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
+	excludedAccountIDs := make(map[int64]struct{}, maxCodexModelsManifestAttempts)
+	var lastErr error
+	for attempt := 0; attempt < maxCodexModelsManifestAttempts; attempt++ {
+		account, err := h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, "", "", excludedAccountIDs)
+		if err != nil {
+			if lastErr != nil {
+				h.errorResponse(c, infraerrors.Code(lastErr), "upstream_error", infraerrors.Message(lastErr))
+				return
+			}
+			h.errorResponse(c, http.StatusServiceUnavailable, "upstream_error", "No available OpenAI accounts")
+			return
+		}
+
+		setOpsSelectedAccount(c, account.ID, account.Platform)
+		manifest, err := h.gatewayService.FetchCodexModelsManifest(c.Request.Context(), account, c.Query("client_version"), c.GetHeader("If-None-Match"))
+		if err != nil {
+			lastErr = err
+			if service.IsRetryableCodexModelsManifestError(err) {
+				excludedAccountIDs[account.ID] = struct{}{}
+				continue
+			}
+			h.errorResponse(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
+			return
+		}
+
+		if manifest.ETag != "" {
+			c.Header("ETag", manifest.ETag)
+		}
+		if manifest.NotModified {
+			c.Status(http.StatusNotModified)
+			return
+		}
+		c.Data(http.StatusOK, "application/json", manifest.Body)
 		return
 	}
 
-	manifest, err := h.gatewayService.FetchCodexModelsManifest(c.Request.Context(), account, c.Query("client_version"), c.GetHeader("If-None-Match"))
-	if err != nil {
-		h.errorResponse(c, infraerrors.Code(err), "upstream_error", infraerrors.Message(err))
-		return
-	}
-
-	if manifest.ETag != "" {
-		c.Header("ETag", manifest.ETag)
-	}
-	if manifest.NotModified {
-		c.Status(http.StatusNotModified)
-		return
-	}
-	c.Data(http.StatusOK, "application/json", manifest.Body)
+	h.errorResponse(c, infraerrors.Code(lastErr), "upstream_error", infraerrors.Message(lastErr))
 }

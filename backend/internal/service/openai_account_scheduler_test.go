@@ -19,6 +19,18 @@ type openAISnapshotCacheStub struct {
 	accountsByID     map[int64]*Account
 }
 
+func TestOpenAISelectionFilterStatsSummary(t *testing.T) {
+	stats := openAISelectionFilterStats{pool: 3}
+	stats.exclude("runtime_blocked")
+	stats.exclude("model_not_supported")
+	stats.exclude("runtime_blocked")
+
+	require.Equal(t,
+		"pool=3, filtered: model_not_supported=1 runtime_blocked=2, selection_order_exhausted",
+		stats.summary("selection_order_exhausted"),
+	)
+}
+
 type schedulerTestOpenAIAccountRepo struct {
 	AccountRepository
 	accounts []Account

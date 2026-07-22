@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,6 +25,22 @@ type CodexModelsManifest struct {
 	Body        []byte
 	ETag        string
 	NotModified bool
+}
+
+type codexModelsManifestUpstreamError struct {
+	err       error
+	retryable bool
+}
+
+func (e *codexModelsManifestUpstreamError) Error() string { return e.err.Error() }
+
+func (e *codexModelsManifestUpstreamError) Unwrap() error { return e.err }
+
+// IsRetryableCodexModelsManifestError reports whether another selected account
+// can serve the same manifest request.
+func IsRetryableCodexModelsManifestError(err error) bool {
+	var upstreamErr *codexModelsManifestUpstreamError
+	return errors.As(err, &upstreamErr) && upstreamErr.retryable
 }
 
 // FetchCodexModelsManifest fetches the live Codex models manifest from the
@@ -101,7 +118,14 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		if message == "" {
 			message = resp.Status
 		}
-		return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_UPSTREAM_FAILED", "codex models manifest upstream error %d: %s", resp.StatusCode, message)
+		retryable := resp.StatusCode == http.StatusUnauthorized && account.IsOpenAIOAuth()
+		if retryable {
+			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body)
+		}
+		return nil, &codexModelsManifestUpstreamError{
+			err:       infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_UPSTREAM_FAILED", "codex models manifest upstream error %d: %s", resp.StatusCode, message),
+			retryable: retryable || resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= http.StatusInternalServerError && resp.StatusCode < 600),
+		}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, codexModelsManifestBodyLimit))

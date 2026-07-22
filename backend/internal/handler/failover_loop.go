@@ -71,8 +71,9 @@ func (s *FailoverState) HandleFailoverError(
 ) FailoverAction {
 	s.LastFailoverErr = failoverErr
 
-	// 缓存计费判断
-	if needForceCacheBilling(s.hasBoundSession, failoverErr) {
+	// 同账号重试不算切换账号，粘性会话仅在实际切换时强制缓存计费。
+	sameAccountRetry := failoverErr.RetryableOnSameAccount && s.SameAccountRetryCount[accountID] < maxSameAccountRetries
+	if needForceCacheBilling(s.hasBoundSession, failoverErr, sameAccountRetry) {
 		s.ForceCacheBilling = true
 	}
 
@@ -147,9 +148,9 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 }
 
 // needForceCacheBilling 判断 failover 时是否需要强制缓存计费。
-// 粘性会话切换账号、或上游明确标记时，将 input_tokens 转为 cache_read 计费。
-func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFailoverError) bool {
-	return hasBoundSession || (failoverErr != nil && failoverErr.ForceCacheBilling)
+// 粘性会话实际切换账号、或上游明确标记时，将 input_tokens 转为 cache_read 计费。
+func needForceCacheBilling(hasBoundSession bool, failoverErr *service.UpstreamFailoverError, sameAccountRetry bool) bool {
+	return (hasBoundSession && !sameAccountRetry) || (failoverErr != nil && failoverErr.ForceCacheBilling)
 }
 
 // sleepWithContext 等待指定时长，返回 false 表示 context 已取消。

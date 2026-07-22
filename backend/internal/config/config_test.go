@@ -50,6 +50,24 @@ func TestNormalizeRunMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeForwardedClientIPHeaders(t *testing.T) {
+	headers, err := NormalizeForwardedClientIPHeaders([]string{" x-cdn-client-ip ", "X-CDN-CLIENT-IP", "true-client-ip"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"X-Cdn-Client-Ip", "True-Client-Ip"}, headers)
+
+	_, err = NormalizeForwardedClientIPHeaders([]string{"X Invalid"})
+	require.ErrorContains(t, err, "invalid HTTP header field name")
+}
+
+func TestConfigForwardedClientIPSettingsCopiesHeaders(t *testing.T) {
+	cfg := &Config{}
+	cfg.SetForwardedClientIPSettings(true, []string{"X-Cdn-Client-Ip"})
+	snapshot := cfg.ForwardedClientIPSettings()
+	snapshot.Headers[0] = "X-Mutated"
+	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
+	require.Equal(t, []string{"X-Cdn-Client-Ip"}, cfg.ForwardedClientIPSettings().Headers)
+}
+
 func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

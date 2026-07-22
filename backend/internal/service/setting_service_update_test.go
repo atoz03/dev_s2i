@@ -296,11 +296,14 @@ func TestSettingService_UpdateSettings_APIKeyACLTrustForwardedIPRefreshesConfig(
 
 	err := svc.UpdateSettings(context.Background(), &SystemSettings{
 		APIKeyACLTrustForwardedIP: true,
+		ForwardedClientIPHeaders:  []string{"X-CDN-Client-IP"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "true", repo.updates[SettingKeyAPIKeyACLTrustForwardedIP])
+	require.Equal(t, `["X-Cdn-Client-Ip"]`, repo.updates[SettingKeyForwardedClientIPHeaders])
 	require.True(t, cfg.Security.TrustForwardedIPForAPIKeyACL)
 	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
+	require.Equal(t, []string{"X-Cdn-Client-Ip"}, cfg.ForwardedClientIPSettings().Headers)
 }
 
 func TestSettingService_ParseSettings_APIKeyACLTrustForwardedIPFallsBackToConfigWhenMissing(t *testing.T) {
@@ -311,6 +314,11 @@ func TestSettingService_ParseSettings_APIKeyACLTrustForwardedIPFallsBackToConfig
 	got := svc.parseSettings(map[string]string{})
 
 	require.True(t, got.APIKeyACLTrustForwardedIP)
+}
+
+func TestParseForwardedClientIPHeadersRejectsNull(t *testing.T) {
+	_, err := parseForwardedClientIPHeaders("null")
+	require.ErrorContains(t, err, "must be a JSON array")
 }
 
 func TestSettingService_GetAntigravityUserAgentVersion_Precedence(t *testing.T) {

@@ -1278,15 +1278,20 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
-// while preserving the compact-specific error when applicable.
-func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool) error {
+// while preserving the compact-specific error when applicable. details is only
+// used by server-side diagnostics; handlers still return a generic client error.
+func noAvailableOpenAISelectionError(requestedModel string, compactBlocked bool, details ...string) error {
 	if compactBlocked {
 		return ErrNoAvailableCompactAccounts
 	}
+	message := "no available OpenAI accounts"
 	if requestedModel != "" {
-		return fmt.Errorf("no available OpenAI accounts supporting model: %s", requestedModel)
+		message = fmt.Sprintf("no available OpenAI accounts supporting model: %s", requestedModel)
 	}
-	return errors.New("no available OpenAI accounts")
+	if len(details) > 0 && details[0] != "" {
+		message += " (" + details[0] + ")"
+	}
+	return errors.New(message)
 }
 
 // openAICompactSupportTier classifies an OpenAI account by compact capability.
