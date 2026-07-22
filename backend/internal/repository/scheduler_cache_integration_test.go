@@ -150,7 +150,7 @@ func TestSchedulerCacheUpdateLastUsedUsesSideKeyAndKeepsAccountJSON(t *testing.T
 
 	lastUsedRaw, err := rdb.Get(ctx, schedulerLastUsedKey(id)).Result()
 	require.NoError(t, err)
-	require.Equal(t, strconv.FormatInt(latestUsedAt.UTC().UnixNano(), 10), lastUsedRaw)
+	require.Equal(t, strconv.FormatInt(latestUsedAt.UTC().UnixMilli(), 10), lastUsedRaw)
 
 	cached, err := cache.GetAccount(ctx, account.ID)
 	require.NoError(t, err)
