@@ -387,17 +387,6 @@ func schedulerLastUsedKey(id string) string {
 	return schedulerAccountLastUsedKey + id
 }
 
-func (c *schedulerCache) applySchedulerLastUsedFromKey(ctx context.Context, account *service.Account, key string) error {
-	val, err := c.rdb.Get(ctx, key).Result()
-	switch {
-	case err == redis.Nil:
-		return nil
-	case err != nil:
-		return err
-	}
-	return applySchedulerLastUsed(account, val)
-}
-
 func applySchedulerLastUsed(account *service.Account, val any) error {
 	if account == nil || val == nil {
 		return nil
