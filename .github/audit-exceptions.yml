@@ -26,12 +26,12 @@ exceptions:
     severity: high
     reason: "Frontend only uses trusted workbook parsing for internal admin exports; no untrusted file upload flow"
     mitigation: "Will upgrade xlsx after a compatible release is available"
-    expires_on: "2026-07-10"
+    expires_on: "2026-10-06"
     owner: "security@your-domain"
   - package: xlsx
     advisory: "GHSA-5pgg-2g8v-p4x9"
     severity: high
     reason: "Frontend only uses trusted workbook parsing for internal admin exports; no untrusted file upload flow"
     mitigation: "Will upgrade xlsx after a compatible release is available"
-    expires_on: "2026-07-10"
+    expires_on: "2026-10-06"
     owner: "security@your-domain"
