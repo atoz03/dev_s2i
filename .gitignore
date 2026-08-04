@@ -116,6 +116,8 @@ backend/.installed
 # 其他
 # ===================
 tests
+!deploy/tests/
+!deploy/tests/docker-runtime-resources-test.sh
 CLAUDE.md
 .claude
 scripts

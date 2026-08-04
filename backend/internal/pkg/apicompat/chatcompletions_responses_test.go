@@ -654,11 +654,13 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 			},
 		},
 		Usage: &ResponsesUsage{
-			InputTokens:  100,
-			OutputTokens: 10,
-			TotalTokens:  110,
+			InputTokens:              100,
+			OutputTokens:             10,
+			TotalTokens:              110,
+			CacheCreationInputTokens: 20,
 			InputTokensDetails: &ResponsesInputTokensDetails{
-				CachedTokens: 80,
+				CachedTokens:     80,
+				CacheWriteTokens: 20,
 			},
 		},
 	}
@@ -667,6 +669,23 @@ func TestResponsesToChatCompletions_CachedTokens(t *testing.T) {
 	require.NotNil(t, chat.Usage)
 	require.NotNil(t, chat.Usage.PromptTokensDetails)
 	assert.Equal(t, 80, chat.Usage.PromptTokensDetails.CachedTokens)
+	assert.Equal(t, 20, chat.Usage.PromptTokensDetails.CacheWriteTokens)
+}
+
+func TestChatUsageToResponsesUsagePreservesCacheCreation(t *testing.T) {
+	responses := ChatUsageToResponsesUsage(&ChatUsage{
+		PromptTokens:     100,
+		CompletionTokens: 10,
+		PromptTokensDetails: &ChatTokenDetails{
+			CachedTokens:     80,
+			CacheWriteTokens: 20,
+		},
+	})
+
+	require.NotNil(t, responses)
+	assert.Equal(t, 20, responses.CacheCreationInputTokens)
+	require.NotNil(t, responses.InputTokensDetails)
+	assert.Equal(t, 20, responses.InputTokensDetails.CacheWriteTokens)
 }
 
 func TestResponsesToChatCompletions_WebSearch(t *testing.T) {
