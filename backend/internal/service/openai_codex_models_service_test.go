@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -239,9 +240,24 @@ func TestFetchCodexModelsManifestAPIKeyConvertsStandardModelList(t *testing.T) {
 	require.Equal(t, "https://upstream.example/v1/models?client_version=0.145.0", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-upstream", upstream.lastReq.Header.Get("Authorization"))
 	require.Empty(t, upstream.lastReq.Header.Get("chatgpt-account-id"))
-	require.JSONEq(t, `{"models":[{"slug":"gpt-5.6-sol"},{"slug":"gpt-5.6-codex"}]}`, string(manifest.Body))
+	require.JSONEq(t, `{"models":[{"slug":"gpt-5.6-sol","display_name":"gpt-5.6-sol"},{"slug":"gpt-5.6-codex","display_name":"gpt-5.6-codex"}]}`, string(manifest.Body))
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
 	require.Equal(t, `W/"upstream-list"`, manifest.upstreamETag)
+}
+
+func TestConvertOpenAIModelListProducesCodexRequiredFields(t *testing.T) {
+	converted := convertOpenAIModelListToCodexManifest([]byte(`{"object":"list","data":[{"id":"gpt-5.6-sol"}]}`))
+
+	var manifest struct {
+		Models []struct {
+			Slug        string `json:"slug"`
+			DisplayName string `json:"display_name"`
+		} `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(converted, &manifest))
+	require.Len(t, manifest.Models, 1)
+	require.Equal(t, "gpt-5.6-sol", manifest.Models[0].Slug)
+	require.Equal(t, "gpt-5.6-sol", manifest.Models[0].DisplayName)
 }
 
 func TestFetchCodexModelsManifestAPIKeyUsesFreshCacheAndClientETag(t *testing.T) {

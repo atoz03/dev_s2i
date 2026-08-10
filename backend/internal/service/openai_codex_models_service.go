@@ -391,12 +391,13 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 		return body
 	}
 	type codexModelEntry struct {
-		Slug string `json:"slug"`
+		Slug        string `json:"slug"`
+		DisplayName string `json:"display_name"`
 	}
 	models := make([]codexModelEntry, 0, len(entries))
 	for _, entry := range entries {
 		if id := strings.TrimSpace(entry.ID); id != "" {
-			models = append(models, codexModelEntry{Slug: id})
+			models = append(models, codexModelEntry{Slug: id, DisplayName: id})
 		}
 	}
 	if len(models) == 0 {
