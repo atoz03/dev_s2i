@@ -252,6 +252,8 @@ gateway:
     # ingress 默认模式：off|ctx_pool|passthrough（仅 mode_router_v2_enabled=true 生效）
     # 兼容旧值：shared/dedicated 会按 ctx_pool 处理。
     ingress_mode_default: ctx_pool
+    # 每个 API Key 的客户端 WS ingress 连接上限；0 表示关闭分布式 lease 限制。
+    max_ingress_connections_per_api_key: 64
     # 全局总开关，默认 true；关闭时所有请求保持原有 HTTP/SSE 路由
     enabled: true
     # 按账号类型细分开关
@@ -362,6 +364,12 @@ gateway:
   image_stream_keepalive_interval: 10
   # Image generation independent concurrency limiter (process-local, default disabled)
   # 图片生成独立并发限制（进程级，默认关闭；多实例总上限约为实例数×该值）
+  # OpenAI Responses SSE 代理断流熔断；按 proxy_id 跨账号隔离。
+  openai_proxy_stream_circuit:
+    disabled: false
+    failure_threshold: 2
+    window_seconds: 60
+    ttl_seconds: 600
   image_concurrency:
     # Enable image-only concurrency protection; false keeps existing behavior unchanged
     # 是否启用图片独立并发保护；false 保持现有行为不变

@@ -4,6 +4,27 @@
 
 本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
 
+## 2026-08-09 `v1.4.5` OpenAI 流终止恢复定向回灌
+
+### 本次取舍
+
+- 按依赖顺序定向回灌 upstream `47ad29db3`、`da49ce3f2`、`30d2589ef`：
+  - HTTP SSE 流异常断开后隔离对应代理，减少连续选择同一故障路径。
+  - 代理隔离执行 burst collapse 与无容量时 fail-open，避免单次 HTTP/2 连接事故被重复计数或把全部容量隔离成 502。
+  - WS ingress lease 丢失时，downstream terminal event 写入使用独立的客户端生命周期 context，避免 lease cancellation 抢先截断终止事件。
+- `30d2589ef` 依赖本地原先不存在的 ingress lease 生命周期；同步移植 `c8cfc9363` 所需的最小 Redis lease、刷新、释放与每 API Key 连接上限，不引入其余无关重构。
+- 保留本地 image 生图链路和既有 Codex manifest 实现；遇到冲突仅吸收上述流恢复语义，不引入无关身份、路由或 UI 改造。
+
+### 原因与影响
+
+- `v1.4.4` 只修复了 Codex 0.147.0 模型清单缺少 `display_name` 的确定性错误，不包含这三条流恢复提交。
+- HTTP SSE 代理隔离会改变故障代理的短期调度行为；fail-open 保证没有健康候选时仍尝试被隔离代理，而不是直接拒绝请求。
+- lease loss 修复只作用于 WebSocket ingress；当前 HTTP SSE 客户端不直接走此路径，但合入可补齐上游已验证的 terminal event 保护。
+
+### 回退方式
+
+- 按反向顺序正常 `git revert` lease-loss、fail-open、proxy-quarantine 三个回灌提交；不改写已经发布的 tag。
+
 ## 2026-08-09 `v1.4.4` Codex 模型清单兼容热修
 
 ### 本次取舍
