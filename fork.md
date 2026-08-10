@@ -4,6 +4,40 @@
 
 本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
 
+## 2026-08-10 `v1.4.6` API Key 入参校验、apicompat 与日志退避定向回灌
+
+### 本次取舍
+
+- 定向回灌 upstream 三条边界明确、彼此独立的修复：
+  - `f5c108c83`：API Key 的 quota / rate limit 拒绝 NaN、Inf 与负数，`expires_in_days` 必须大于零。纯新增校验，本地 `CreateAPIKeyRequest`/`UpdateAPIKeyRequest` 字段与 upstream 完全一致。
+  - `64090de66`：Responses→Anthropic 转换显式跳过 `reasoning` item，未知 role/type 改走 `convertResponsesUserToAnthropicContent` 白名单，并丢弃转换后为空内容或纯空白 text 的消息（Fixes upstream #5329）。
+  - `e687ca3e9`：系统日志落库连续失败后按 2s→60s 指数退避暂停写入，避免日志这类尽力而为的观测数据长期占用数据库连接池。
+- 合并冲突只做减法，不引入无关能力：
+  - `api_key_service.go` 仅补 `math` import，不引入本地未使用的 `sort`。
+  - `ops_system_log_sink.go` 只吸收退避常量、`flushBackoffFor` 与 run 循环接线，丢弃 upstream 同文件的 `host` 字段与 `normalizeSystemLogHost`（本地 sink 无 host 概念）。
+- 本轮**不**回灌 `358e4a89a`（个人订阅到期时间被 POID workspace entitlement 覆盖）。该修复依赖本地缺失的前置链：`eba204632`（个人订阅端点 `fetchChatGPTSubscriptionExpiresAt` + wire DI 改为 `ProvideOpenAIOAuthService`）与 `d0b8760eb`（`shouldApplyChatGPTAccountInfoPlanType` 保护 plan_type），且与本地已有的 `selectChatGPTAccountInfo` 重构存在冲突，需手工调和。留待 v1.4.7 单独移植与验证。
+- 继续保留本地 image 生图链路与单体 OpenAI 网关结构；upstream 的 Grok 产品线、channel-monitor-v2、response-model 计费系列本轮均不吸收。
+
+### 原因与影响
+
+- 三项均为低耦合修复，不改变模型路由、定价配置、调度策略与 image 产品行为。
+- `64090de66` 价值最高：带 content 数组的 reasoning item 会被原样透传给 Anthropic 换回 400，且该 item 常驻会话历史，导致此后每一轮持续失败。
+- `e687ca3e9` 改变了日志落库的失败行为——连续失败时会主动暂停写入而非立即重试，健康路径不受影响（已有 `TestOpsSystemLogSinkHealthyPathNeverSuppressed` 覆盖）。
+- upstream 已 revert 的风控 fail-closed（`e01c917a9` → `af6928a26`）两侧都不吸收；nanoid 本地 `3.3.18` 已高于 upstream 的 `3.3.17`，无需跟随。
+
+### 验证
+
+- `gofmt -l`（本次改动文件全部干净）、`golangci-lint run ./...` 0 issues。
+- `make -C backend test-unit`、`make -C backend test-integration` 全绿。
+- `make test-frontend`（vue-tsc typecheck + vitest 78 tests）全绿。
+- `/bin/sh deploy/tests/docker-runtime-resources-test.sh` 通过。
+- 新增用例：API Key 校验 4 条、apicompat invalid blocks 9 条、日志退避 6 条，均已确认实际执行（注意本仓库单测带 `//go:build unit`，须用 `-tags=unit` 运行）。
+
+### 回退方式
+
+- 三条修复互相独立，可按需单独 `git revert` 对应提交，不改写已发布的 tag。
+- 若日志退避在极端场景下不合适，单独回退 `ops_system_log_sink.go` 与其测试即可，不影响另外两项。
+
 ## 2026-08-09 `v1.4.5` OpenAI 流终止恢复定向回灌
 
 ### 本次取舍
