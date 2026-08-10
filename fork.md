@@ -4,7 +4,33 @@
 
 本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
 
+## 2026-08-09 `v1.4.3` Codex 模型清单与高价值修复定向回灌
 
+### 本次取舍
+
+- 不整包合并 `upstream/main`，仅按本地结构移植 Codex API Key 模型清单修复：
+  - OpenAI OAuth 账号继续透传 ChatGPT Codex manifest。
+  - 自定义 API Key 账号改为请求账号自身的 `/v1/models`，不再错误要求 OAuth。
+  - 普通 OpenAI `data[].id` 模型列表转换为 Codex `models[].slug` envelope。
+  - API Key 清单增加短缓存、ETag、并发刷新合并、过期清单后台刷新和失败换号。
+  - `gpt-5.6-sol/terra/luna` 在自定义 API Key 清单中关闭 `use_responses_lite`，保留完整 Responses 工具能力。
+- 同步 OAuth pending exchange 账号接管修复，仅允许已完成身份所有权证明的终态登录或当前登录用户主动绑定执行 adoption。
+- 同步计费金额 `NUMERIC(20,8)` 统一量化，避免余额扣减与 API Key 累计用量在 half 边界产生 1e-8 对账偏差。
+- 同步上游 TCP/TLS 和 SOCKS5 建连超时，避免不可达上游或代理把串行故障转移拖到内核重传超时。
+- 同步 `nanoid` 安全升级至 `3.3.18`，关闭 `GHSA-2v37-7h3g-55p8` 高危审计项，不新增长期豁免。
+- 继续保留本地 image 生图链路，本次不吸收 upstream 的 Agent Identity、Codex 身份体系、URL 路径护栏和大范围 WS/路由重构。
+
+### 原因与影响
+
+- 直接触发原因是 Codex 自动请求 `/v1/models?client_version=...` 时，本地实现把自定义 API Key 上游误判成 OAuth-only manifest，导致请求在本地返回 502。
+- 本次让模型发现服从已配置的自定义上游，不要求修改第三方 `input` 上游；只要其支持标准 `GET /v1/models` 即可。
+- 安全、计费和建连修复均为边界明确的高价值变更，不改变既有模型路由、定价配置和 image 产品行为。
+
+### 回退方式
+
+- 若 API Key 模型清单出现兼容问题，优先回退 `openai_codex_models_service.go`、对应测试以及 `OpenAIGatewayService` 中的 manifest cache 字段，OAuth 原路径可独立恢复。
+- 若建连超时对极慢网络不合适，可单独回退 `proxyutil` 和 `http_upstream` 的 dial/TLS timeout，不影响业务层逻辑。
+- 若整版需要撤回，使用正常 `git revert` 回退 `v1.4.3` 对应提交，不改写已经发布的 tag 历史。
 
 ### 工作方式
 

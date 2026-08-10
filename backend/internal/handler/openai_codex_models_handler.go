@@ -22,6 +22,9 @@ const maxCodexModelsManifestAttempts = 3
 // see the account's real, always-current model entitlements instead of a
 // frozen local cache.
 func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
+	if c.Request.Context().Err() != nil {
+		return
+	}
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
@@ -37,6 +40,9 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	for attempt := 0; attempt < maxCodexModelsManifestAttempts; attempt++ {
 		account, err := h.gatewayService.SelectAccountForModelWithExclusions(c.Request.Context(), apiKey.GroupID, "", "", excludedAccountIDs)
 		if err != nil {
+			if c.Request.Context().Err() != nil {
+				return
+			}
 			if lastErr != nil {
 				h.errorResponse(c, infraerrors.Code(lastErr), "upstream_error", infraerrors.Message(lastErr))
 				return
@@ -48,6 +54,9 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 		manifest, err := h.gatewayService.FetchCodexModelsManifest(c.Request.Context(), account, c.Query("client_version"), c.GetHeader("If-None-Match"))
 		if err != nil {
+			if c.Request.Context().Err() != nil {
+				return
+			}
 			lastErr = err
 			if service.IsRetryableCodexModelsManifestError(err) {
 				excludedAccountIDs[account.ID] = struct{}{}
