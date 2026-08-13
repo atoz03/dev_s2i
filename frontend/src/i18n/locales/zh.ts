@@ -2900,6 +2900,12 @@ export default {
         responsesStatusForcedChatCompletions: '已强制 Chat Completions',
         codexCLIOnly: '仅允许 Codex 官方客户端',
         codexCLIOnlyDesc: '仅对 OpenAI OAuth 生效。开启后仅允许 Codex 官方客户端家族访问；关闭后完全绕过并保持原逻辑。',
+        codexFingerprintMode: 'Codex 指纹收敛',
+        codexFingerprintModeDesc: '多人共享同一 OAuth 账号时，将设备和会话标识收敛为账号级恒定值；关闭时原样透传客户端标识。',
+        codexFingerprintOff: '关闭（透传）',
+        codexFingerprintDevice: '仅设备',
+        codexFingerprintSession: '设备 + 会话（推荐）',
+        codexFingerprintFull: '完全收敛',
         codexImageGenerationBridge: 'Codex 图片生成桥接',
         codexImageGenerationBridgeDesc:
           '账号级策略优先于渠道和全局配置。仅控制 Codex 走 /responses 文本端点时是否注入 image_generation 工具；不影响独立图片生成接口。',

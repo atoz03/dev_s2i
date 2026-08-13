@@ -4,6 +4,36 @@
 
 本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
 
+## 2026-08-13 Codex OAuth thread 共享指纹收敛定向回灌
+
+### 本次取舍
+
+- 定向回灌 upstream PR #5553 的 `c0ab3a00e` 与测试修正 `04f8cdb19`，用于多人共享同一 OpenAI OAuth 账号时收敛 Codex 设备、会话与 thread 指纹。
+- 保留 upstream 四档账号级策略：
+  - `off`：原样透传客户端标识。
+  - `device`：只收敛 `installation_id`。
+  - `session`（默认）：收敛设备和会话，按客户端原始 session 确定性派生 thread。
+  - `full`：设备、会话和 thread 全部收敛为账号级稳定值。
+- 本地后端仍使用单体 `openai_gateway_service.go`，因此不恢复已拆除的 `openai_gateway_forward.go`；将请求体与 HTTP/WSv2 上游头接线迁移到现有入口。前端翻译继续维护在本地 `en.ts` / `zh.ts`，不恢复 upstream 的分片 i18n 文件。
+- 继续保留本地 image 生图、Codex 模型归一化、session isolation 与 WS 路由实现；本轮只在这些逻辑完成后应用账号级指纹收敛，不吸收 PR 之外的上游重构。
+
+### 原因与影响
+
+- 共享 OAuth 账号原先会把各客户端不同的 `installation_id`、`session_id`、`thread_id` 暴露给上游；默认 `session` 模式改为账号级单设备、单会话，同时仍让不同客户端 session 对应不同 thread。
+- 这是有意的产品行为变化：未显式配置的 OpenAI OAuth 账号也默认启用 `session` 收敛；需要完整保留旧行为时可在新建、编辑或批量编辑中选择 `off`。
+- 配置只写账号 `extra.codex_fingerprint_mode`，不需要数据库迁移；API Key、compact 请求和其他平台不受影响。
+
+### 验证
+
+- 后端 `golangci-lint run ./...`、完整 unit 与 integration 测试全绿，`make build` 成功。
+- 前端 typecheck、lint、108 个测试文件共 641 条用例以及生产构建全绿。
+- Docker 运行时资源检查通过；新增 HTTP、WSv2 与四档指纹策略测试均已执行。
+
+### 回退方式
+
+- 回退指纹 helper、网关接线、三个账号弹窗与中英文翻译即可；已有账号未新增数据库字段，回退不需要数据迁移。
+- 若只需临时停止收敛，可将相关 OAuth 账号批量设置为 `off`，无需回退代码。
+
 ## 2026-08-10 `v1.4.6` API Key 入参校验、apicompat 与日志退避定向回灌
 
 ### 本次取舍

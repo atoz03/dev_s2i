@@ -2534,6 +2534,25 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if codexResult.PromptCacheKey != "" {
 			promptCacheKey = codexResult.PromptCacheKey
 		}
+
+		// 多人共享同一 OAuth 账号时，统一设备/会话指纹。头和请求体必须复用
+		// 同一份预计算 ID，避免同一请求中的 turn_id 等字段彼此不一致。
+		if !isCompactRequest {
+			var clientHeaders http.Header
+			if c != nil && c.Request != nil {
+				clientHeaders = c.Request.Header
+			}
+			fingerprintIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
+			if fingerprintIDs != nil {
+				if applyCodexFingerprintClientMetadata(reqBody, fingerprintIDs) {
+					bodyModified = true
+					disablePatch()
+				}
+				if c != nil {
+					c.Set("codex_fingerprint_ids", fingerprintIDs)
+				}
+			}
+		}
 	}
 
 	// Handle max_output_tokens based on platform and account type
@@ -3836,6 +3855,16 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 	} else if !isMessagesCompatPath {
 		applyOpenAIResponsesSessionHeaders(req, c, upstreamSessionKey, compactPath)
+	}
+
+	// 与请求体复用 Forward 中预计算的指纹 ID；放在会话头规范化之后，确保
+	// 收敛策略是出站请求的最终设备/会话标识。
+	if account.Type == AccountTypeOAuth && c != nil {
+		if value, ok := c.Get("codex_fingerprint_ids"); ok {
+			if fingerprintIDs, ok := value.(*codexFingerprintIDs); ok {
+				applyCodexFingerprintHeaders(req.Header, fingerprintIDs)
+			}
+		}
 	}
 
 	// 优先应用统一上游 User-Agent（系统级），其次账户级 User-Agent。

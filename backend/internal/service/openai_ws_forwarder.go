@@ -1209,6 +1209,15 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	if account != nil && account.Type == AccountTypeOAuth && !openai.IsCodexCLIRequest(headers.Get("user-agent")) {
 		headers.Set("user-agent", codexCLIUserAgent)
 	}
+	// HTTP 入站选择 WSv2 上游时，复用 Forward 中预计算的指纹 ID；请求体已在
+	// 同一入口完成改写，这里补齐握手头，保证两种上游传输的收敛语义一致。
+	if account != nil && account.Type == AccountTypeOAuth && c != nil {
+		if value, ok := c.Get("codex_fingerprint_ids"); ok {
+			if fingerprintIDs, ok := value.(*codexFingerprintIDs); ok {
+				applyCodexFingerprintHeaders(headers, fingerprintIDs)
+			}
+		}
+	}
 
 	return headers, sessionResolution
 }

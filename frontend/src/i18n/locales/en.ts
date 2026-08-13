@@ -2753,6 +2753,13 @@ export default {
         codexCLIOnly: 'Codex official clients only',
         codexCLIOnlyDesc:
           'Only applies to OpenAI OAuth. When enabled, only Codex official client families are allowed; when disabled, the gateway bypasses this restriction and keeps existing behavior.',
+        codexFingerprintMode: 'Codex fingerprint convergence',
+        codexFingerprintModeDesc:
+          'When multiple users share one OAuth account, converge device and session identifiers to stable account-level values. Off passes client identifiers through unchanged.',
+        codexFingerprintOff: 'Off (passthrough)',
+        codexFingerprintDevice: 'Device only',
+        codexFingerprintSession: 'Device + Session (recommended)',
+        codexFingerprintFull: 'Full convergence',
         codexImageGenerationBridge: 'Codex image-generation bridge',
         codexImageGenerationBridgeDesc:
           'Account policy takes precedence over channel and global settings. Only controls whether Codex requests through the /responses text endpoint receive the image_generation tool; standalone image-generation endpoints are unaffected.',
