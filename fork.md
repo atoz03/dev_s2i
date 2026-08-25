@@ -4,6 +4,150 @@
 
 本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
 
+## 2026-08-25（第三轮）OAuth 透传流式收尾丢帧（本地缺陷，非回灌）
+
+用户报「OAuth 账号开启透传就出问题，不开透传正常」。这是本 fork 自己的缺陷，
+upstream 无对应提交。
+
+### 缺陷一：透传流式的收尾字节留在 bufio 缓冲里被丢弃（根因）
+
+`handleStreamingResponsePassthrough` 里整个函数只有一处 flush，且条件是
+「本行是客户端输出事件」：
+
+```go
+} else if lineStartsClientOutput {
+    clientOutputStarted = true
+    if err := flushBuffered(); err != nil { ... }
+}
+```
+
+而 SSE 事件是由 data 行**之后的空行**分帧的，`data: [DONE]` 与 `event:` 行也都不算
+客户端输出事件。于是一条正常流的收尾顺序是：
+
+1. `data: {"type":"response.completed",...}` → 是客户端输出 → 写入并 flush ✅
+2. 分帧空行 → 写入，**不 flush**
+3. `data: [DONE]` → 不是客户端输出 → 写入，**不 flush**
+4. 分帧空行 → 写入，**不 flush**
+
+函数返回时既无 `defer flush` 也无收尾 flush（原生路径的 `finalizeStream` 里有），
+2–4 随 4KB 缓冲一起丢弃。客户端拿到的最后一帧**永远缺少分帧空行**，
+符合规范的 SSE 解析器不会把该事件派发给应用层——codex-rs 因此在 EOF 时
+从未见过 `response.completed`，报 `stream closed before response.completed`。
+
+已在测试中直接复现：修复前客户端可见字节流以
+`data: {"type":"response.completed",...}\n` 结尾，无空行、无 `[DONE]`。
+
+原生路径 `shouldFlush := queueDrained && clientOutputStarted` 一旦开始输出就逐行 flush，
+所以同样的账号不开透传就正常——这正是用户观察到的 A/B。
+
+修复：透传采用同一不变式 `shouldFlush := clientOutputStarted || lineStartsClientOutput`。
+首个客户端输出**之前**仍然只写不 flush——pre-output failover 依赖「客户端尚未收到任何字节」，
+提前 flush 会让换号重试把第二份 `response.created` 追加到同一条流上（已加对照用例钉住）。
+顺带修掉长推理阶段的静默：reasoning / in_progress 等非输出事件此前也从不 flush。
+
+### 缺陷二：客户端请求 stream=false 时收到裸 SSE
+
+`normalizeOpenAIPassthroughOAuthBody` 对非 compact 请求强制 `stream=true`
+（ChatGPT `/backend-api/codex` 非 compact 端点只接受流式，该行为由既有用例钉住，保留）。
+但随后 `reqStream = gjson.GetBytes(body, "stream").Bool()` 把这个**上游取数方式**
+回写成了**客户端意图**，于是 `handleNonStreamingResponsePassthrough` 里那段
+「上游返回 SSE 时折叠回 JSON」的分支对 OAuth 非 compact 永远走不到，
+请求 JSON 的客户端直接收到 SSE 帧。
+
+修复：只在 compact 分支回写 `reqStream = false`（该端点确实非流式，字段已被删除），
+非 compact 保留调用方传入的客户端意图，响应侧由既有的 `handlePassthroughSSEToJSON` 折叠。
+
+### 回退方式
+
+- 缺陷一：把 `shouldFlush := clientOutputStarted || lineStartsClientOutput` 改回
+  `else if lineStartsClientOutput` 单条件 flush。
+- 缺陷二：把 `if compactPath { reqStream = false }` 改回
+  `reqStream = gjson.GetBytes(body, "stream").Bool()`。
+
+## 2026-08-25（第二轮）Codex 指纹默认值回退、出站身份改用 codex-tui、降载错误码改写
+
+上一轮（见下一节）发布 v1.4.8 后，用户报「清空 `model_mapping` 后仍持续
+stream closed before response.completed」。据此重新对齐 upstream 在 08-07 之后的
+Codex 产线修订，回灌以下四项。
+
+### 本次取舍
+
+- **Codex 指纹收敛默认值 `session` → `off`**（回灌 upstream `fce41e318` 的默认值部分）。
+  `GetCodexFingerprintMode()` 原本对「从未配置过该字段」的账号返回 `session`，
+  等于**升级动作本身**就静默改写了每个存量 OAuth 账号的 `installation_id` /
+  `session_id` / `thread_id`。upstream 在 v0.1.175 犯过同一个错并回滚：
+  额度回退报障 #5555 / #5556 / #5582 与该版本边界吻合，且有 A/B 证据表明回滚到
+  v0.1.173 即恢复额度。收敛是需要管理员判断的策略，不能由默认值代为决定。
+  - 三个账号弹窗（Edit / Create / BulkEdit）的持久化判定必须**跟随默认值一起翻转**为
+    `=== 'off'` / `!== 'off'`。沿用旧的 `'session'` 判定会把管理员**显式选择**的
+    session 当成默认值删掉——这是本次改动里最容易漏的一处。
+  - i18n 去掉 session 选项的「推荐」字样，并在说明里点明默认关闭及其原因。
+  - **不吸收** upstream 把收敛扩展到透传路径的部分：本 fork 的
+    `buildUpstreamRequestOpenAIPassthrough` 从来不做指纹改写，扩展它属于新增功能，
+    与「不引入非必要特性」的约定冲突。默认翻转后本 fork 是严格更保守的一侧。
+- **出站默认 originator `codex_cli_rs` → `codex-tui`**（跟随 upstream `dbb42881c`）。
+  上一轮依据 upstream `e1b76e224`（08-02）的「codex-tui 落在降载桶」快照做了相反选择。
+  该提交自己就写明「降载桶集合是上游容量策略快照而非协议常量」——**这是一条声明了会过期的前提**。
+  upstream 在 5 天后（08-07）翻转为 codex-tui，并在其后三周四次身份提交
+  （`fce41e318` / `6793d5ac8` / `bb6c3b4f6` / `d493ce0bb`，最晚 08-22）中一直保持该口径。
+  本 fork 自己的 `codexOfficialClientUAPrefixes` 注释也记着 codex-tui 是「真实流量占比最高的一支」，
+  把它改写成 codex_cli_rs 反而让网关出站偏离真实客户端大盘。
+  - 拆成两个常量：`CodexCLIOriginator`（历史默认值，仅用于官方客户端识别）与
+    `CodexDefaultOriginator`（出站默认身份）。`codexCLIUserAgent` 及所有探针路径由后者派生，
+    改一处即可整体切换。
+  - 回退方式不变：`gateway.disable_codex_originator_normalization: true` 关闭归一化，
+    退回「保留客户端真实身份 + 保证配对」。
+- **流内降载错误码对客户端改写**（回灌 upstream `c33c3208e` 的客户端改写部分）。
+  上游容量降载的真实序列是 `event: error` → `event: response.failed`，两帧都带
+  `server_is_overloaded` / `slow_down`。Codex CLI 把这组码当**致命集**处理：收到即终止会话
+  （提示 "Selected model is at capacity."），客户端内置退避重试不会触发。
+  新增 `rewriteOpenAICapacityShedErrorCodeForClient`，在**已无法再改走 failover**（流中途已有输出）
+  时把这两个码改写为致命集之外的 `server_error`，错误消息与其余字段原样保留，
+  让客户端自己退避重试。透传与原生两条流式路径对称接入。
+  监控、计费与账号状态判定一律基于**改写前**的原始事件。
+- **TLS 指纹链路补齐建连超时**（与 upstream `66ad405dd` 同类，upstream 只修了非指纹路径）。
+  `66ad405dd` 的两处（`buildUpstreamTransport` 的 `DialContext` / `TLSHandshakeTimeout`、
+  proxyutil SOCKS5 forward dialer）本 fork 已具备，但 `internal/pkg/tlsfingerprint/dialer.go`
+  仍有三处零值 `net.Dialer`：`NewDialer` 缺省分支、`HTTPProxyDialer` 的 CONNECT 建连、
+  以及 `SOCKS5ProxyDialer` 用 `proxy.Direct` 作 forward dialer。
+  其中 SOCKS5 分支还调用了忽略 ctx 的 `Dial`，调用方的取消与超时完全传不进去。
+  统一改为 10s 超时的 dialer，并新增 `dialSOCKS5Context` 优先走 `DialContext`。
+  该缺陷的客户端表现正是「长时间无首字后直接结束」，与本次报障同类。
+
+### 原因与影响
+
+- 指纹默认值翻转**只影响从未配置过该字段的账号**：显式配置 off / device / session / full 的
+  账号行为完全不变。翻转后这些账号恢复为原样透传客户端标识。
+- originator 翻转会让出站 UA/originator/version 从 `codex_cli_rs/...` 变为 `codex-tui/...`。
+  配对不变式（originator == UA 首段）与 `#3901` 版本门槛均不受影响，已有用例继续钉住。
+- 降载码改写只在**转发路径**生效；能走 failover 的降载仍然走 failover，客户端拿不到降载帧。
+
+### 本轮不吸收
+
+- `fcd3bc127`（no-account 时返回 404 `model_not_found` 而非 503）+ 其依赖项
+  `6b0ec50f2`（把模型配置错误移出 SLA 口径）。前者 689 行 / 13 文件、新增
+  `no_account_error.go` 与两套 model availability 服务，且**改变对客户端的错误契约**；
+  在与 upstream 相差 2629 个提交的路径上属于需要单独决策的改动，留给用户拍板。
+  记一笔重要事实：用户最初贴出的 404 文案
+  `Model "gpt-5.6-sol" is not supported by any configured account in this group`
+  只可能来自包含 `fcd3bc127` 的构建（`git log -S` 已验证：在 upstream/main，不在本 fork），
+  因此报障实例**未必**运行本 fork。
+- upstream `RequestScopedTransient` + `TempUnscheduleRetryableError` 守卫：本 fork 的
+  `tempUnscheduleGoogleConfigError` / `tempUnscheduleEmptyResponse` 早已是
+  `gateway_residual_compat.go` 里的空实现，`TempUnscheduleRetryableError` 整体不产生副作用，
+  「一个降载请求沿 failover 把整池账号摘掉」在本 fork 不成立。加守卫等于新增死代码，故不加。
+- upstream 的 Codex 身份体系重构（`bb6c3b4f6` 把凭据面统一到推理解析链、面板 UA 设置、
+  `resolveCodexOutboundIdentity`）：与既有决议一致，继续不吸收。
+
+### 回退方式
+
+- 指纹默认值：改回 `GetCodexFingerprintMode()` 的 `default:` 分支为 `codexFingerprintSession`，
+  并同步翻回三个弹窗的持久化判定（两处必须成对改，否则显式配置会被丢弃）。
+- originator：把 `CodexDefaultOriginator` 改回 `"codex_cli_rs"` 一处即可；
+  或运行期直接 `gateway.disable_codex_originator_normalization: true`。
+- 降载码改写：删除两条流式路径上的 `rewriteOpenAICapacityShedErrorCodeForClient` 调用。
+- 建连超时：`internal/pkg/tlsfingerprint/dialer.go` 的 `newBaseDialer()` 改回零值 `net.Dialer`。
+
 ## 2026-08-25 Go 1.26.6 安全基线与 Codex 出站身份收口定向回灌
 
 ### 本次取舍
