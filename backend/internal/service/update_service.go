@@ -42,6 +42,10 @@ type UpdateCache interface {
 // GitHubReleaseClient 获取 GitHub release 信息的接口
 type GitHubReleaseClient interface {
 	FetchLatestRelease(ctx context.Context, repo string) (*GitHubRelease, error)
+	// FetchRecentReleases 拉取最近 perPage 条 release（含草稿与预发布，由调用方过滤）。
+	// /releases/latest 是跨 tag 家族按 published_at 取的，遇到同仓库其他组件成为 latest 时
+	// 需要扫一页 release 才能继续跟随目标家族的版本。
+	FetchRecentReleases(ctx context.Context, repo string, perPage int) ([]*GitHubRelease, error)
 	DownloadFile(ctx context.Context, url, dest string, maxSize int64) error
 	FetchChecksumFile(ctx context.Context, url string) ([]byte, error)
 }
@@ -101,6 +105,10 @@ type GitHubRelease struct {
 	PublishedAt string        `json:"published_at"`
 	HTMLURL     string        `json:"html_url"`
 	Assets      []GitHubAsset `json:"assets"`
+	// Draft / Prerelease 供按稳定版过滤的调用方使用（如 Codex 客户端版本同步）。
+	// /releases/latest 本身已排除两者，列表接口则会原样返回。
+	Draft      bool `json:"draft"`
+	Prerelease bool `json:"prerelease"`
 }
 
 type GitHubAsset struct {

@@ -45,6 +45,8 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
 	schedulerSnapshotSvc := service.NewSchedulerSnapshotService(nil, nil, nil, nil, cfg)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
+	// 未 Start 的实例：Stop 必须对「构造但从未启动」保持幂等且不阻塞。
+	codexVersionSyncSvc := service.NewOpenAICodexVersionSyncService(nil, nil, time.Second, false)
 
 	cleanup := provideCleanup(
 		nil, // entClient
@@ -57,6 +59,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		opsSystemLogSinkSvc,
 		schedulerSnapshotSvc,
 		tokenRefreshSvc,
+		codexVersionSyncSvc,
 		accountExpirySvc,
 		subscriptionExpirySvc,
 		&service.UsageCleanupService{},

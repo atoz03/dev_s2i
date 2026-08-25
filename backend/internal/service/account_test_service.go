@@ -708,6 +708,8 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	req.Header.Set("Originator", "codex_cli_rs")
 	req.Header.Set("User-Agent", codexCLIUserAgent)
 	req.Header.Set("Version", codexCLIVersion)
+	// 与真实转发同一收口，避免后续改动让探测身份与转发身份漂移。
+	enforceCodexIdentityHeaders(req.Header)
 	probeSessionID := compactProbeSessionID(account.ID)
 	req.Header.Set("Session_ID", probeSessionID)
 	req.Header.Set("Conversation_ID", probeSessionID)
@@ -1511,6 +1513,9 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	} else {
 		req.Header.Set("User-Agent", codexCLIUserAgent)
 	}
+	// originator=opencode 与 Codex UA 错配，上游 /backend-api/codex 一律 404（issue #3901），
+	// 导致账号生图测试恒失败。收口到与真实转发一致的出站身份。
+	enforceCodexIdentityHeaders(req.Header)
 	if chatgptAccountID := strings.TrimSpace(account.GetChatGPTAccountID()); chatgptAccountID != "" {
 		req.Header.Set("chatgpt-account-id", chatgptAccountID)
 	}

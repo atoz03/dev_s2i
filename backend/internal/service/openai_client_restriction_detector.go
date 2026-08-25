@@ -63,7 +63,9 @@ func (d *OpenAICodexClientRestrictionDetector) Detect(c *gin.Context, account *A
 		userAgent = c.GetHeader("User-Agent")
 		originator = c.GetHeader("originator")
 	}
-	if openai.IsCodexOfficialClientRequest(userAgent) {
+	// 访问门用严格前缀版：宽松版允许 Contains 子串兜底，会把「浏览器 UA + 中段 codex token」
+	// 之类的伪造 UA（如 "Mozilla/5.0 codex_app/0.1.0"）判成官方客户端，绕过 codex_cli_only 限制。
+	if openai.IsCodexOfficialClientRequestStrict(userAgent) {
 		return CodexClientRestrictionDetectionResult{
 			Enabled: true,
 			Matched: true,

@@ -757,6 +757,24 @@ type GatewayConfig struct {
 	// ForceCodexCLI: 强制将 OpenAI `/v1/responses` 请求按 Codex CLI 处理。
 	// 用于网关未透传/改写 User-Agent 时的兼容兜底（默认关闭，避免影响其他客户端）。
 	ForceCodexCLI bool `mapstructure:"force_codex_cli"`
+	// DisableCodexOriginatorNormalization: 关闭 Codex 出站身份归一化（默认 false，即归一化开启）。
+	//
+	// 上游 /backend-api/codex 按 Originator 头分桶调度容量，落在降载桶的请求即使返回 HTTP 200，
+	// 也会立刻推 SSE error(server_is_overloaded) 并以 response.failed 收尾，客户端表现为
+	// "stream closed before response.completed"。归一化把出站身份统一为 codex_cli_rs，
+	// 避开降载桶；关闭后退回「仅保证 originator 与最终 UA 首段配套」的收口语义。
+	//
+	// 必须保持反义命名：正向命名的 Go 零值 false 会让未经 viper 加载而手工构造的 Config
+	// 静默关掉全局保护，viper.SetDefault 救不了这条路径。
+	DisableCodexOriginatorNormalization bool `mapstructure:"disable_codex_originator_normalization"`
+	// DisableCodexVersionAutoSync: 关闭 Codex 客户端版本号自动同步（默认 false，即同步开启）。
+	//
+	// 开启时每 6 小时从 github.com/openai/codex 的 release 拉取最新稳定版版本号并持久化，
+	// 出站身份据此声明版本。上游对陈旧版本既有 404 门槛也有优先降载策略，版本号停更等价于慢性故障。
+	// 关闭后出站版本号回退为编译期常量（已同步到的值仍继续生效，不会突然倒退）。
+	//
+	// 与 DisableCodexOriginatorNormalization 同理，必须保持反义命名，保证零值 Config 是安全默认。
+	DisableCodexVersionAutoSync bool `mapstructure:"disable_codex_version_auto_sync"`
 	// CodexImageGenerationBridgeEnabled: 是否为 Codex `/v1/responses` 自动注入 image_generation 工具和桥接指令。
 	// 默认关闭，避免纯文本 Codex 请求被意外改写；显式携带 image_generation 工具的请求仍按分组能力转发。
 	CodexImageGenerationBridgeEnabled bool `mapstructure:"codex_image_generation_bridge_enabled"`

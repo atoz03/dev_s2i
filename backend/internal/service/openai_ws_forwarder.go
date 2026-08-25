@@ -1206,9 +1206,6 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	if s != nil && s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		headers.Set("user-agent", codexCLIUserAgent)
 	}
-	if account != nil && account.Type == AccountTypeOAuth && !openai.IsCodexCLIRequest(headers.Get("user-agent")) {
-		headers.Set("user-agent", codexCLIUserAgent)
-	}
 	// HTTP 入站选择 WSv2 上游时，复用 Forward 中预计算的指纹 ID；请求体已在
 	// 同一入口完成改写，这里补齐握手头，保证两种上游传输的收敛语义一致。
 	if account != nil && account.Type == AccountTypeOAuth && c != nil {
@@ -1217,6 +1214,12 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 				applyCodexFingerprintHeaders(headers, fingerprintIDs)
 			}
 		}
+	}
+	// 终态收口：originator 必须与最终 user-agent 首段配套且为官方身份，非官方 UA 整体回退为
+	// 默认 Codex CLI 身份（承接原「非 Codex UA 兜底」，并修复其把 codex-tui 等官方 UA 改写为
+	// codex_cli_rs 造成的 originator 错配 404），详见 issue #3901。
+	if account != nil && account.Type == AccountTypeOAuth {
+		enforceCodexIdentityHeaders(headers)
 	}
 
 	return headers, sessionResolution

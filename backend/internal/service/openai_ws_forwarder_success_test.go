@@ -586,15 +586,41 @@ func TestOpenAIGatewayService_Forward_WSv2_OAuthStoreFalseByDefault(t *testing.T
 func TestOpenAIGatewayService_Forward_WSv2_OAuthOriginatorCompatibility(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	// 与 HTTP 路径同一口径：断言 originator 与最终 user-agent 首段配套（issue #3901），
+	// 而不是逐字保留客户端 originator。
 	tests := []struct {
 		name           string
 		userAgent      string
 		originator     string
 		wantOriginator string
+		wantUserAgent  string
 	}{
-		{name: "desktop originator preserved", originator: "Codex Desktop", wantOriginator: "Codex Desktop"},
-		{name: "vscode originator preserved", originator: "codex_vscode", wantOriginator: "codex_vscode"},
-		{name: "official ua fallback to codex_cli_rs", userAgent: "Codex Desktop/1.2.3", wantOriginator: "codex_cli_rs"},
+		{
+			name:           "desktop originator without ua falls back to paired codex cli identity",
+			originator:     "Codex Desktop",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
+		{
+			name:           "vscode originator without ua falls back to paired codex cli identity",
+			originator:     "codex_vscode",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
+		{
+			name:           "official desktop ua normalized to codex cli",
+			userAgent:      "Codex Desktop/1.2.3",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
+		{
+			// codex-tui 落在上游降载桶，必须归一化，否则 WS 首个 turn 就被 server_is_overloaded 收尾。
+			name:           "load-shed codex-tui identity normalized to codex cli",
+			userAgent:      "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+			originator:     "codex-tui",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
 	}
 
 	for _, tt := range tests {
@@ -659,6 +685,9 @@ func TestOpenAIGatewayService_Forward_WSv2_OAuthOriginatorCompatibility(t *testi
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Equal(t, tt.wantOriginator, captureDialer.lastHeaders.Get("originator"))
+			require.Equal(t, tt.wantUserAgent, captureDialer.lastHeaders.Get("user-agent"))
+			require.True(t, strings.HasPrefix(captureDialer.lastHeaders.Get("user-agent"), captureDialer.lastHeaders.Get("originator")+"/"),
+				"originator %q 必须与 UA %q 首段配套", captureDialer.lastHeaders.Get("originator"), captureDialer.lastHeaders.Get("user-agent"))
 		})
 	}
 }

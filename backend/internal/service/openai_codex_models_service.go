@@ -155,7 +155,9 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 
 	clientVersion = strings.TrimSpace(clientVersion)
 	if clientVersion == "" {
-		clientVersion = openAICodexProbeVersion
+		// 必须用生效版本而非编译期常量：自动同步推进后，用旧版本号请求清单会拿到
+		// 少了新模型的 manifest，重新制造「模型发现不到」的问题。
+		clientVersion = resolveCodexClientVersion()
 	}
 
 	requestEndpoint := chatgptCodexModelsURL
@@ -197,6 +199,9 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	headers.Set("Originator", "codex_cli_rs")
 	headers.Set("Version", clientVersion)
 	headers.Set("User-Agent", codexCLIUserAgent)
+	// clientVersion 来自客户端的 ?client_version=，低于上游门槛时清单请求会被 404
+	// （issue #3901），模型发现随之失败。统一走出站身份收口，URL 上的 client_version 保持原值。
+	enforceCodexIdentityHeaders(headers)
 	if !useAPIKeyUpstream {
 		if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 			headers.Set("chatgpt-account-id", chatgptAccountID)

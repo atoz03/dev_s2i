@@ -97,12 +97,14 @@ type windowStatsCache struct {
 }
 
 const (
-	apiCacheTTL             = 3 * time.Minute
-	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL     = 1 * time.Minute
-	openAIProbeCacheTTL     = 10 * time.Minute
-	openAICodexProbeVersion = "0.125.0"
+	apiCacheTTL         = 3 * time.Minute
+	apiErrorCacheTTL    = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	apiQueryMaxJitter   = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL = 1 * time.Minute
+	openAIProbeCacheTTL = 10 * time.Minute
+	// 必须与 codexCLIVersion 保持一致：探针与真实转发共用同一套上游身份门槛
+	// （低版本 404 / 陈旧版本被优先降载），由 openai_codex_identity_test.go 守住。
+	openAICodexProbeVersion = codexCLIVersion
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -607,6 +609,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 			req.Header.Set("User-Agent", strings.TrimSpace(fp.UserAgent))
 		}
 	}
+	// 与真实转发一致：originator 必须与最终 User-Agent（可能来自指纹缓存，如 codex-tui）
+	// 首段配套，否则探针被上游 404（issue #3901）。
+	enforceCodexIdentityHeaders(req.Header)
 	if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 		req.Header.Set("chatgpt-account-id", chatgptAccountID)
 	}

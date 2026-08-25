@@ -382,6 +382,11 @@ const (
 	// Claude Code Version Check
 	// =========================
 
+	// SettingKeyOpenAICodexClientVersionSynced 由 OpenAICodexVersionSyncService 独占写入的
+	// 官方 Codex 客户端最新稳定版版本号。仅供出站规范身份使用，不在 admin settings API 中暴露，
+	// 因此不进入 settings 契约。缺失或非法时回退到编译期常量 codexCLIVersion。
+	SettingKeyOpenAICodexClientVersionSynced = "openai_codex_client_version_synced"
+
 	// SettingKeyMinClaudeCodeVersion 最低 Claude Code 版本号要求 (semver, 如 "2.1.0"，空值=不检查)
 	SettingKeyMinClaudeCodeVersion = "min_claude_code_version"
 

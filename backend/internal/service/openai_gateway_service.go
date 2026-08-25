@@ -41,7 +41,13 @@ const (
 	// OpenAI Platform API for API Key accounts (fallback)
 	openaiPlatformAPIURL   = "https://api.openai.com/v1/responses"
 	openaiStickySessionTTL = time.Hour // 粘性会话TTL
-	codexCLIUserAgent      = "codex_cli_rs/0.125.0"
+	// 与真实 Codex CLI 的 User-Agent 结构对齐：
+	// {originator}/{version} ({OS} {OS_version}; {arch}) {terminal}
+	// 缺少 OS/架构/终端后缀的形态易被上游指纹识别为非官方客户端。
+	// 版本段必须来自 codexCLIVersion：UA 与 version 头是同一个版本声明的两个出口，
+	// 各自硬编码会漂移成互相矛盾的身份（openai_codex_identity_test.go 守住这点）。
+	codexCLIUserAgentSuffix = " (Ubuntu 22.4.0; x86_64) xterm-256color"
+	codexCLIUserAgent       = openai.CodexDefaultOriginator + "/" + codexCLIVersion + codexCLIUserAgentSuffix
 	// codex_cli_only 拒绝时单个请求头日志长度上限（字符）
 	codexCLIOnlyHeaderValueMaxBytes = 256
 
@@ -55,7 +61,15 @@ const (
 	openAIWSRetryBackoffMaxDefault     = 2 * time.Second
 	openAIWSRetryJitterRatioDefault    = 0.2
 	openAICompactSessionSeedKey        = "openai_compact_session_seed"
-	codexCLIVersion                    = "0.125.0"
+	// codexCLIVersion 是网关对上游声明的 Codex 客户端版本，同时供 codexCLIUserAgent
+	// 与 version 头使用。上游 /backend-api/codex 对低于 codexUpstreamMinVersion 的 version
+	// 直接 404（issue #3901），且在容量紧张时按客户端身份分优先级降载，陈旧版本会被优先丢弃
+	// （HTTP 200 + 流内 server_is_overloaded，客户端表现为 "stream closed before
+	// response.completed"）。因此它必须跟随官方 CLI 的当前发布版本。
+	//
+	// 本 fork 不吸收 upstream 的「客户端版本自动同步」特性，该常量即生效版本，需要人工跟随
+	// 官方发布（github.com/openai/codex releases）定期上调；当前值对齐 2026-08-24 的 rust-v0.149.1。
+	codexCLIVersion = "0.149.1"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
 )
@@ -435,6 +449,11 @@ func NewOpenAIGatewayService(
 	}
 	if openAITokenProvider != nil {
 		openAITokenProvider.SetAccountRuntimeBlocker(svc)
+	}
+	// Codex 出站身份归一化是纯函数收口点，无法在热路径读配置，这里发布进程级快照。
+	// 配置项取反义命名，保证手工构造的 Config（零值 false）仍然保持归一化开启。
+	if cfg != nil {
+		SetCodexOriginatorNormalizationEnabled(!cfg.Gateway.DisableCodexOriginatorNormalization)
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
@@ -3305,9 +3324,11 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
-	// OAuth 安全透传：对非 Codex UA 统一兜底，降低被上游风控拦截概率。
-	if account.Type == AccountTypeOAuth && !openai.IsCodexCLIRequest(req.Header.Get("user-agent")) {
-		req.Header.Set("user-agent", codexCLIUserAgent)
+	// 终态收口：originator 必须与最终 User-Agent 首段配套且为官方身份，非官方 UA 整体回退为
+	// 默认 Codex CLI 身份（承接原「非 Codex UA 安全兜底」，并修复其把 codex-tui 等官方 UA
+	// 改写为 codex_cli_rs 造成的 originator 错配 404），详见 issue #3901。
+	if account.Type == AccountTypeOAuth {
+		enforceCodexIdentityHeaders(req.Header)
 	}
 
 	if req.Header.Get("content-type") == "" {
@@ -3874,6 +3895,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 用于网关未透传/改写 User-Agent 时，仍能命中 Codex 侧识别逻辑。
 	if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
 		req.Header.Set("user-agent", codexCLIUserAgent)
+	}
+
+	// 终态收口：originator 必须与最终 User-Agent 首段配套且为官方身份，否则上游 404
+	// （issue #3901）。必须放在所有 User-Agent 改写之后。
+	if account.Type == AccountTypeOAuth {
+		enforceCodexIdentityHeaders(req.Header)
 	}
 
 	// Ensure required headers exist

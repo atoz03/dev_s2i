@@ -208,6 +208,27 @@ gateway:
   #
   # 注意：开启后会影响所有客户端的行为（不仅限于 VS Code / Codex CLI），请谨慎开启。
   force_codex_cli: false
+  # Disable Codex outbound identity normalization (default false = normalization ON).
+  # 关闭 Codex 出站身份归一化（默认 false，即归一化开启）。
+  #
+  # 上游 /backend-api/codex 按 Originator 头分桶调度容量：落在降载桶的请求即使返回 HTTP 200，
+  # 也会立刻推 SSE error(server_is_overloaded) 并以 response.failed 收尾，客户端表现为
+  # "stream closed before response.completed"；同时 originator 与 User-Agent 首段不配套、
+  # 或 version 低于 0.144.0 的请求会被上游直接 404。
+  #
+  # 归一化开启时，所有 OAuth 出站请求统一使用网关的规范 Codex CLI 身份（UA / originator / version）。
+  # 仅在上游调整分桶策略、需要回退到「保留客户端身份、仅保证配对」的语义时才置为 true。
+  disable_codex_originator_normalization: false
+  # Disable Codex client version auto-sync (default false = auto-sync ON).
+  # 关闭 Codex 客户端版本号自动同步（默认 false，即同步开启）。
+  #
+  # 开启时每 6 小时从 github.com/openai/codex 拉取最新稳定版版本号（主路径 /releases/latest，
+  # 异家族 latest 时回退扫描 release 列表）并持久化，出站身份据此声明版本；只向前推进，
+  # 抓取失败保持既有值。上游对陈旧版本既有 404 门槛又会优先降载，版本号停更等价于慢性故障。
+  #
+  # 需要完全离线部署、或不希望服务端出网访问 GitHub 时置为 true：
+  # 出站版本号回退为编译期常量，已同步到的值仍继续生效（不会突然倒退）。
+  disable_codex_version_auto_sync: false
   # Enable Codex image-generation bridge injection for /openai/v1/responses.
   # 是否为 Codex /responses 请求自动注入 image_generation 工具与桥接指令。
   #

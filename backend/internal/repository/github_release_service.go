@@ -24,6 +24,10 @@ type githubReleaseClientError struct {
 	err error
 }
 
+// githubReleaseListReadLimit release 列表响应的读取上限。预发布密集的仓库
+// per_page=30 实测约 10MB，留出余量同时防止异常响应打满内存。
+const githubReleaseListReadLimit = 32 << 20
+
 // NewGitHubReleaseClient 创建 GitHub Release 客户端
 // proxyURL 为空时直连 GitHub，支持 http/https/socks5/socks5h 协议
 // 代理配置失败时行为由 allowDirectOnProxyError 控制：
@@ -67,6 +71,10 @@ func (c *githubReleaseClientError) FetchLatestRelease(ctx context.Context, repo 
 	return nil, c.err
 }
 
+func (c *githubReleaseClientError) FetchRecentReleases(ctx context.Context, repo string, perPage int) ([]*service.GitHubRelease, error) {
+	return nil, c.err
+}
+
 func (c *githubReleaseClientError) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {
 	return c.err
 }
@@ -101,6 +109,39 @@ func (c *githubReleaseClient) FetchLatestRelease(ctx context.Context, repo strin
 	}
 
 	return &release, nil
+}
+
+// FetchRecentReleases 拉取最近 perPage 条 release。响应体可能很大（预发布密集的仓库
+// per_page=30 实测约 10MB），故限制读取上限，避免异常响应把内存打满。
+func (c *githubReleaseClient) FetchRecentReleases(ctx context.Context, repo string, perPage int) ([]*service.GitHubRelease, error) {
+	if perPage <= 0 || perPage > 100 {
+		perPage = 30
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", repo, perPage)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "Sub2API-Updater")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var releases []*service.GitHubRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, githubReleaseListReadLimit)).Decode(&releases); err != nil {
+		return nil, err
+	}
+
+	return releases, nil
 }
 
 func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {

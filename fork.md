@@ -4,6 +4,123 @@
 
 本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
 
+## 2026-08-25 Go 1.26.6 安全基线与 Codex 出站身份收口定向回灌
+
+### 本次取舍
+
+- **Security Scan 红灯（backend-security）**：根因是 Go 1.26.5 标准库 6 条已知漏洞
+  （`GO-2026-6218` net/url、`GO-2026-6090` crypto/tls、`GO-2026-6089` net/http、`GO-2026-6088`
+  encoding/xml、`GO-2026-5972` encoding/asn1、`GO-2026-5026` net/http），全部 `Fixed in go1.26.6`。
+  跟随 upstream `11e1e2288` 把 `backend/go.mod`、三个 workflow 的版本硬断言、三个 Dockerfile 的
+  Go 构建镜像、README 徽章与 `DEV_GUIDE.md` 升级清单一起升到 **1.26.6**。
+  不跟随 upstream 的 Go 1.27.0（`cbe258fd1`）：那条带 jsonv2 适配与 golangci-lint v2.13 升级，
+  超出「只修安全红灯」的边界；1.26.6 已让 govulncheck 归零。
+  前端依赖（dompurify 3.3.1 / axios 1.18.1 / nanoid 3.3.18 / postcss override ≥8.5.18）本地已高于
+  upstream 各条安全提交，`pnpm audit` 门禁本地通过，本轮无需变更。
+- **`gpt-5.6-sol` 404 与 "stream closed before response.completed"**：两者同源，根因是出站
+  Codex 身份陈旧且自相矛盾。定向回灌 upstream `8a51119e3`（issue #3901 配对校验）与 `e1b76e224`
+  （按 originator 分桶降载）的**语义**，不吸收其后续的 Codex 身份体系重构（面板 UA 设置、
+  版本自动同步、`resolveCodexOutboundIdentity` 解析链），与既有「不吸收 upstream Codex 身份体系」
+  的决议保持一致：
+  - `codexCLIVersion` 由 `0.125.0` 升到 **`0.149.1`**（对齐 2026-08-24 官方 `rust-v0.149.1`）。
+    上游对携带且低于 `0.144.0` 的 version 头一律 404，`0.125.0` 稳定踩线。
+  - `codexCLIUserAgent` 改为由 `codexCLIVersion` + `codexCLIUserAgentSuffix` 拼出的官方形态
+    （`codex_cli_rs/<ver> (Ubuntu 22.4.0; x86_64) xterm-256color`），裸 `originator/version`
+    形态易被上游判为非官方客户端；`openAICodexProbeVersion` 改为直接引用 `codexCLIVersion`。
+  - `internal/pkg/openai/request.go` 补齐官方客户端识别：新增 `codex-tui/`（真实流量占比最高的一支）
+    与 `codex_vscode_copilot/`；originator 改为**精确集合 + `Codex ` 家族前缀**；新增
+    `PairCodexClientIdentity` / `codexUATrailerName`（从 UA 尾部 `(name; version)` 恢复被
+    `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` 改写的真实身份）。
+  - 新增 `internal/service/openai_codex_identity.go` 作为唯一收口点 `enforceCodexIdentityHeaders`，
+    接入 HTTP 转发、OAuth 透传、WS 握手、用量探针、账号 responses 测试、账号生图测试、Codex 模型清单
+    共七条出站路径，替换原「非 Codex UA 兜底」。
+- **本轮明确的行为变化**（三项，均为有意）：
+  1. **出站身份归一化默认开启**：OAuth 出站请求的 `user-agent` / `originator` / `version` 一律改写为
+     网关规范 Codex CLI 身份。原因是上游按 originator 分桶降载，`codex-tui` 落在降载桶（upstream 实测：
+     `codex_cli_rs` 配 curl UA 也正常，判定因子是 originator 而非 UA），降载请求 HTTP 200 后立刻以
+     `server_is_overloaded` 收尾——正是本次报障的 "stream closed before response.completed"。
+     只做「保留客户端身份 + 保证配对」不足以脱离降载桶，故采用 upstream 已发布的默认口径。
+  2. **`codex_cli_only` 访问门收紧**：原 `"codex "` 前缀经 `TrimSpace` 退化成裸 `"codex"` 并走
+     `Contains` 兜底，导致 `evil-codex_thing`、`Mozilla/5.0 codex bypass` 之类伪造标识都被判为官方客户端，
+     可绕过该限制（本地已实测复现）。改为独立的 `codexOfficialClientFamilyPrefix`（保留空格、只做 HasPrefix）
+     ＋ originator 精确集合，访问门改用 `IsCodexOfficialClientRequestStrict`。透传路径保留宽松版，行为不变。
+  3. **账号生图测试的 `originator=opencode`** 与 Codex UA 错配，上游一律 404，该测试原本恒失败；现已收口。
+- **本轮不吸收**：
+  - `280c1c862`（空 `response.completed` 失败转移）：本 fork 已有 `openai_silent_refusal.go` 全套基建，
+    但标准流式路径是 `handleStreamingResponse`，与 upstream 的 `handleStreamingResponseWithReasoning`
+    结构不同，且缺 `openAIStreamEventTypeIsTerminal`；只移植透传半边会让两条流式路径口径不一致，
+    留待单独评估。
+  - Grok 产线、channel-monitor-v2、Responses Lite 系列、Go 1.27.0 升级。
+- **Codex 客户端版本号自动同步（本轮一并回灌，只取后端内核）**：
+  硬编码版本号会随时间自然腐化，而上游对陈旧版本既有 404 门槛又会优先降载，
+  「版本号停更」等价于慢性故障，因此把 upstream `2eb24814f` / `2d3e84520` / `4c4ff3638` 的
+  **同步内核**移植过来，但**不吸收其管理面**：
+  - 新增 `OpenAICodexVersionSyncService`：每 6 小时从 `openai/codex` 取最新稳定版。
+    主路径 `/releases/latest`（约 0.3MB，本身排除 draft/prerelease）；当 latest 属于同仓库其他
+    组件（如 `rusty-v8-*`）被 `rust-v` 前缀挡掉时，回退扫一页 release（`per_page=30`）。
+    两条路径共用同一套过滤，语义不分叉。**只向前推进**，抓取失败保持既有值（不清空、不降级）。
+    启动防抖：借设置行自身 `UpdatedAt` 判断，一个周期内已同步过则跳过，避免滚动发布/崩溃重启
+    把「启动即同步」放大成对 GitHub 的连续请求。
+  - 复用本地既有的 `GitHubReleaseClient` 端口（`FetchLatestRelease` 已有，新增 `FetchRecentReleases`
+    并对列表响应加 32MiB 读取上限；`GitHubRelease` 补 `Draft` / `Prerelease` 两个字段）。
+    不新增任何 HTTP 栈，代理配置与直连回退策略沿用既有实现。
+  - 同步值写入 `SettingKeyOpenAICodexClientVersionSynced`，**不在 admin settings API 暴露**，
+    因此 **settings 契约不受影响**——这是刻意的边界：`fork.md` 长期把 settings 链路列为「本地优先」，
+    upstream 原提交连带的面板字段、i18n、DTO、契约用例与 `SettingsView.vue` 一律不吸收，
+    开关改由配置文件承载（`gateway.disable_codex_version_auto_sync`，反义命名）。
+  - 生效版本解析链：**同步值 → 进程内高水位 → `codexCLIVersion` 常量**。常量始终是地板，
+    保证异常同步值不会把出站版本降到上游门槛以下；解析结果带 1 分钟进程内缓存，写入后主动失效。
+    高水位把「只向前推进」从写入侧延伸到读取侧：数据库抖动让 provider 返回空值时，
+    缓存会把空值存住一个 TTL，若无高水位，出站版本会在这段时间内退回编译期常量。
+    热路径读取用 3s 超时，不复用同步任务的 30s 预算。
+  - 清单请求的 `client_version` 缺省值也改用生效版本：否则同步推进后会用旧版本号取 manifest，
+    拿到少了新模型的清单，重新制造「模型发现不到」的问题（与本轮修的 gpt-5.6-sol 同类）。
+  - 关闭自动同步只停止拉取，**已同步到的值仍继续生效**，避免关开关让出站版本号突然倒退。
+
+### 原因与影响
+
+- 用户报障贴出的 404 文案 `Model "gpt-5.6-sol" is not supported by any configured account in this group`
+  来自 upstream 的 `internal/handler/no_account_error.go`，**本 fork 不存在该文件、也不会产出该文案**
+  （本地全仓 grep `model_not_found` 无命中）。本 fork 在「组内无账号支持该模型」时走
+  `ErrNoAvailableAccounts` → 503；上游 404 则原样透传为 `not_found_error`。
+- 该文案在 upstream 语义下是**本地配置**结论（账号 `model_mapping` 未覆盖该模型），不是上游返回。
+  本地实测：账号 `model_mapping` 为空 = 放行全部；配 `gpt-5*` 或 `gpt-5.6-sol` 命中；只配 `gpt-5.4`
+  则 `gpt-5.6-sol` 不被支持。`gpt-5.6-sol` 的常量、别名归一、定价（与 upstream 逐字一致）在本 fork 均已齐备。
+- 本轮修复的是**同一根因家族的另一半**：出站身份陈旧/错配导致上游 404 与降载，
+  表现为跨账号故障转移后仍然失败、以及流未收到 `response.completed`。
+- 归一化后不再向上游暴露客户端真实 Codex 客户端类型（只保留网关统一身份）；需要保真透传的部署可关闭开关。
+
+### 验证
+
+- `govulncheck ./...`：**0 vulnerabilities**（修复前 6 条标准库漏洞），Go 1.26.6 本地工具链实跑。
+- `make -C backend test-unit`、`make -C backend test-integration`、`make -C backend build` 全绿。
+- `golangci-lint run ./...` **0 issues**（须在无 `backend/internal/web/dist` 构建产物的条件下运行，
+  与 CI 的 lint job 一致；本地残留 dist 会让 staticcheck 对 `internal/server/router.go` 误报 SA4023，
+  已用 pristine worktree 比对确认与本次改动无关）。
+- `make test-frontend`（vue-tsc + 78 vitest）、`pnpm audit --prod --audit-level=high` + 例外校验脚本、
+  `deploy/tests/docker-runtime-resources-test.sh` 全部通过。
+- 新增用例：`request_identity_test.go`（配对推导、尾部身份恢复、伪造标识拒绝、codex-tui 识别）、
+  `openai_codex_identity_test.go`（版本一致性、上游门槛、归一化开/关两套语义、幂等、bridge no-op）、
+  `openai_codex_version_sync_service_test.go`（版本号校验与注入拒绝、按段数字比较、主路径命中不拉列表页、
+  四种回退、只向前推进、启动防抖两个方向、关闭后保值、同步值端到端进入出站头）；
+  原有三条锁定旧错配行为的用例改为断言「originator 必须是最终 UA 首段」不变式。
+- 版本同步对 GitHub 的实网冒烟（一次性程序，跑完即删）：主路径 `rust-v0.149.1`（非 draft/prerelease）
+  与回退列表路径解析结果一致，均为 `0.149.1`；列表 30 条中仅 3 条稳定版，实证了 `per_page=30`
+  不能再调小的结论。
+- `wire` 代码生成工具与当前 Go 工具链不兼容（`package "golang.org/x/sys/unix" without types`），
+  `cmd/server/wire_gen.go` 为手工同步：已逐项核对 provider 参数顺序、依赖变量声明先于使用，
+  并 diff 确认 `provideCleanup` 在 `wire.go` 与 `wire_gen.go` 中的签名完全一致。
+
+### 回退方式
+
+- 运行时回退（不改代码）：
+  - `gateway.disable_codex_originator_normalization: true`：退回「保留客户端身份 + 仅保证配对与版本门槛」。
+  - `gateway.disable_codex_version_auto_sync: true`：停止出网拉取（离线部署也用这个），
+    出站版本回退为编译期常量，已同步值仍生效。
+- 代码回退：`openai_codex_identity.go`、`request.go` 的身份识别改动、七处收口调用与版本常量互相独立，
+  可按需单独 `git revert`；未新增数据库字段，无需数据迁移。
+- Go 1.26.6 与身份收口彼此独立，可单独回退；回退 Go 会让 Security Scan 重新变红。
+
 ## 2026-08-13 Codex OAuth thread 共享指纹收敛定向回灌
 
 ### 本次取舍

@@ -34,6 +34,21 @@ func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, s
 	return NewUpdateService(cache, githubClient, settingRepo, buildInfo.Version, buildInfo.BuildType)
 }
 
+// ProvideOpenAICodexVersionSyncService creates, wires and starts the Codex client
+// version sync loop. The provider always registers the version provider so a value
+// synced earlier keeps taking effect even when auto-sync is turned off.
+func ProvideOpenAICodexVersionSyncService(
+	settingRepo SettingRepository,
+	githubClient GitHubReleaseClient,
+	cfg *config.Config,
+) *OpenAICodexVersionSyncService {
+	enabled := cfg == nil || !cfg.Gateway.DisableCodexVersionAutoSync
+	svc := NewOpenAICodexVersionSyncService(settingRepo, githubClient, openAICodexVersionSyncInterval, enabled)
+	svc.RegisterVersionProvider()
+	svc.Start()
+	return svc
+}
+
 // ProvideEmailQueueService creates EmailQueueService with default worker count
 func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
 	return NewEmailQueueService(emailService, 3)
@@ -435,6 +450,7 @@ var ProviderSet = wire.NewSet(
 	ProvideSchedulerSnapshotService,
 	NewIdentityService,
 	ProvideUpdateService,
+	ProvideOpenAICodexVersionSyncService,
 	ProvideTokenRefreshService,
 	ProvideAccountExpiryService,
 	ProvideSubscriptionExpiryService,

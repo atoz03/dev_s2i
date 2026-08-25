@@ -82,6 +82,7 @@ func provideCleanup(
 	opsSystemLogSink *service.OpsSystemLogSink,
 	schedulerSnapshot *service.SchedulerSnapshotService,
 	tokenRefresh *service.TokenRefreshService,
+	codexVersionSync *service.OpenAICodexVersionSyncService,
 	accountExpiry *service.AccountExpiryService,
 	subscriptionExpiry *service.SubscriptionExpiryService,
 	usageCleanup *service.UsageCleanupService,
@@ -167,6 +168,10 @@ func provideCleanup(
 			}},
 			{"TokenRefreshService", func() error {
 				tokenRefresh.Stop()
+				return nil
+			}},
+			{"OpenAICodexVersionSyncService", func() error {
+				codexVersionSync.Stop()
 				return nil
 			}},
 			{"AccountExpiryService", func() error {

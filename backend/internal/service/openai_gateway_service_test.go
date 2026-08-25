@@ -2647,15 +2647,46 @@ func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testi
 func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	// 上游 /backend-api/codex 校验 originator 与最终 User-Agent 首段是否配套，错配一律 404
+	// （issue #3901）。因此这里断言的是「配套」而不是「逐字保留客户端 originator」：
+	// 客户端自报 originator 但 UA 缺失/被兜底改写时，必须整体回退为一致的默认 Codex CLI 身份。
 	tests := []struct {
 		name           string
 		userAgent      string
 		originator     string
 		wantOriginator string
+		wantUserAgent  string
 	}{
-		{name: "desktop originator preserved", originator: "Codex Desktop", wantOriginator: "Codex Desktop"},
-		{name: "vscode originator preserved", originator: "codex_vscode", wantOriginator: "codex_vscode"},
-		{name: "official ua fallback to codex_cli_rs", userAgent: "Codex Desktop/1.2.3", wantOriginator: "codex_cli_rs"},
+		{
+			// originator=Codex Desktop 但无 UA：旧实现保留 originator、UA 兜底成 codex_cli_rs，
+			// 制造稳定 404 的错配组合；现在整体回退为默认 Codex CLI 身份。
+			name:           "desktop originator without ua falls back to paired codex cli identity",
+			originator:     "Codex Desktop",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
+		{
+			name:           "vscode originator without ua falls back to paired codex cli identity",
+			originator:     "codex_vscode",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
+		{
+			// 归一化开启时，官方非 CLI 身份同样统一到 codex_cli_rs，避开上游按 originator 分桶的降载。
+			name:           "official desktop ua normalized to codex cli",
+			userAgent:      "Codex Desktop/1.2.3",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
+		{
+			// codex-tui 落在上游降载桶：必须归一化为 codex_cli_rs，否则请求 HTTP 200 后
+			// 立刻以 server_is_overloaded 收尾（stream closed before response.completed）。
+			name:           "load-shed codex-tui identity normalized to codex cli",
+			userAgent:      "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+			originator:     "codex-tui",
+			wantOriginator: "codex_cli_rs",
+			wantUserAgent:  codexCLIUserAgent,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2680,6 +2711,10 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 			req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token", false, "", isCodexCLI)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantOriginator, req.Header.Get("originator"))
+			require.Equal(t, tt.wantUserAgent, req.Header.Get("User-Agent"))
+			// 核心不变量：originator 必须是最终 UA 的首段。
+			require.True(t, strings.HasPrefix(req.Header.Get("User-Agent"), req.Header.Get("originator")+"/"),
+				"originator %q 必须与 UA %q 首段配套", req.Header.Get("originator"), req.Header.Get("User-Agent"))
 		})
 	}
 }

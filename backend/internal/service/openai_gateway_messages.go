@@ -244,6 +244,13 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// 6. Build upstream request
+	if account.Type == AccountTypeOAuth {
+		// Messages 兼容桥即使 body 未带 anthropic-* prompt_cache_key 标记（如映射到非
+		// gpt-5/codex 模型），也必须让 buildUpstreamRequest 走 bridge 分支：不带
+		// originator、User-Agent 逐字透传，避免身份收口（issue #3901）误改本路径
+		// 刻意最小化的请求形态（下方的 Del(OpenAI-Beta/originator) 兜底保持不变）。
+		setOpenAICompatMessagesBridgeContext(c, true)
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, isStream, promptCacheKey, false)
 	releaseUpstreamCtx()
