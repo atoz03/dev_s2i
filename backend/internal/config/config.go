@@ -759,10 +759,11 @@ type GatewayConfig struct {
 	ForceCodexCLI bool `mapstructure:"force_codex_cli"`
 	// DisableCodexOriginatorNormalization: 关闭 Codex 出站身份归一化（默认 false，即归一化开启）。
 	//
-	// 上游 /backend-api/codex 按 Originator 头分桶调度容量，落在降载桶的请求即使返回 HTTP 200，
+	// 上游 /backend-api/codex 在容量紧张时按客户端身份分优先级降载，被降载的请求即使返回 HTTP 200，
 	// 也会立刻推 SSE error(server_is_overloaded) 并以 response.failed 收尾，客户端表现为
-	// "stream closed before response.completed"。归一化把出站身份统一为 codex_cli_rs，
-	// 避开降载桶；关闭后退回「仅保证 originator 与最终 UA 首段配套」的收口语义。
+	// "stream closed before response.completed"。归一化把出站身份统一为网关默认 Codex 身份
+	// （openai.CodexDefaultOriginator），确保没有请求带着第三方身份或陈旧版本出站；
+	// 关闭后退回「仅保证 originator 与最终 UA 首段配套」的收口语义。
 	//
 	// 必须保持反义命名：正向命名的 Go 零值 false 会让未经 viper 加载而手工构造的 Config
 	// 静默关掉全局保护，viper.SetDefault 救不了这条路径。

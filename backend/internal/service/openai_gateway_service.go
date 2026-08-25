@@ -1267,7 +1267,7 @@ func resolveOpenAIUpstreamOriginator(c *gin.Context, isOfficialClient bool) stri
 		}
 	}
 	if isOfficialClient {
-		return "codex_cli_rs"
+		return openai.CodexDefaultOriginator
 	}
 	return "opencode"
 }
@@ -3313,7 +3313,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 				req.Header.Set("OpenAI-Beta", "responses=experimental")
 			}
 			if req.Header.Get("originator") == "" {
-				req.Header.Set("originator", "codex_cli_rs")
+				req.Header.Set("originator", openai.CodexDefaultOriginator)
 			}
 		}
 	}
@@ -3332,8 +3332,8 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("user-agent", codexCLIUserAgent)
 	}
 	// 终态收口：originator 必须与最终 User-Agent 首段配套且为官方身份，非官方 UA 整体回退为
-	// 默认 Codex CLI 身份（承接原「非 Codex UA 安全兜底」，并修复其把 codex-tui 等官方 UA
-	// 改写为 codex_cli_rs 造成的 originator 错配 404），详见 issue #3901。
+	// 默认 Codex 身份（承接原「非 Codex UA 安全兜底」，并修复其把官方 UA 单方面改写、
+	// 却保留客户端 originator 造成的错配 404），详见 issue #3901。
 	if account.Type == AccountTypeOAuth {
 		enforceCodexIdentityHeaders(req.Header)
 	}
@@ -3562,6 +3562,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				dataBytes = sanitizedData
 				trimmedData = strings.TrimSpace(string(sanitizedData))
 				line = "data: " + string(sanitizedData)
+			}
+			// 走到这里说明降载错误已经无法再改走 failover，只能转发；把致命码改写为可重试码。
+			if rewrittenData, rewritten := rewriteOpenAICapacityShedErrorCodeForClient(dataBytes, eventType); rewritten {
+				dataBytes = rewrittenData
+				trimmedData = strings.TrimSpace(string(rewrittenData))
+				line = "data: " + string(rewrittenData)
 			}
 			lineStartsClientOutput = forceFlushFailedEvent || openAIStreamDataStartsClientOutput(trimmedData, eventType)
 			if firstTokenMs == nil && lineStartsClientOutput && trimmedData != "[DONE]" {
@@ -4443,6 +4449,12 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				data = string(sanitizedData)
 				line = "data: " + data
 			}
+			// 走到这里说明降载错误已经无法再改走 failover，只能转发；把致命码改写为可重试码。
+			if rewrittenData, rewritten := rewriteOpenAICapacityShedErrorCodeForClient(dataBytes, eventType); rewritten {
+				dataBytes = rewrittenData
+				data = string(rewrittenData)
+				line = "data: " + data
+			}
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
 			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
@@ -5024,6 +5036,66 @@ func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string
 		updated = next
 	}
 	return updated, !bytes.Equal(updated, payload)
+}
+
+// openAICapacityShedErrorCodes 是上游容量降载在流内使用的错误码。
+// Codex CLI 把这一组码当作致命集处理：收到即终止会话（提示 "Selected model is at capacity."），
+// 客户端内置的退避重试不会被触发。
+var openAICapacityShedErrorCodes = map[string]bool{
+	"server_is_overloaded": true,
+	"slow_down":            true,
+}
+
+// openAIStreamErrorCodePaths 覆盖降载错误码在两类事件里的位置：
+// 裸 `event: error` 帧用 error.code，`response.failed` 用 response.error.code。
+var openAIStreamErrorCodePaths = []string{"error.code", "response.error.code"}
+
+// isOpenAICapacityShedPayload 判断事件是否为上游容量降载。
+// 该信号是**请求级**的：判定因子是客户端身份与模型容量，与具体账号无关，
+// 因此不能据此把账号临时摘掉（见 TempUnscheduleRetryableError）。
+func isOpenAICapacityShedPayload(payload []byte) bool {
+	if len(payload) == 0 || !gjson.ValidBytes(payload) {
+		return false
+	}
+	for _, path := range openAIStreamErrorCodePaths {
+		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, path).String()))
+		if openAICapacityShedErrorCodes[code] {
+			return true
+		}
+	}
+	return false
+}
+
+// rewriteOpenAICapacityShedErrorCodeForClient 把必须转发给客户端的降载错误码改写为致命集之外的
+// server_error，错误消息与其余字段原样保留，让 Codex CLI 走内置退避重试而不是直接终止会话。
+//
+// 仅在网关已无法再改走 failover（流中途已经产生过客户端输出）时才会到达这里；
+// 监控、计费与账号状态判定一律基于改写前的原始事件。
+// 其他错误码（rate_limit_exceeded / content_policy 等）一律不动，保留上游语义。
+func rewriteOpenAICapacityShedErrorCodeForClient(payload []byte, eventType string) ([]byte, bool) {
+	switch strings.TrimSpace(eventType) {
+	case "error", "response.failed":
+	default:
+		return payload, false
+	}
+	if !isOpenAICapacityShedPayload(payload) {
+		return payload, false
+	}
+	updated := payload
+	rewritten := false
+	for _, path := range openAIStreamErrorCodePaths {
+		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(updated, path).String()))
+		if !openAICapacityShedErrorCodes[code] {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, path, "server_error")
+		if err != nil {
+			return payload, false
+		}
+		updated = next
+		rewritten = true
+	}
+	return updated, rewritten
 }
 
 func openAIStreamDataStartsClientOutput(data string, eventType string) bool {

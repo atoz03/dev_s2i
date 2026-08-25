@@ -167,6 +167,29 @@ function buildVertexAccount() {
   } as any
 }
 
+function buildOAuthAccount() {
+  return {
+    id: 3,
+    name: 'OpenAI OAuth',
+    notes: '',
+    platform: 'openai',
+    type: 'oauth',
+    credentials: {
+      access_token: 'oauth-token',
+      chatgpt_account_id: 'chatgpt-acc'
+    },
+    extra: {},
+    proxy_id: null,
+    concurrency: 1,
+    priority: 1,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: false
+  } as any
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -427,6 +450,42 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
+  })
+
+  // 指纹收敛默认 off：从未配置过该字段的存量 OAuth 账号，保存时不得被写入收敛模式。
+  it('does not persist codex_fingerprint_mode for an account that never configured it', async () => {
+    const account = buildOAuthAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra as Record<string, unknown> | undefined
+    expect(extra?.codex_fingerprint_mode).toBeUndefined()
+  })
+
+  // 持久化判定必须跟随默认值一起翻转：沿用旧的 === 'session' 会把管理员显式选择的
+  // session 当成默认值删掉，静默关闭其配置。
+  it('preserves an explicit session fingerprint mode after the default flipped to off', async () => {
+    const account = buildOAuthAccount()
+    account.extra = { codex_fingerprint_mode: 'session' }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra as Record<string, unknown> | undefined
+    expect(extra?.codex_fingerprint_mode).toBe('session')
   })
 
   it('blocks Vertex SA save when neither credentials_status nor legacy json indicates existence', async () => {

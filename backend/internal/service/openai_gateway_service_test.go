@@ -745,6 +745,8 @@ func TestOpenAIGatewayService_ForwardOAuthAppliesCodexFingerprintToHTTP(t *testi
 			"access_token":       "oauth-token",
 			"chatgpt_account_id": "chatgpt-account",
 		},
+		// 指纹收敛默认 off，本用例验证的是收敛链路，必须显式开启。
+		Extra:       map[string]any{codexFingerprintModeExtraKey: string(codexFingerprintSession)},
 		Status:      StatusActive,
 		Schedulable: true,
 	}
@@ -2649,7 +2651,7 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 
 	// 上游 /backend-api/codex 校验 originator 与最终 User-Agent 首段是否配套，错配一律 404
 	// （issue #3901）。因此这里断言的是「配套」而不是「逐字保留客户端 originator」：
-	// 客户端自报 originator 但 UA 缺失/被兜底改写时，必须整体回退为一致的默认 Codex CLI 身份。
+	// 客户端自报 originator 但 UA 缺失/被兜底改写时，必须整体回退为一致的默认 Codex 身份。
 	tests := []struct {
 		name           string
 		userAgent      string
@@ -2658,33 +2660,33 @@ func TestOpenAIBuildUpstreamRequestOAuthOfficialClientOriginatorCompatibility(t 
 		wantUserAgent  string
 	}{
 		{
-			// originator=Codex Desktop 但无 UA：旧实现保留 originator、UA 兜底成 codex_cli_rs，
-			// 制造稳定 404 的错配组合；现在整体回退为默认 Codex CLI 身份。
-			name:           "desktop originator without ua falls back to paired codex cli identity",
+			// originator=Codex Desktop 但无 UA：旧实现保留 originator、UA 走兜底，
+			// 制造稳定 404 的错配组合；现在整体回退为默认 Codex 身份。
+			name:           "desktop originator without ua falls back to paired default identity",
 			originator:     "Codex Desktop",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 		{
-			name:           "vscode originator without ua falls back to paired codex cli identity",
+			name:           "vscode originator without ua falls back to paired default identity",
 			originator:     "codex_vscode",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 		{
-			// 归一化开启时，官方非 CLI 身份同样统一到 codex_cli_rs，避开上游按 originator 分桶的降载。
-			name:           "official desktop ua normalized to codex cli",
+			// 归一化开启时，官方非默认身份同样统一到默认身份。
+			name:           "official desktop ua normalized to default identity",
 			userAgent:      "Codex Desktop/1.2.3",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 		{
-			// codex-tui 落在上游降载桶：必须归一化为 codex_cli_rs，否则请求 HTTP 200 后
-			// 立刻以 server_is_overloaded 收尾（stream closed before response.completed）。
-			name:           "load-shed codex-tui identity normalized to codex cli",
-			userAgent:      "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
-			originator:     "codex-tui",
-			wantOriginator: "codex_cli_rs",
+			// codex_cli_rs 是 codex-rs 的历史默认 originator，同样收敛到当前默认身份，
+			// 避免网关出站流量停留在陈旧客户端标识上。
+			name:           "legacy cli identity normalized to default identity",
+			userAgent:      openai.CodexCLIOriginator + "/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+			originator:     openai.CodexCLIOriginator,
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 	}

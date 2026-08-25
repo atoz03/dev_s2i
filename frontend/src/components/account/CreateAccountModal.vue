@@ -3288,7 +3288,8 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
-const codexFingerprintMode = ref<CodexFingerprintMode>('session')
+// 默认 off：收敛必须由管理员显式开启，详见后端 GetCodexFingerprintMode。
+const codexFingerprintMode = ref<CodexFingerprintMode>('off')
 const codexFingerprintModeOptions = computed(() => [
   { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
@@ -4063,7 +4064,7 @@ const resetForm = () => {
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
-  codexFingerprintMode.value = 'session'
+  codexFingerprintMode.value = 'off'
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
   // Reset quota control state
@@ -4142,7 +4143,8 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else {
     delete extra.codex_cli_only
   }
-  if (accountCategory.value === 'oauth-based' && codexFingerprintMode.value !== 'session') {
+  // 判定必须跟随默认值翻转为 off，否则管理员显式选择的 session 会被当成默认值丢弃。
+  if (accountCategory.value === 'oauth-based' && codexFingerprintMode.value !== 'off') {
     extra.codex_fingerprint_mode = codexFingerprintMode.value
   } else {
     delete extra.codex_fingerprint_mode

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -596,29 +597,29 @@ func TestOpenAIGatewayService_Forward_WSv2_OAuthOriginatorCompatibility(t *testi
 		wantUserAgent  string
 	}{
 		{
-			name:           "desktop originator without ua falls back to paired codex cli identity",
+			name:           "desktop originator without ua falls back to paired default identity",
 			originator:     "Codex Desktop",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 		{
-			name:           "vscode originator without ua falls back to paired codex cli identity",
+			name:           "vscode originator without ua falls back to paired default identity",
 			originator:     "codex_vscode",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 		{
-			name:           "official desktop ua normalized to codex cli",
+			name:           "official desktop ua normalized to default identity",
 			userAgent:      "Codex Desktop/1.2.3",
-			wantOriginator: "codex_cli_rs",
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 		{
-			// codex-tui 落在上游降载桶，必须归一化，否则 WS 首个 turn 就被 server_is_overloaded 收尾。
-			name:           "load-shed codex-tui identity normalized to codex cli",
-			userAgent:      "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
-			originator:     "codex-tui",
-			wantOriginator: "codex_cli_rs",
+			// codex_cli_rs 是历史默认 originator，WS 握手同样收敛到当前默认身份。
+			name:           "legacy cli identity normalized to default identity",
+			userAgent:      openai.CodexCLIOriginator + "/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+			originator:     openai.CodexCLIOriginator,
+			wantOriginator: openai.CodexDefaultOriginator,
 			wantUserAgent:  codexCLIUserAgent,
 		},
 	}

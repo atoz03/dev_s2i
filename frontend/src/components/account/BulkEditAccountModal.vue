@@ -1270,7 +1270,8 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
-const codexFingerprintMode = ref<CodexFingerprintMode>('session')
+// 默认 off：收敛必须由管理员显式开启，详见后端 GetCodexFingerprintMode。
+const codexFingerprintMode = ref<CodexFingerprintMode>('off')
 const codexFingerprintModeOptions = computed(() => [
   { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
@@ -1529,8 +1530,9 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableCodexFingerprintMode.value) {
     const extra = ensureExtra()
-    // session 是后端默认值；删除显式键可保持账号 extra 简洁。
-    if (codexFingerprintMode.value === 'session') {
+    // off 是后端默认值；删除显式键可保持账号 extra 简洁。
+    // 判定必须跟随默认值翻转，否则管理员显式选择的 session 会被当成默认值丢弃。
+    if (codexFingerprintMode.value === 'off') {
       delete extra.codex_fingerprint_mode
     } else {
       extra.codex_fingerprint_mode = codexFingerprintMode.value
@@ -1770,7 +1772,7 @@ watch(
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
-      codexFingerprintMode.value = 'session'
+      codexFingerprintMode.value = 'off'
       openAICompactMode.value = 'auto'
       openAICompactModelMappings.value = []
       rpmLimitEnabled.value = false

@@ -122,16 +122,19 @@ func codexSyncedVersion() string {
 }
 
 // codexOriginatorNormalization 控制 enforceCodexIdentityHeaders 是否把出站身份统一归一化为
-// 默认 Codex CLI 身份，由 gateway.disable_codex_originator_normalization 取反后在服务构造时发布。
+// openai.CodexDefaultOriginator 对应的默认 Codex 身份，
+// 由 gateway.disable_codex_originator_normalization 取反后在服务构造时发布。
 //
-// 默认开启：上游 /backend-api/codex 按 Originator 头分桶调度容量，落在降载桶的请求即使返回
-// HTTP 200，也会立刻推 SSE error(code=server_is_overloaded) 并以 response.failed 收尾——
-// 客户端表现为 "stream closed before response.completed"，网关侧则把它判为瞬时上游故障并
-// 冷却账号。判定因子是 originator 而非 User-Agent（upstream 实测：codex-tui 落入降载桶，
-// codex_cli_rs 正常）。归一化确保没有请求带着降载桶身份或陈旧版本出站。
+// 默认开启：上游 /backend-api/codex 在容量紧张时按客户端身份分优先级降载，被降载的请求即使
+// 返回 HTTP 200，也会立刻推 SSE error(code=server_is_overloaded) 并以 response.failed 收尾——
+// 客户端表现为 "stream closed before response.completed"。归一化确保没有请求带着第三方身份
+// 或陈旧版本出站。
+//
+// 具体身份取值见 openai.CodexDefaultOriginator：那是随上游容量策略变动的运营参数，
+// 不是协议常量，改动只需替换该常量一处。
 //
 // 关闭后退回「仅按最终 User-Agent 配对 originator + version 门槛校正」的收口语义，
-// 供上游调整分桶策略后回滚。
+// 供上游调整策略后回滚。
 var codexOriginatorNormalization = func() *atomic.Bool {
 	v := &atomic.Bool{}
 	v.Store(true)
@@ -150,9 +153,10 @@ func SetCodexOriginatorNormalizationEnabled(enabled bool) {
 // 上游有两道与身份相关的门：
 //  1. 配对校验：originator 必须与 User-Agent 首段（首个 '/' 之前的 client 名）配套且为官方
 //     客户端标识，version 头（若携带）不低于 codexUpstreamMinVersion，任一不满足即 404
-//     （issue #3901）。旧「非 Codex UA 安全兜底」正好制造错配：把 codex-tui 等官方 UA 强改为
-//     codex_cli_rs，却保留客户端自报的 originator=codex-tui。
-//  2. 容量分桶：按 originator 分桶降载，降载桶请求 HTTP 200 后立刻以 server_is_overloaded 收尾。
+//     （issue #3901）。旧「非 Codex UA 安全兜底」正好制造错配：把官方 UA 强改为固定客户端名，
+//     却保留客户端自报的 originator。
+//  2. 优先级降载：容量紧张时按客户端身份分优先级降载，被降载的请求 HTTP 200 后立刻以
+//     server_is_overloaded 收尾。
 //
 // 默认（归一化开启）直接改写为网关的规范身份，同时满足两道门；关闭后仅做配对与版本校正。
 //

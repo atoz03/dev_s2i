@@ -1216,8 +1216,8 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 		}
 	}
 	// 终态收口：originator 必须与最终 user-agent 首段配套且为官方身份，非官方 UA 整体回退为
-	// 默认 Codex CLI 身份（承接原「非 Codex UA 兜底」，并修复其把 codex-tui 等官方 UA 改写为
-	// codex_cli_rs 造成的 originator 错配 404），详见 issue #3901。
+	// 默认 Codex 身份（承接原「非 Codex UA 兜底」，并修复其把官方 UA 单方面改写、
+	// 却保留客户端 originator 造成的错配 404），详见 issue #3901。
 	if account != nil && account.Type == AccountTypeOAuth {
 		enforceCodexIdentityHeaders(headers)
 	}

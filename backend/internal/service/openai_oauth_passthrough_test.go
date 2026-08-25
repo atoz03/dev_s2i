@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -232,7 +233,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_StreamKeepsToolNameAndBodyNormali
 	// 出站身份归一化：陈旧的客户端版本（0.1.0 远低于上游 version 门槛，且陈旧版本会被优先降载）
 	// 统一改写为网关规范身份，originator 与 UA 首段保持配套。
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.Empty(t, upstream.lastReq.Header.Get("Cookie"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Api-Key"))
 	require.Empty(t, upstream.lastReq.Header.Get("X-Goog-Api-Key"))
@@ -441,7 +442,7 @@ func TestOpenAIGatewayService_OAuthLegacy_CompositeCodexUAUsesCodexOriginator(t 
 	_, err := svc.Forward(context.Background(), c, account, inputBody)
 	require.NoError(t, err)
 	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 	require.NotEqual(t, "opencode", upstream.lastReq.Header.Get("originator"))
 }
 
@@ -639,10 +640,10 @@ func TestOpenAIGatewayService_OAuthPassthrough_NonCodexUAFallbackToCodexUA(t *te
 	require.NoError(t, err)
 	require.Equal(t, false, gjson.GetBytes(upstream.lastBody, "store").Bool())
 	require.Equal(t, true, gjson.GetBytes(upstream.lastBody, "stream").Bool())
-	// 第三方 UA 推导不出官方身份，整体回退为默认 Codex CLI 身份（UA 与 originator 配套）。
+	// 第三方 UA 推导不出官方身份，整体回退为默认 Codex 身份（UA 与 originator 配套）。
 	// 断言常量而非字面量，避免版本升级时再次漂移。
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
-	require.Equal(t, "codex_cli_rs", upstream.lastReq.Header.Get("originator"))
+	require.Equal(t, openai.CodexDefaultOriginator, upstream.lastReq.Header.Get("originator"))
 }
 
 func TestOpenAIGatewayService_CodexCLIOnly_RejectsNonCodexClient(t *testing.T) {

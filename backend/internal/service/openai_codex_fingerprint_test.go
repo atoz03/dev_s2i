@@ -51,9 +51,10 @@ func TestGetCodexFingerprintMode(t *testing.T) {
 	}{
 		{"nil 账号", nil, codexFingerprintOff},
 		{"非 OAuth 账号", &Account{Platform: PlatformOpenAI, Type: "api_key"}, codexFingerprintOff},
-		{"无 extra 默认 session", newTestOAuthAccount(1, nil), codexFingerprintSession},
-		{"空值默认 session", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: ""}), codexFingerprintSession},
-		{"非法值默认 session", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "invalid"}), codexFingerprintSession},
+		// 默认必须是 off：升级本身不得改写既有账号的设备/会话指纹。
+		{"无 extra 默认 off", newTestOAuthAccount(1, nil), codexFingerprintOff},
+		{"空值默认 off", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: ""}), codexFingerprintOff},
+		{"非法值默认 off", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "invalid"}), codexFingerprintOff},
 		{"显式 off", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "off"}), codexFingerprintOff},
 		{"device", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "device"}), codexFingerprintDevice},
 		{"session", newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "session"}), codexFingerprintSession},
@@ -116,10 +117,18 @@ func TestResolveCodexFingerprintIDsFromRequest_ExplicitOff(t *testing.T) {
 	assert.Nil(t, ids, "显式 off 模式应返回 nil")
 }
 
-func TestResolveCodexFingerprintIDsFromRequest_DefaultIsSession(t *testing.T) {
+// 未配置过该字段的存量账号必须完全走透传：升级不能成为一次隐式的指纹改写。
+func TestResolveCodexFingerprintIDsFromRequest_DefaultIsOff(t *testing.T) {
 	account := newTestOAuthAccount(1, nil)
 	ids := resolveCodexFingerprintIDsFromRequest(account, nil)
-	require.NotNil(t, ids, "无 extra 默认 session 模式，应返回非 nil")
+	assert.Nil(t, ids, "无 extra 时默认 off，应返回 nil")
+}
+
+// 对照组：显式开启 session 仍按原语义收敛，确认上面的 nil 来自默认值而非收敛链路失效。
+func TestResolveCodexFingerprintIDsFromRequest_ExplicitSession(t *testing.T) {
+	account := newTestOAuthAccount(1, map[string]any{codexFingerprintModeExtraKey: "session"})
+	ids := resolveCodexFingerprintIDsFromRequest(account, nil)
+	require.NotNil(t, ids, "显式 session 模式应返回非 nil")
 	assert.Equal(t, codexFingerprintSession, ids.mode)
 	assert.NotEmpty(t, ids.sessionID)
 	assert.NotEmpty(t, ids.turnID)

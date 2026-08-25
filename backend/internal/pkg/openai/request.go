@@ -2,9 +2,18 @@ package openai
 
 import "strings"
 
-// CodexDefaultOriginator 是 Codex CLI 的默认 originator（codex-rs DEFAULT_ORIGINATOR）。
-// 网关推导不出官方身份时，出站身份整体回退到该标识配套的默认 Codex CLI 身份。
-const CodexDefaultOriginator = "codex_cli_rs"
+// CodexCLIOriginator 是 codex-rs 的历史默认 originator（DEFAULT_ORIGINATOR），
+// 保留用于官方客户端识别，不再作为网关出站身份。
+const CodexCLIOriginator = "codex_cli_rs"
+
+// CodexDefaultOriginator 是网关出站使用的默认 Codex 身份：交互式 TUI。
+// 推导不出官方身份时，出站身份整体回退到该标识配套的默认 Codex 身份。
+//
+// 选 codex-tui 而非 codex_cli_rs：codex-tui 是真实 Codex 流量占比最高的一支
+// （见 codexOfficialClientUAPrefixes 注释），把它归一化成 codex_cli_rs 反而让网关
+// 出站流量偏离大盘。上游 2026-08-02 曾据「codex-tui 落入降载桶」的容量快照做过
+// 相反选择，5 天后即修正回 codex-tui 并持续至今——该快照是上游容量策略而非协议常量。
+const CodexDefaultOriginator = "codex-tui"
 
 // CodexCLIUserAgentPrefixes matches Codex CLI User-Agent patterns
 // Examples: "codex_vscode/1.0.0", "codex_cli_rs/0.1.2"

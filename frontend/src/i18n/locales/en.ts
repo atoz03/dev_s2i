@@ -2755,10 +2755,10 @@ export default {
           'Only applies to OpenAI OAuth. When enabled, only Codex official client families are allowed; when disabled, the gateway bypasses this restriction and keeps existing behavior.',
         codexFingerprintMode: 'Codex fingerprint convergence',
         codexFingerprintModeDesc:
-          'When multiple users share one OAuth account, converge device and session identifiers to stable account-level values. Off passes client identifiers through unchanged.',
-        codexFingerprintOff: 'Off (passthrough)',
+          'When multiple users share one OAuth account, converge device and session identifiers to stable account-level values. Off passes client identifiers through unchanged. Defaults to off: turning convergence on rewrites the identifiers upstream already associates with this account, which has been observed to trigger quota penalties.',
+        codexFingerprintOff: 'Off (passthrough, default)',
         codexFingerprintDevice: 'Device only',
-        codexFingerprintSession: 'Device + Session (recommended)',
+        codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
         codexImageGenerationBridge: 'Codex image-generation bridge',
         codexImageGenerationBridgeDesc:

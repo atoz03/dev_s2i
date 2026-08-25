@@ -2901,10 +2901,10 @@ export default {
         codexCLIOnly: '仅允许 Codex 官方客户端',
         codexCLIOnlyDesc: '仅对 OpenAI OAuth 生效。开启后仅允许 Codex 官方客户端家族访问；关闭后完全绕过并保持原逻辑。',
         codexFingerprintMode: 'Codex 指纹收敛',
-        codexFingerprintModeDesc: '多人共享同一 OAuth 账号时，将设备和会话标识收敛为账号级恒定值；关闭时原样透传客户端标识。',
-        codexFingerprintOff: '关闭（透传）',
+        codexFingerprintModeDesc: '多人共享同一 OAuth 账号时，将设备和会话标识收敛为账号级恒定值；关闭时原样透传客户端标识。默认关闭：开启会改写上游已与该账号关联的标识，实测可能触发额度惩罚。',
+        codexFingerprintOff: '关闭（透传，默认）',
         codexFingerprintDevice: '仅设备',
-        codexFingerprintSession: '设备 + 会话（推荐）',
+        codexFingerprintSession: '设备 + 会话',
         codexFingerprintFull: '完全收敛',
         codexImageGenerationBridge: 'Codex 图片生成桥接',
         codexImageGenerationBridgeDesc:

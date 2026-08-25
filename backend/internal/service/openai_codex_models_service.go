@@ -17,6 +17,7 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -196,7 +197,7 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	headers := make(http.Header)
 	headers.Set("Authorization", "Bearer "+authToken)
 	headers.Set("Accept", "application/json")
-	headers.Set("Originator", "codex_cli_rs")
+	headers.Set("Originator", openai.CodexDefaultOriginator)
 	headers.Set("Version", clientVersion)
 	headers.Set("User-Agent", codexCLIUserAgent)
 	// clientVersion 来自客户端的 ?client_version=，低于上游门槛时清单请求会被 404

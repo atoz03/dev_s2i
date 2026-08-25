@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -168,7 +169,7 @@ func TestResolveCodexClientVersion(t *testing.T) {
 	// 同步值更高：生效，并重建 UA。
 	SetCodexSyncedVersionProvider(func() string { return "9.9.9" })
 	require.Equal(t, "9.9.9", resolveCodexClientVersion())
-	require.Contains(t, codexCanonicalUserAgent(), "codex_cli_rs/9.9.9")
+	require.Contains(t, codexCanonicalUserAgent(), openai.CodexDefaultOriginator+"/9.9.9")
 	require.Contains(t, codexCanonicalUserAgent(), codexCLIUserAgentSuffix)
 
 	// 读取侧只向前推进：provider 因数据库抖动返回空/非法/更低值时，
@@ -352,11 +353,11 @@ func TestCodexVersionSyncFeedsOutboundIdentity(t *testing.T) {
 	svc.runOnce()
 
 	header := http.Header{}
-	header.Set("originator", "codex-tui")
-	header.Set("user-agent", "codex-tui/0.1.0")
+	header.Set("originator", openai.CodexCLIOriginator)
+	header.Set("user-agent", openai.CodexCLIOriginator+"/0.1.0")
 	enforceCodexIdentityHeaders(header)
 
 	require.Equal(t, "9.9.9", header.Get("version"))
-	require.Contains(t, header.Get("user-agent"), "codex_cli_rs/9.9.9")
-	require.Equal(t, "codex_cli_rs", header.Get("originator"))
+	require.Contains(t, header.Get("user-agent"), openai.CodexDefaultOriginator+"/9.9.9")
+	require.Equal(t, openai.CodexDefaultOriginator, header.Get("originator"))
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,8 +16,8 @@ import (
 func TestCodexVersionConstants_Consistency(t *testing.T) {
 	require.Equal(t, codexCLIVersion, openAICodexProbeVersion,
 		"codexCLIVersion 与 openAICodexProbeVersion 必须保持一致")
-	require.Contains(t, codexCLIUserAgent, "codex_cli_rs/"+codexCLIVersion,
-		"codexCLIUserAgent 必须内嵌 codexCLIVersion")
+	require.Contains(t, codexCLIUserAgent, openai.CodexDefaultOriginator+"/"+codexCLIVersion,
+		"codexCLIUserAgent 必须由默认 originator 与 codexCLIVersion 拼成")
 	require.Contains(t, codexCLIUserAgent, codexCLIUserAgentSuffix,
 		"codexCLIUserAgent 必须带 OS/架构/终端后缀，裸 originator/version 易被判为非官方客户端")
 }
@@ -46,35 +47,48 @@ func TestCodexOriginatorNormalizationDefaultsOn(t *testing.T) {
 func TestEnforceCodexIdentityHeaders_NormalizationOn(t *testing.T) {
 	withCodexNormalization(t, true)
 
-	t.Run("降载桶身份 codex-tui 被归一化为 codex_cli_rs", func(t *testing.T) {
-		// 上游按 originator 分桶降载：codex-tui 落在降载桶，请求会 HTTP 200 后
-		// 立刻以 server_is_overloaded 收尾，客户端表现为 stream closed before response.completed。
+	t.Run("非默认官方身份被归一化为默认身份", func(t *testing.T) {
+		// 归一化把所有出站身份收敛到唯一的默认 Codex 身份，避免网关流量呈现
+		// 多种客户端与版本的混合形态。
 		h := http.Header{}
-		h.Set("originator", "codex-tui")
-		h.Set("user-agent", "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
+		h.Set("originator", "codex_vscode")
+		h.Set("user-agent", "codex_vscode/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
 
 		enforceCodexIdentityHeaders(h)
 
-		require.Equal(t, "codex_cli_rs", h.Get("originator"))
+		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
 		require.Equal(t, codexCLIVersion, h.Get("version"))
 	})
 
-	t.Run("第三方 UA 整体回退默认 Codex CLI 身份", func(t *testing.T) {
+	// 历史默认 originator 同样被收敛：codex_cli_rs 是 codex-rs 的旧默认值，
+	// 继续以它出站会让网关流量偏离当前真实客户端大盘。
+	t.Run("历史 CLI 身份被归一化为默认身份", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("originator", openai.CodexCLIOriginator)
+		h.Set("user-agent", openai.CodexCLIOriginator+"/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
+
+		enforceCodexIdentityHeaders(h)
+
+		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
+		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
+	})
+
+	t.Run("第三方 UA 整体回退默认 Codex 身份", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("originator", "cccc")
 		h.Set("user-agent", "cccc/1.0.0")
 
 		enforceCodexIdentityHeaders(h)
 
-		require.Equal(t, "codex_cli_rs", h.Get("originator"))
+		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
 	})
 
 	t.Run("陈旧 version 被提升到内置版本", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("originator", "codex_cli_rs")
-		h.Set("user-agent", "codex_cli_rs/0.125.0")
+		h.Set("originator", openai.CodexDefaultOriginator)
+		h.Set("user-agent", openai.CodexDefaultOriginator+"/0.125.0")
 		h.Set("version", "0.125.0")
 
 		enforceCodexIdentityHeaders(h)
@@ -85,8 +99,8 @@ func TestEnforceCodexIdentityHeaders_NormalizationOn(t *testing.T) {
 
 	t.Run("归一化后 originator 与 UA 首段仍然配套且幂等", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("originator", "codex-tui")
-		h.Set("user-agent", "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
+		h.Set("originator", "codex_vscode")
+		h.Set("user-agent", "codex_vscode/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
 
 		enforceCodexIdentityHeaders(h)
 		first := h.Clone()
@@ -120,36 +134,36 @@ func TestEnforceCodexIdentityHeaders_NormalizationOff(t *testing.T) {
 
 	t.Run("保留客户端真实身份并保证配对", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("originator", "codex-tui")
-		h.Set("user-agent", "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
+		h.Set("originator", "codex_vscode")
+		h.Set("user-agent", "codex_vscode/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color")
 
 		enforceCodexIdentityHeaders(h)
 
-		require.Equal(t, "codex-tui", h.Get("originator"))
-		require.Equal(t, "codex-tui/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color", h.Get("user-agent"))
+		require.Equal(t, "codex_vscode", h.Get("originator"))
+		require.Equal(t, "codex_vscode/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color", h.Get("user-agent"))
 	})
 
 	t.Run("错配的 originator 按最终 UA 重配", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("originator", "codex-tui")
+		h.Set("originator", "codex_vscode")
 		h.Set("user-agent", codexCLIUserAgent)
 
 		enforceCodexIdentityHeaders(h)
 
-		require.Equal(t, "codex_cli_rs", h.Get("originator"))
+		require.Equal(t, openai.CodexDefaultOriginator, h.Get("originator"))
 		require.Equal(t, codexCLIUserAgent, h.Get("user-agent"))
 	})
 
 	t.Run("低于门槛的 version 被提升，不携带时不补写", func(t *testing.T) {
 		h := http.Header{}
-		h.Set("originator", "codex_cli_rs")
+		h.Set("originator", openai.CodexDefaultOriginator)
 		h.Set("user-agent", codexCLIUserAgent)
 		h.Set("version", "0.125.0")
 		enforceCodexIdentityHeaders(h)
 		require.Equal(t, codexCLIVersion, h.Get("version"))
 
 		h2 := http.Header{}
-		h2.Set("originator", "codex_cli_rs")
+		h2.Set("originator", openai.CodexDefaultOriginator)
 		h2.Set("user-agent", codexCLIUserAgent)
 		enforceCodexIdentityHeaders(h2)
 		require.Empty(t, h2.Get("version"))
