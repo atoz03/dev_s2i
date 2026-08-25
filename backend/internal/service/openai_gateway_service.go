@@ -3065,14 +3065,21 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			return nil, fmt.Errorf("openai passthrough rejected before upstream: %s", rejectReason)
 		}
 
-		normalizedBody, normalized, err := normalizeOpenAIPassthroughOAuthBody(body, isOpenAIResponsesCompactPath(c))
+		compactPath := isOpenAIResponsesCompactPath(c)
+		normalizedBody, normalized, err := normalizeOpenAIPassthroughOAuthBody(body, compactPath)
 		if err != nil {
 			return nil, err
 		}
 		if normalized {
 			body = normalizedBody
 		}
-		reqStream = gjson.GetBytes(body, "stream").Bool()
+		// 归一化后的 stream 字段描述的是「怎么向上游取数」，不能直接当成客户端意图：
+		// compact 端点是非流式的（stream 字段被删除），非 compact 端点只接受流式
+		// （stream 被强制为 true）。若把它回写成 reqStream，请求 stream=false 的客户端
+		// 会拿到裸 SSE——响应侧的 SSE→JSON 转换分支反而永远走不到。
+		if compactPath {
+			reqStream = false
+		}
 	}
 
 	logger.LegacyPrintf("service.openai_gateway",
@@ -3565,14 +3572,27 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 
 		if !clientDisconnected {
+			// 首个客户端输出之前只写不 flush：pre-output failover 依赖「客户端尚未收到任何字节」，
+			// 提前 flush 会让换号重试把第二份 response.created 追加到同一条流上。
+			//
+			// 一旦开始输出就必须逐行 flush，不能只在「本行是客户端输出」时 flush：
+			// SSE 事件由 data 行之后的**空行**分帧，`data: [DONE]` 与 `event:` 行也都不是客户端输出。
+			// 只按 lineStartsClientOutput flush 会把终止事件的空行、[DONE] 及其空行留在
+			// bufio 缓冲里，函数返回时随缓冲一起丢弃——客户端收到的最后一帧永远缺少分帧空行，
+			// 解析器不会把它派发出去，表现为 "stream closed before response.completed"。
+			shouldFlush := clientOutputStarted || lineStartsClientOutput
 			if _, err := bufferedWriter.WriteString(line + "\n"); err != nil {
 				clientDisconnected = true
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-			} else if lineStartsClientOutput {
-				clientOutputStarted = true
-				if err := flushBuffered(); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming flush, continue draining upstream for usage: account=%d", account.ID)
+			} else {
+				if lineStartsClientOutput {
+					clientOutputStarted = true
+				}
+				if shouldFlush {
+					if err := flushBuffered(); err != nil {
+						clientDisconnected = true
+						logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming flush, continue draining upstream for usage: account=%d", account.ID)
+					}
 				}
 			}
 		}
