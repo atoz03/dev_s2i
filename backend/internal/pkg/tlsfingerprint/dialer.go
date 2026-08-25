@@ -11,10 +11,38 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/net/proxy"
 )
+
+const (
+	// dialTimeout 限制 DNS 解析 + TCP 建连耗时。
+	// 零值 net.Dialer 没有任何上限，上游或代理被解析到不可达 IP 时只能等内核 TCP
+	// 重传耗尽（Linux 约 130 秒）；而账号故障转移是串行的，一次请求会阻塞数分钟且
+	// 不写中间错误，客户端表现为「长时间无首字后直接结束」。
+	// 与 proxyutil / repository 上游 transport 的建连超时保持同一量级。
+	dialTimeout = 10 * time.Second
+	// dialKeepAlive 与上游 transport 的 KeepAlive 对齐。
+	dialKeepAlive = 30 * time.Second
+)
+
+// newBaseDialer 返回带建连超时的 TCP dialer，供各代理分支复用。
+func newBaseDialer() *net.Dialer {
+	return &net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}
+}
+
+// dialSOCKS5Context 在 SOCKS5 dialer 支持时走 DialContext，否则回退到 Dial。
+// golang.org/x/net/proxy 的 SOCKS5 dialer 实现了 proxy.ContextDialer，但该接口不在
+// proxy.Dialer 里；直接调用 Dial 会丢掉调用方的 ctx（取消与超时都传不进去），
+// 只剩 forward dialer 的建连超时兜底。
+func dialSOCKS5Context(ctx context.Context, dialer proxy.Dialer, addr string) (net.Conn, error) {
+	if ctxDialer, ok := dialer.(proxy.ContextDialer); ok {
+		return ctxDialer.DialContext(ctx, "tcp", addr)
+	}
+	return dialer.Dial("tcp", addr)
+}
 
 // Profile contains TLS fingerprint configuration.
 // All slice fields use built-in defaults when empty.
@@ -121,7 +149,7 @@ var (
 // If baseDialer is nil, direct TCP dial is used.
 func NewDialer(profile *Profile, baseDialer func(ctx context.Context, network, addr string) (net.Conn, error)) *Dialer {
 	if baseDialer == nil {
-		baseDialer = (&net.Dialer{}).DialContext
+		baseDialer = newBaseDialer().DialContext
 	}
 	return &Dialer{profile: profile, baseDialer: baseDialer}
 }
@@ -160,7 +188,9 @@ func (d *SOCKS5ProxyDialer) DialTLSContext(ctx context.Context, network, addr st
 		proxyAddr = net.JoinHostPort(d.proxyURL.Hostname(), "1080") // Default SOCKS5 port
 	}
 
-	socksDialer, err := proxy.SOCKS5("tcp", proxyAddr, auth, proxy.Direct)
+	// forward dialer 不能用 proxy.Direct：它是零值 net.Dialer，到 SOCKS5 代理自身的
+	// TCP 建连没有任何上限。
+	socksDialer, err := proxy.SOCKS5("tcp", proxyAddr, auth, newBaseDialer())
 	if err != nil {
 		slog.Debug("tls_fingerprint_socks5_dialer_failed", "error", err)
 		return nil, fmt.Errorf("create SOCKS5 dialer: %w", err)
@@ -168,7 +198,8 @@ func (d *SOCKS5ProxyDialer) DialTLSContext(ctx context.Context, network, addr st
 
 	// Step 2: Establish SOCKS5 tunnel to target
 	slog.Debug("tls_fingerprint_socks5_establishing_tunnel", "target", addr)
-	conn, err := socksDialer.Dial("tcp", addr)
+	// 优先走 DialContext：Dial 完全忽略 ctx，调用方的取消与超时都传不进来。
+	conn, err := dialSOCKS5Context(ctx, socksDialer, addr)
 	if err != nil {
 		slog.Debug("tls_fingerprint_socks5_connect_failed", "error", err)
 		return nil, fmt.Errorf("SOCKS5 connect: %w", err)
@@ -197,8 +228,7 @@ func (d *HTTPProxyDialer) DialTLSContext(ctx context.Context, network, addr stri
 		}
 	}
 
-	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
+	conn, err := newBaseDialer().DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		slog.Debug("tls_fingerprint_http_proxy_connect_failed", "error", err)
 		return nil, fmt.Errorf("connect to proxy: %w", err)
