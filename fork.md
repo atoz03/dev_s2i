@@ -1,536 +1,346 @@
-# sub2api fork 协作与合并偏好（长期约定）
+# sub2api fork 协作与合并偏好
 
-## 结论
+本文件固定 fork 的协作策略、冲突处理口径与决议记录。目标：同步 upstream 时尽量吸收有效更新，
+同时不改动本地已确认的实现与行为。
 
-本文件用于固定 fork 协作策略、冲突处理口径与个人偏好，目标是：同步 upstream 时尽量吸收有效更新，同时避免改到本地不希望变化的实现与行为。
+- **第一部分「长期约定」**：常驻规则，每次动手前先看这里。
+- **第二部分「决议记录」**：按时间倒序（新 → 旧），每条记录 **取舍 / 原因 / 回退**三要素。
 
-## 2026-08-25（第三轮）OAuth 透传流式收尾丢帧（本地缺陷，非回灌）
+---
 
-用户报「OAuth 账号开启透传就出问题，不开透传正常」。这是本 fork 自己的缺陷，
-upstream 无对应提交。
+# 一、长期约定
 
-### 缺陷一：透传流式的收尾字节留在 bufio 缓冲里被丢弃（根因）
+## 工作方式
 
-`handleStreamingResponsePassthrough` 里整个函数只有一处 flush，且条件是
-「本行是客户端输出事件」：
+- 优先真实落地：UI 要看真实页面与保存链路，不把「后端有字段」当完成。
+- 验证通过后默认做到收尾动作（commit / push / 发布），不做冗余停顿。
+- 遇到 cleanup 或回归修复，优先定向补洞，不把明确不要的旧逻辑加回来。
+- 修改前先定位影响范围与依赖；修改后不得留下无效代码、半删除状态、占位实现。
 
-```go
-} else if lineStartsClientOutput {
-    clientOutputStarted = true
-    if err := flushBuffered(); err != nil { ... }
-}
-```
+## 质量与验证
 
-而 SSE 事件是由 data 行**之后的空行**分帧的，`data: [DONE]` 与 `event:` 行也都不算
-客户端输出事件。于是一条正常流的收尾顺序是：
+- 默认补齐或更新测试，并给出可复现的验证命令与结果摘要。
+- **必须全盘跑 lint 和 CI。**
+- 收尾默认给：修改清单、报错对应修复点、验证结果、当前状态。
 
-1. `data: {"type":"response.completed",...}` → 是客户端输出 → 写入并 flush ✅
-2. 分帧空行 → 写入，**不 flush**
-3. `data: [DONE]` → 不是客户端输出 → 写入，**不 flush**
-4. 分帧空行 → 写入，**不 flush**
+### 本仓库固有的验证陷阱
 
-函数返回时既无 `defer flush` 也无收尾 flush（原生路径的 `finalizeStream` 里有），
-2–4 随 4KB 缓冲一起丢弃。客户端拿到的最后一帧**永远缺少分帧空行**，
-符合规范的 SSE 解析器不会把该事件派发给应用层——codex-rs 因此在 EOF 时
-从未见过 `response.completed`，报 `stream closed before response.completed`。
+| 陷阱 | 说明 |
+| --- | --- |
+| `golangci-lint` | 必须在**没有** `backend/internal/web/dist` 构建产物时运行（与 CI 的 lint job 一致）。本地残留 dist 会让 staticcheck 对 `internal/server/router.go` 误报 SA4023。 |
+| 单元测试 | 带 `//go:build unit`，须用 `-tags=unit` 运行，否则「跑绿了」其实一条没执行。同理，只被 unit 测试引用的 helper 会被 lint 误报未使用，应放进测试文件。 |
+| `wire` 代码生成 | 与当前 Go 工具链不兼容（`package "golang.org/x/sys/unix" without types`）。`cmd/server/wire_gen.go` 为**手工同步**：改动 provider 后须逐项核对参数顺序、依赖声明先于使用，并 diff 确认 `provideCleanup` 在 `wire.go` 与 `wire_gen.go` 中签名一致。 |
+| Go 版本升级 | 版本号散落在 `backend/go.mod`、3 个 workflow 的硬断言、3 个 Dockerfile、README 徽章。CI **不会**发现 Dockerfile 漏改。清单见 `DEV_GUIDE.md`。 |
 
-已在测试中直接复现：修复前客户端可见字节流以
-`data: {"type":"response.completed",...}\n` 结尾，无空行、无 `[DONE]`。
+## 仓库与发布偏好
 
-原生路径 `shouldFlush := queueDrained && clientOutputStarted` 一旦开始输出就逐行 flush，
-所以同样的账号不开透传就正常——这正是用户观察到的 A/B。
+- 仓库维护类任务默认先同步主线并检查状态（`git pull --ff-only`、`git log`、`git status`）。
+- 网络或推送异常时主动排查并完成发布链路，不把基础操作回抛。
+- Git 提交邮箱固定 `31232741+atoz03@users.noreply.github.com`。
+- 回退优先 `git revert`，不改写已发布的 tag 历史。
 
-修复：透传采用同一不变式 `shouldFlush := clientOutputStarted || lineStartsClientOutput`。
-首个客户端输出**之前**仍然只写不 flush——pre-output failover 依赖「客户端尚未收到任何字节」，
-提前 flush 会让换号重试把第二份 `response.created` 追加到同一条流上（已加对照用例钉住）。
-顺带修掉长推理阶段的静默：reasoning / in_progress 等非输出事件此前也从不 flush。
+## upstream 合并策略
 
-### 缺陷二：客户端请求 stream=false 时收到裸 SSE
+**总原则**：其他模块照常合并，尽量吸收 upstream 的非冲突更新；对标记「本地优先」的模块执行白名单保留。
 
-`normalizeOpenAIPassthroughOAuthBody` 对非 compact 请求强制 `stream=true`
-（ChatGPT `/backend-api/codex` 非 compact 端点只接受流式，该行为由既有用例钉住，保留）。
-但随后 `reqStream = gjson.GetBytes(body, "stream").Bool()` 把这个**上游取数方式**
-回写成了**客户端意图**，于是 `handleNonStreamingResponsePassthrough` 里那段
-「上游返回 SSE 时折叠回 JSON」的分支对 OAuth 非 compact 永远走不到，
-请求 JSON 的客户端直接收到 SSE 帧。
+**固定保留项（本地优先，高优先级）**
 
-修复：只在 compact 分支回写 `reqStream = false`（该端点确实非流式，字段已被删除），
-非 compact 保留调用方传入的客户端意图，响应侧由既有的 `handlePassthroughSSEToJSON` 折叠。
+- image 生图链路保留本地实现为主。
+- 冲突时优先保留本地版本的文件：
+  - `backend/internal/service/openai_images.go` / `openai_images_test.go`
+  - `backend/internal/service/openai_codex_transform.go`
+  - `frontend/src/components/account/AccountTestModal.vue`
+  - `frontend/src/components/admin/account/AccountTestModal.vue` 及其 spec
+  - `frontend/src/views/admin/GroupsView.vue`
+- settings 链路（DTO / service / handler / `SettingsView.vue` / contract 用例）本地优先：
+  新增开关默认走**配置文件**而非 admin settings API，避免动到 settings 契约。
+- `backend/internal/pkg/antigravity/*` 已物理删除，不恢复。
+- 后端 OpenAI 网关维持单体 `openai_gateway_service.go`，不跟随 upstream 的文件拆分。
+- 前端 i18n 维持本地 `en.ts` / `zh.ts` 单文件，不恢复 upstream 的分片结构。
 
-### 回退方式
+**冲突与冗余处理顺序**
 
-- 缺陷一：把 `shouldFlush := clientOutputStarted || lineStartsClientOutput` 改回
-  `else if lineStartsClientOutput` 单条件 flush。
-- 缺陷二：把 `if compactPath { reqStream = false }` 改回
-  `reqStream = gjson.GetBytes(body, "stream").Bool()`。
+1. 先判断是否与本地主链路重复或引入行为漂移；避免双实现并存。
+2. 能局部吸收的安全修复（边界保护、测试补洞）再定向移植。
+3. 会改变既有行为的改动**先记录、再决定**是否接入。
 
-## 2026-08-25（第二轮）Codex 指纹默认值回退、出站身份改用 codex-tui、降载错误码改写
+**新增开关的命名约定**：一律用**反义命名**（`disable_xxx`）。正向命名的 Go 零值 `false`
+会让未经 viper 加载而手工构造的 `Config` 静默关掉全局保护，`viper.SetDefault` 救不了这条路径。
 
-上一轮（见下一节）发布 v1.4.8 后，用户报「清空 `model_mapping` 后仍持续
-stream closed before response.completed」。据此重新对齐 upstream 在 08-07 之后的
-Codex 产线修订，回灌以下四项。
+---
 
-### 本次取舍
+# 二、决议记录（新 → 旧）
 
-- **Codex 指纹收敛默认值 `session` → `off`**（回灌 upstream `fce41e318` 的默认值部分）。
-  `GetCodexFingerprintMode()` 原本对「从未配置过该字段」的账号返回 `session`，
-  等于**升级动作本身**就静默改写了每个存量 OAuth 账号的 `installation_id` /
-  `session_id` / `thread_id`。upstream 在 v0.1.175 犯过同一个错并回滚：
-  额度回退报障 #5555 / #5556 / #5582 与该版本边界吻合，且有 A/B 证据表明回滚到
-  v0.1.173 即恢复额度。收敛是需要管理员判断的策略，不能由默认值代为决定。
-  - 三个账号弹窗（Edit / Create / BulkEdit）的持久化判定必须**跟随默认值一起翻转**为
-    `=== 'off'` / `!== 'off'`。沿用旧的 `'session'` 判定会把管理员**显式选择**的
-    session 当成默认值删掉——这是本次改动里最容易漏的一处。
-  - i18n 去掉 session 选项的「推荐」字样，并在说明里点明默认关闭及其原因。
-  - **不吸收** upstream 把收敛扩展到透传路径的部分：本 fork 的
-    `buildUpstreamRequestOpenAIPassthrough` 从来不做指纹改写，扩展它属于新增功能，
-    与「不引入非必要特性」的约定冲突。默认翻转后本 fork 是严格更保守的一侧。
-- **出站默认 originator `codex_cli_rs` → `codex-tui`**（跟随 upstream `dbb42881c`）。
-  上一轮依据 upstream `e1b76e224`（08-02）的「codex-tui 落在降载桶」快照做了相反选择。
-  该提交自己就写明「降载桶集合是上游容量策略快照而非协议常量」——**这是一条声明了会过期的前提**。
-  upstream 在 5 天后（08-07）翻转为 codex-tui，并在其后三周四次身份提交
-  （`fce41e318` / `6793d5ac8` / `bb6c3b4f6` / `d493ce0bb`，最晚 08-22）中一直保持该口径。
-  本 fork 自己的 `codexOfficialClientUAPrefixes` 注释也记着 codex-tui 是「真实流量占比最高的一支」，
-  把它改写成 codex_cli_rs 反而让网关出站偏离真实客户端大盘。
-  - 拆成两个常量：`CodexCLIOriginator`（历史默认值，仅用于官方客户端识别）与
-    `CodexDefaultOriginator`（出站默认身份）。`codexCLIUserAgent` 及所有探针路径由后者派生，
-    改一处即可整体切换。
-  - 回退方式不变：`gateway.disable_codex_originator_normalization: true` 关闭归一化，
-    退回「保留客户端真实身份 + 保证配对」。
-- **流内降载错误码对客户端改写**（回灌 upstream `c33c3208e` 的客户端改写部分）。
-  上游容量降载的真实序列是 `event: error` → `event: response.failed`，两帧都带
-  `server_is_overloaded` / `slow_down`。Codex CLI 把这组码当**致命集**处理：收到即终止会话
-  （提示 "Selected model is at capacity."），客户端内置退避重试不会触发。
-  新增 `rewriteOpenAICapacityShedErrorCodeForClient`，在**已无法再改走 failover**（流中途已有输出）
-  时把这两个码改写为致命集之外的 `server_error`，错误消息与其余字段原样保留，
-  让客户端自己退避重试。透传与原生两条流式路径对称接入。
-  监控、计费与账号状态判定一律基于**改写前**的原始事件。
-- **TLS 指纹链路补齐建连超时**（与 upstream `66ad405dd` 同类，upstream 只修了非指纹路径）。
-  `66ad405dd` 的两处（`buildUpstreamTransport` 的 `DialContext` / `TLSHandshakeTimeout`、
-  proxyutil SOCKS5 forward dialer）本 fork 已具备，但 `internal/pkg/tlsfingerprint/dialer.go`
-  仍有三处零值 `net.Dialer`：`NewDialer` 缺省分支、`HTTPProxyDialer` 的 CONNECT 建连、
-  以及 `SOCKS5ProxyDialer` 用 `proxy.Direct` 作 forward dialer。
-  其中 SOCKS5 分支还调用了忽略 ctx 的 `Dial`，调用方的取消与超时完全传不进去。
-  统一改为 10s 超时的 dialer，并新增 `dialSOCKS5Context` 优先走 `DialContext`。
-  该缺陷的客户端表现正是「长时间无首字后直接结束」，与本次报障同类。
+## 2026-08-25 · v1.4.9 — OAuth 透传流式修复 + Codex 身份默认值对齐
 
-### 原因与影响
+### 本地缺陷（非回灌，upstream 无对应提交）
 
-- 指纹默认值翻转**只影响从未配置过该字段的账号**：显式配置 off / device / session / full 的
-  账号行为完全不变。翻转后这些账号恢复为原样透传客户端标识。
-- originator 翻转会让出站 UA/originator/version 从 `codex_cli_rs/...` 变为 `codex-tui/...`。
-  配对不变式（originator == UA 首段）与 `#3901` 版本门槛均不受影响，已有用例继续钉住。
-- 降载码改写只在**转发路径**生效；能走 failover 的降载仍然走 failover，客户端拿不到降载帧。
+报障：OAuth 账号**开启透传**稳定报 `stream closed before response.completed`，同账号不开透传正常。
 
-### 本轮不吸收
+1. **透传流式收尾字节被丢弃（根因）**。`handleStreamingResponsePassthrough` 全函数只有一处 flush，
+   条件是「本行是客户端输出事件」。而 SSE 事件由 data 行之后的**空行**分帧，`data: [DONE]` 与
+   `event:` 行都不算客户端输出，于是终止事件的分帧空行、`[DONE]` 及其空行全部留在 4KB bufio
+   缓冲里，函数返回时随缓冲丢弃（原生路径在 `finalizeStream` 有收尾 flush，透传没有）。
+   客户端拿到的最后一帧永远缺少分帧空行，SSE 解析器不会派发该事件。
+   **修复**：改用与原生路径同一不变式 `shouldFlush = clientOutputStarted || lineStartsClientOutput`。
+   首个输出**之前**仍只写不 flush——pre-output failover 依赖「客户端尚未收到任何字节」，
+   提前 flush 会让换号重试把第二份 `response.created` 追加到同一条流上。
+   顺带修掉长推理阶段的静默（reasoning / in_progress 等此前也从不 flush）。
+2. **`stream=false` 收到裸 SSE**。`normalizeOpenAIPassthroughOAuthBody` 对非 compact 强制
+   `stream=true`（该端点只接受流式，行为保留），但结果被回写成 `reqStream`，把**上游取数方式**
+   当成了**客户端意图**，导致「上游返回 SSE 时折叠回 JSON」的分支永远走不到。
+   **修复**：只在 compact 分支回写 `reqStream = false`。
 
-- `fcd3bc127`（no-account 时返回 404 `model_not_found` 而非 503）+ 其依赖项
-  `6b0ec50f2`（把模型配置错误移出 SLA 口径）。前者 689 行 / 13 文件、新增
-  `no_account_error.go` 与两套 model availability 服务，且**改变对客户端的错误契约**；
-  在与 upstream 相差 2629 个提交的路径上属于需要单独决策的改动，留给用户拍板。
-  记一笔重要事实：用户最初贴出的 404 文案
-  `Model "gpt-5.6-sol" is not supported by any configured account in this group`
-  只可能来自包含 `fcd3bc127` 的构建（`git log -S` 已验证：在 upstream/main，不在本 fork），
-  因此报障实例**未必**运行本 fork。
-- upstream `RequestScopedTransient` + `TempUnscheduleRetryableError` 守卫：本 fork 的
-  `tempUnscheduleGoogleConfigError` / `tempUnscheduleEmptyResponse` 早已是
-  `gateway_residual_compat.go` 里的空实现，`TempUnscheduleRetryableError` 整体不产生副作用，
-  「一个降载请求沿 failover 把整池账号摘掉」在本 fork 不成立。加守卫等于新增死代码，故不加。
-- upstream 的 Codex 身份体系重构（`bb6c3b4f6` 把凭据面统一到推理解析链、面板 UA 设置、
-  `resolveCodexOutboundIdentity`）：与既有决议一致，继续不吸收。
+两处均加用例，并验证「还原修复后失败」。
 
-### 回退方式
+### 定向回灌
 
-- 指纹默认值：改回 `GetCodexFingerprintMode()` 的 `default:` 分支为 `codexFingerprintSession`，
-  并同步翻回三个弹窗的持久化判定（两处必须成对改，否则显式配置会被丢弃）。
-- originator：把 `CodexDefaultOriginator` 改回 `"codex_cli_rs"` 一处即可；
-  或运行期直接 `gateway.disable_codex_originator_normalization: true`。
-- 降载码改写：删除两条流式路径上的 `rewriteOpenAICapacityShedErrorCodeForClient` 调用。
-- 建连超时：`internal/pkg/tlsfingerprint/dialer.go` 的 `newBaseDialer()` 改回零值 `net.Dialer`。
+- **指纹收敛默认 `session` → `off`**（upstream `fce41e318`）。原默认让**升级动作本身**就静默改写
+  每个存量 OAuth 账号的 `installation_id` / `session_id` / `thread_id`；upstream 有对应的额度回退
+  报障与 A/B 回滚证据（#5555 / #5556 / #5582）。
+  ⚠️ 三个账号弹窗（Edit / Create / BulkEdit）的持久化判定必须**跟随默认值成对翻转**为
+  `=== 'off'`；沿用旧的 `'session'` 判定会把管理员**显式选择**的 session 当成默认值删掉。
+- **出站默认 originator `codex_cli_rs` → `codex-tui`**（upstream `dbb42881c`），**修正 v1.4.8 的选择**。
+  v1.4.8 依据 upstream `e1b76e224`（08-02）的降载桶快照选了 `codex_cli_rs`，而该提交自己就写明
+  「降载桶集合是上游容量策略快照而非协议常量」——一条声明了会过期的前提。upstream 5 天后翻转为
+  `codex-tui` 并持续三周四次身份提交保持该口径；本 fork 自己的注释也记着 codex-tui 是「真实流量
+  占比最高的一支」。拆成 `CodexCLIOriginator`（仅用于识别）与 `CodexDefaultOriginator`（出站默认），
+  四处硬编码站点改为引用常量。
+- **流内降载错误码改写**（upstream `c33c3208e` 的客户端改写部分）。`server_is_overloaded` /
+  `slow_down` 在 Codex CLI 属**致命集**，收到即终止会话。已无法改走 failover 时改写为
+  `server_error`（消息与其余字段原样保留）；监控、计费与账号状态判定一律基于**改写前**的原始事件。
+- **TLS 指纹链路建连超时**（与 upstream `66ad405dd` 同类，upstream 只修了非指纹路径）。
+  `tlsfingerprint/dialer.go` 仍有三处零值 `net.Dialer`（无上限，只能等内核 TCP 重传约 130 秒），
+  且 SOCKS5 分支调用忽略 ctx 的 `Dial`。统一改 10s 超时并新增 `dialSOCKS5Context` 优先走 `DialContext`。
+- **dompurify 3.3.1 → 3.4.14**（upstream `4a1da2950`）+ pnpm override。该库用于公告、自定义页面、
+  法务文档与 SVG 净化，均经 `v-html` 渲染，绕过 sanitizer 可直接形成存储型 XSS。
 
-## 2026-08-25 Go 1.26.6 安全基线与 Codex 出站身份收口定向回灌
+### 不吸收
 
-### 本次取舍
+- upstream 把指纹收敛**扩展到透传路径**：本 fork 的 `buildUpstreamRequestOpenAIPassthrough`
+  从来不做指纹改写，扩展它属于新增功能。默认翻转后本 fork 是严格更保守的一侧。
+- upstream 的 `RequestScopedTransient` + `TempUnscheduleRetryableError` 守卫：本 fork 的
+  `tempUnscheduleGoogleConfigError` / `tempUnscheduleEmptyResponse` 早已是空实现，
+  「一个降载请求沿 failover 把整池账号摘掉」在本 fork 不成立，加守卫等于新增死代码。
+- `fcd3bc127`（无账号支持模型时返回 404 `model_not_found` 而非 503）+ 其依赖 `6b0ec50f2`：
+  689 行 / 13 文件，新增 `no_account_error.go` 与两套 model availability 服务，且**改变对客户端的
+  错误契约**，需单独决策。
+- upstream 的 Codex 身份体系重构（`fce41e318` / `6793d5ac8` / `bb6c3b4f6` 把凭据面统一到推理解析链、
+  `d493ce0bb` 按账号收窄、面板 UA 设置、`resolveCodexOutboundIdentity` 解析链）：与既有决议一致，
+  只取其**默认值结论**（见上「定向回灌」），不吸收结构。
 
-- **Security Scan 红灯（backend-security）**：根因是 Go 1.26.5 标准库 6 条已知漏洞
-  （`GO-2026-6218` net/url、`GO-2026-6090` crypto/tls、`GO-2026-6089` net/http、`GO-2026-6088`
-  encoding/xml、`GO-2026-5972` encoding/asn1、`GO-2026-5026` net/http），全部 `Fixed in go1.26.6`。
-  跟随 upstream `11e1e2288` 把 `backend/go.mod`、三个 workflow 的版本硬断言、三个 Dockerfile 的
-  Go 构建镜像、README 徽章与 `DEV_GUIDE.md` 升级清单一起升到 **1.26.6**。
-  不跟随 upstream 的 Go 1.27.0（`cbe258fd1`）：那条带 jsonv2 适配与 golangci-lint v2.13 升级，
-  超出「只修安全红灯」的边界；1.26.6 已让 govulncheck 归零。
-  前端依赖（dompurify 3.3.1 / axios 1.18.1 / nanoid 3.3.18 / postcss override ≥8.5.18）本地已高于
-  upstream 各条安全提交，`pnpm audit` 门禁本地通过，本轮无需变更。
-- **`gpt-5.6-sol` 404 与 "stream closed before response.completed"**：两者同源，根因是出站
-  Codex 身份陈旧且自相矛盾。定向回灌 upstream `8a51119e3`（issue #3901 配对校验）与 `e1b76e224`
-  （按 originator 分桶降载）的**语义**，不吸收其后续的 Codex 身份体系重构（面板 UA 设置、
-  版本自动同步、`resolveCodexOutboundIdentity` 解析链），与既有「不吸收 upstream Codex 身份体系」
-  的决议保持一致：
-  - `codexCLIVersion` 由 `0.125.0` 升到 **`0.149.1`**（对齐 2026-08-24 官方 `rust-v0.149.1`）。
-    上游对携带且低于 `0.144.0` 的 version 头一律 404，`0.125.0` 稳定踩线。
-  - `codexCLIUserAgent` 改为由 `codexCLIVersion` + `codexCLIUserAgentSuffix` 拼出的官方形态
-    （`codex_cli_rs/<ver> (Ubuntu 22.4.0; x86_64) xterm-256color`），裸 `originator/version`
-    形态易被上游判为非官方客户端；`openAICodexProbeVersion` 改为直接引用 `codexCLIVersion`。
-  - `internal/pkg/openai/request.go` 补齐官方客户端识别：新增 `codex-tui/`（真实流量占比最高的一支）
-    与 `codex_vscode_copilot/`；originator 改为**精确集合 + `Codex ` 家族前缀**；新增
-    `PairCodexClientIdentity` / `codexUATrailerName`（从 UA 尾部 `(name; version)` 恢复被
-    `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` 改写的真实身份）。
-  - 新增 `internal/service/openai_codex_identity.go` 作为唯一收口点 `enforceCodexIdentityHeaders`，
-    接入 HTTP 转发、OAuth 透传、WS 握手、用量探针、账号 responses 测试、账号生图测试、Codex 模型清单
-    共七条出站路径，替换原「非 Codex UA 兜底」。
-- **本轮明确的行为变化**（三项，均为有意）：
-  1. **出站身份归一化默认开启**：OAuth 出站请求的 `user-agent` / `originator` / `version` 一律改写为
-     网关规范 Codex CLI 身份。原因是上游按 originator 分桶降载，`codex-tui` 落在降载桶（upstream 实测：
-     `codex_cli_rs` 配 curl UA 也正常，判定因子是 originator 而非 UA），降载请求 HTTP 200 后立刻以
-     `server_is_overloaded` 收尾——正是本次报障的 "stream closed before response.completed"。
-     只做「保留客户端身份 + 保证配对」不足以脱离降载桶，故采用 upstream 已发布的默认口径。
-  2. **`codex_cli_only` 访问门收紧**：原 `"codex "` 前缀经 `TrimSpace` 退化成裸 `"codex"` 并走
-     `Contains` 兜底，导致 `evil-codex_thing`、`Mozilla/5.0 codex bypass` 之类伪造标识都被判为官方客户端，
-     可绕过该限制（本地已实测复现）。改为独立的 `codexOfficialClientFamilyPrefix`（保留空格、只做 HasPrefix）
-     ＋ originator 精确集合，访问门改用 `IsCodexOfficialClientRequestStrict`。透传路径保留宽松版，行为不变。
-  3. **账号生图测试的 `originator=opencode`** 与 Codex UA 错配，上游一律 404，该测试原本恒失败；现已收口。
-- **本轮不吸收**：
-  - `280c1c862`（空 `response.completed` 失败转移）：本 fork 已有 `openai_silent_refusal.go` 全套基建，
-    但标准流式路径是 `handleStreamingResponse`，与 upstream 的 `handleStreamingResponseWithReasoning`
-    结构不同，且缺 `openAIStreamEventTypeIsTerminal`；只移植透传半边会让两条流式路径口径不一致，
-    留待单独评估。
-  - Grok 产线、channel-monitor-v2、Responses Lite 系列、Go 1.27.0 升级。
-- **Codex 客户端版本号自动同步（本轮一并回灌，只取后端内核）**：
-  硬编码版本号会随时间自然腐化，而上游对陈旧版本既有 404 门槛又会优先降载，
-  「版本号停更」等价于慢性故障，因此把 upstream `2eb24814f` / `2d3e84520` / `4c4ff3638` 的
-  **同步内核**移植过来，但**不吸收其管理面**：
-  - 新增 `OpenAICodexVersionSyncService`：每 6 小时从 `openai/codex` 取最新稳定版。
-    主路径 `/releases/latest`（约 0.3MB，本身排除 draft/prerelease）；当 latest 属于同仓库其他
-    组件（如 `rusty-v8-*`）被 `rust-v` 前缀挡掉时，回退扫一页 release（`per_page=30`）。
-    两条路径共用同一套过滤，语义不分叉。**只向前推进**，抓取失败保持既有值（不清空、不降级）。
-    启动防抖：借设置行自身 `UpdatedAt` 判断，一个周期内已同步过则跳过，避免滚动发布/崩溃重启
-    把「启动即同步」放大成对 GitHub 的连续请求。
-  - 复用本地既有的 `GitHubReleaseClient` 端口（`FetchLatestRelease` 已有，新增 `FetchRecentReleases`
-    并对列表响应加 32MiB 读取上限；`GitHubRelease` 补 `Draft` / `Prerelease` 两个字段）。
-    不新增任何 HTTP 栈，代理配置与直连回退策略沿用既有实现。
+### 记一笔重要事实
+
+报障者贴出的 404 文案 `Model "gpt-5.6-sol" is not supported by any configured account in this group`
+**只可能来自包含 upstream `fcd3bc127` 的构建**（`git log -S` 已验证：在 `upstream/main`，不在本 fork）。
+其部署是「代理的代理」——下一跳是运行 upstream 版本的 sub2api。因此 OAuth 专属修复（身份、指纹、
+版本同步）对这类 API Key + `base_url` 账号**不生效**（`enforceCodexIdentityHeaders` 只在
+`account.Type == AccountTypeOAuth` 下调用），生效的是流式 flush、建连超时与前端依赖。
+
+### 回退
+
+| 项 | 方式 |
+| --- | --- |
+| 透传 flush | `shouldFlush` 改回 `else if lineStartsClientOutput` 单条件 |
+| stream 意图 | `if compactPath { reqStream = false }` 改回 `reqStream = gjson...Bool()` |
+| 指纹默认值 | `GetCodexFingerprintMode()` 的 `default:` 改回 `codexFingerprintSession`，**并成对翻回**三个弹窗判定 |
+| originator | `CodexDefaultOriginator` 改回 `"codex_cli_rs"`；或运行期 `gateway.disable_codex_originator_normalization: true` |
+| 降载码改写 | 删除两条流式路径上的 `rewriteOpenAICapacityShedErrorCodeForClient` 调用 |
+| 建连超时 | `tlsfingerprint/dialer.go` 的 `newBaseDialer()` 改回零值 `net.Dialer` |
+
+## 2026-08-25 · v1.4.8 — Go 1.26.6 安全基线 + Codex 出站身份收口
+
+### 取舍与原因
+
+- **Security Scan 红灯**：根因是 Go 1.26.5 标准库 6 条漏洞（`GO-2026-6218` net/url、`GO-2026-6090`
+  crypto/tls、`GO-2026-6089` net/http、`GO-2026-6088` encoding/xml、`GO-2026-5972` encoding/asn1、
+  `GO-2026-5026` net/http），全部 `Fixed in go1.26.6`。跟随 upstream `11e1e2288` 升到 **1.26.6**
+  （go.mod + 3 workflow + 3 Dockerfile + README + `DEV_GUIDE.md`）。
+  不跟随 Go 1.27.0（`cbe258fd1`）：带 jsonv2 适配与 golangci-lint v2.13 升级，超出「只修安全红灯」边界。
+- **出站 Codex 身份陈旧且自相矛盾**导致上游 404 与降载。回灌 upstream `8a51119e3`（issue #3901
+  配对校验）与 `e1b76e224`（按 originator 分桶降载）的**语义**，不吸收其身份体系重构：
+  - `codexCLIVersion` `0.125.0` → `0.149.1`（上游对携带且低于 `0.144.0` 的 version 头一律 404）。
+  - `codexCLIUserAgent` 改为官方形态 `<originator>/<ver> (Ubuntu 22.4.0; x86_64) xterm-256color`；
+    裸 `originator/version` 形态易被判为非官方客户端。
+  - `request.go` 补齐官方客户端识别：新增 `codex-tui/` 与 `codex_vscode_copilot/`；originator 改为
+    **精确集合 + `Codex ` 家族前缀**；新增 `PairCodexClientIdentity` / `codexUATrailerName`
+    （从 UA 尾部 `(name; version)` 恢复被 `CODEX_INTERNAL_ORIGINATOR_OVERRIDE` 改写的真实身份）。
+  - 新增 `openai_codex_identity.go` 作为唯一收口点 `enforceCodexIdentityHeaders`，接入 HTTP 转发、
+    OAuth 透传、WS 握手、用量探针、账号 responses / 生图测试、Codex 模型清单共七条出站路径。
+- **Codex 客户端版本号自动同步**（只取后端内核）：硬编码版本号会自然腐化，而上游对陈旧版本既有
+  404 门槛又会优先降载，「版本号停更」等价于慢性故障。移植 upstream `2eb24814f` / `2d3e84520` /
+  `4c4ff3638` 的同步内核，**不吸收其管理面**：
+  - `OpenAICodexVersionSyncService` 每 6 小时从 `openai/codex` 取最新稳定版。主路径
+    `/releases/latest`（约 0.3MB，本身排除 draft/prerelease）；latest 属于同仓库其他组件
+    （如 `rusty-v8-*`）被 `rust-v` 前缀挡掉时，回退扫一页 release（`per_page=30`，实测 30 条里
+    仅 3 条稳定版，不能再调小）。两条路径共用同一套过滤。
+  - **只向前推进**，抓取失败保持既有值（不清空、不降级）。启动防抖借设置行 `UpdatedAt` 判断，
+    避免滚动发布把「启动即同步」放大成对 GitHub 的连续请求。
+  - 复用既有 `GitHubReleaseClient`（新增 `FetchRecentReleases` 并加 32MiB 读取上限），不新增 HTTP 栈。
   - 同步值写入 `SettingKeyOpenAICodexClientVersionSynced`，**不在 admin settings API 暴露**，
-    因此 **settings 契约不受影响**——这是刻意的边界：`fork.md` 长期把 settings 链路列为「本地优先」，
-    upstream 原提交连带的面板字段、i18n、DTO、契约用例与 `SettingsView.vue` 一律不吸收，
-    开关改由配置文件承载（`gateway.disable_codex_version_auto_sync`，反义命名）。
-  - 生效版本解析链：**同步值 → 进程内高水位 → `codexCLIVersion` 常量**。常量始终是地板，
-    保证异常同步值不会把出站版本降到上游门槛以下；解析结果带 1 分钟进程内缓存，写入后主动失效。
-    高水位把「只向前推进」从写入侧延伸到读取侧：数据库抖动让 provider 返回空值时，
-    缓存会把空值存住一个 TTL，若无高水位，出站版本会在这段时间内退回编译期常量。
-    热路径读取用 3s 超时，不复用同步任务的 30s 预算。
-  - 清单请求的 `client_version` 缺省值也改用生效版本：否则同步推进后会用旧版本号取 manifest，
-    拿到少了新模型的清单，重新制造「模型发现不到」的问题（与本轮修的 gpt-5.6-sol 同类）。
-  - 关闭自动同步只停止拉取，**已同步到的值仍继续生效**，避免关开关让出站版本号突然倒退。
+    settings 契约不受影响；开关走配置文件 `gateway.disable_codex_version_auto_sync`。
+  - 生效版本解析链：**同步值 → 进程内高水位 → `codexCLIVersion` 常量**（常量始终是地板）。
+    高水位把「只向前推进」延伸到读取侧：数据库抖动让 provider 返回空值时，缓存会把空值存住一个
+    TTL，若无高水位，出站版本会在这段时间退回编译期常量。热路径读取用 3s 超时。
+  - 清单请求的 `client_version` 缺省值也改用生效版本，否则同步推进后会用旧版本号取 manifest，
+    拿到少了新模型的清单，重新制造「模型发现不到」。
 
-### 原因与影响
+### 明确的行为变化（均为有意）
 
-- 用户报障贴出的 404 文案 `Model "gpt-5.6-sol" is not supported by any configured account in this group`
-  来自 upstream 的 `internal/handler/no_account_error.go`，**本 fork 不存在该文件、也不会产出该文案**
-  （本地全仓 grep `model_not_found` 无命中）。本 fork 在「组内无账号支持该模型」时走
-  `ErrNoAvailableAccounts` → 503；上游 404 则原样透传为 `not_found_error`。
-- 该文案在 upstream 语义下是**本地配置**结论（账号 `model_mapping` 未覆盖该模型），不是上游返回。
-  本地实测：账号 `model_mapping` 为空 = 放行全部；配 `gpt-5*` 或 `gpt-5.6-sol` 命中；只配 `gpt-5.4`
-  则 `gpt-5.6-sol` 不被支持。`gpt-5.6-sol` 的常量、别名归一、定价（与 upstream 逐字一致）在本 fork 均已齐备。
-- 本轮修复的是**同一根因家族的另一半**：出站身份陈旧/错配导致上游 404 与降载，
-  表现为跨账号故障转移后仍然失败、以及流未收到 `response.completed`。
-- 归一化后不再向上游暴露客户端真实 Codex 客户端类型（只保留网关统一身份）；需要保真透传的部署可关闭开关。
+1. **出站身份归一化默认开启**：OAuth 出站的 `user-agent` / `originator` / `version` 一律改写为网关
+   规范身份，不再向上游暴露客户端真实 Codex 类型。需保真透传的部署可关开关。
+   （身份取值已在 v1.4.9 改为 `codex-tui`。）
+2. **`codex_cli_only` 访问门收紧**（安全）：原 `"codex "` 前缀经 `TrimSpace` 退化成裸 `"codex"` 并走
+   `Contains` 兜底，`evil-codex_thing`、`Mozilla/5.0 codex bypass` 之类伪造标识都被判为官方客户端
+   （本地实测复现）。改为独立的 `codexOfficialClientFamilyPrefix`（保留空格、只做 HasPrefix）
+   ＋ originator 精确集合，访问门改用 `IsCodexOfficialClientRequestStrict`。透传路径保留宽松版。
+3. **账号生图测试的 `originator=opencode`** 与 Codex UA 错配，上游一律 404，该测试原本恒失败；已收口。
 
-### 验证
+### 不吸收
 
-- `govulncheck ./...`：**0 vulnerabilities**（修复前 6 条标准库漏洞），Go 1.26.6 本地工具链实跑。
-- `make -C backend test-unit`、`make -C backend test-integration`、`make -C backend build` 全绿。
-- `golangci-lint run ./...` **0 issues**（须在无 `backend/internal/web/dist` 构建产物的条件下运行，
-  与 CI 的 lint job 一致；本地残留 dist 会让 staticcheck 对 `internal/server/router.go` 误报 SA4023，
-  已用 pristine worktree 比对确认与本次改动无关）。
-- `make test-frontend`（vue-tsc + 78 vitest）、`pnpm audit --prod --audit-level=high` + 例外校验脚本、
-  `deploy/tests/docker-runtime-resources-test.sh` 全部通过。
-- 新增用例：`request_identity_test.go`（配对推导、尾部身份恢复、伪造标识拒绝、codex-tui 识别）、
-  `openai_codex_identity_test.go`（版本一致性、上游门槛、归一化开/关两套语义、幂等、bridge no-op）、
-  `openai_codex_version_sync_service_test.go`（版本号校验与注入拒绝、按段数字比较、主路径命中不拉列表页、
-  四种回退、只向前推进、启动防抖两个方向、关闭后保值、同步值端到端进入出站头）；
-  原有三条锁定旧错配行为的用例改为断言「originator 必须是最终 UA 首段」不变式。
-- 版本同步对 GitHub 的实网冒烟（一次性程序，跑完即删）：主路径 `rust-v0.149.1`（非 draft/prerelease）
-  与回退列表路径解析结果一致，均为 `0.149.1`；列表 30 条中仅 3 条稳定版，实证了 `per_page=30`
-  不能再调小的结论。
-- `wire` 代码生成工具与当前 Go 工具链不兼容（`package "golang.org/x/sys/unix" without types`），
-  `cmd/server/wire_gen.go` 为手工同步：已逐项核对 provider 参数顺序、依赖变量声明先于使用，
-  并 diff 确认 `provideCleanup` 在 `wire.go` 与 `wire_gen.go` 中的签名完全一致。
+- `280c1c862`（空 `response.completed` 失败转移）：本 fork 标准流式路径是 `handleStreamingResponse`，
+  与 upstream 的 `handleStreamingResponseWithReasoning` 结构不同且缺 `openAIStreamEventTypeIsTerminal`；
+  只移植透传半边会让两条流式路径口径不一致。
+- Grok 产线、channel-monitor-v2、Responses Lite 系列、Go 1.27.0。
 
-### 回退方式
+### 回退
 
-- 运行时回退（不改代码）：
-  - `gateway.disable_codex_originator_normalization: true`：退回「保留客户端身份 + 仅保证配对与版本门槛」。
-  - `gateway.disable_codex_version_auto_sync: true`：停止出网拉取（离线部署也用这个），
-    出站版本回退为编译期常量，已同步值仍生效。
-- 代码回退：`openai_codex_identity.go`、`request.go` 的身份识别改动、七处收口调用与版本常量互相独立，
-  可按需单独 `git revert`；未新增数据库字段，无需数据迁移。
-- Go 1.26.6 与身份收口彼此独立，可单独回退；回退 Go 会让 Security Scan 重新变红。
+- 运行时（不改代码）：`gateway.disable_codex_originator_normalization: true` 退回「保留客户端身份 +
+  仅保证配对与版本门槛」；`gateway.disable_codex_version_auto_sync: true` 停止出网拉取（离线部署也用
+  这个），已同步值仍生效。
+- 代码：身份识别改动、七处收口调用、版本常量互相独立，可单独 `git revert`；未新增数据库字段。
+- Go 1.26.6 与身份收口彼此独立；回退 Go 会让 Security Scan 重新变红。
 
 ## 2026-08-13 Codex OAuth thread 共享指纹收敛定向回灌
 
-### 本次取舍
+- 回灌 upstream PR #5553（`c0ab3a00e` + 测试修正 `04f8cdb19`），用于多人共享同一 OAuth 账号时收敛
+  Codex 设备 / 会话 / thread 指纹。保留 upstream 四档账号级策略：`off` / `device` / `session` / `full`。
+- **原因**：共享账号原先把各客户端不同的 `installation_id`、`session_id`、`thread_id` 全部暴露给上游。
+- 配置只写账号 `extra.codex_fingerprint_mode`，无数据库迁移；API Key、compact 与其他平台不受影响。
+- 不恢复已拆除的 `openai_gateway_forward.go`，接线迁移到现有入口；前端翻译继续维护在本地单文件 i18n。
+- **回退**：回退指纹 helper、网关接线、三个弹窗与翻译即可；临时停用可把相关账号批量设为 `off`。
+- ⚠️ **后续修正**：当时的默认值 `session` 已在 v1.4.9 改为 `off`（详见该条）。
 
-- 定向回灌 upstream PR #5553 的 `c0ab3a00e` 与测试修正 `04f8cdb19`，用于多人共享同一 OpenAI OAuth 账号时收敛 Codex 设备、会话与 thread 指纹。
-- 保留 upstream 四档账号级策略：
-  - `off`：原样透传客户端标识。
-  - `device`：只收敛 `installation_id`。
-  - `session`（默认）：收敛设备和会话，按客户端原始 session 确定性派生 thread。
-  - `full`：设备、会话和 thread 全部收敛为账号级稳定值。
-- 本地后端仍使用单体 `openai_gateway_service.go`，因此不恢复已拆除的 `openai_gateway_forward.go`；将请求体与 HTTP/WSv2 上游头接线迁移到现有入口。前端翻译继续维护在本地 `en.ts` / `zh.ts`，不恢复 upstream 的分片 i18n 文件。
-- 继续保留本地 image 生图、Codex 模型归一化、session isolation 与 WS 路由实现；本轮只在这些逻辑完成后应用账号级指纹收敛，不吸收 PR 之外的上游重构。
+## 2026-08-10 · v1.4.6 — API Key 入参校验、apicompat 与日志退避
 
-### 原因与影响
+- 回灌三条边界明确、彼此独立的 upstream 修复：
+  - `f5c108c83`：API Key 的 quota / rate limit 拒绝 NaN、Inf 与负数，`expires_in_days` 必须大于零。
+  - `64090de66`（价值最高）：Responses→Anthropic 转换显式跳过 `reasoning` item，未知 role/type 改走
+    白名单，并丢弃转换后为空的消息。带 content 数组的 reasoning item 会被原样透传给 Anthropic 换回
+    400，且该 item 常驻会话历史，导致此后每一轮持续失败（upstream #5329）。
+  - `e687ca3e9`：系统日志落库连续失败后按 2s→60s 指数退避暂停写入，避免观测数据长期占用连接池。
+    这改变了失败行为（主动暂停而非立即重试），健康路径不受影响。
+- 合并冲突只做减法：`api_key_service.go` 仅补 `math` import；`ops_system_log_sink.go` 只吸收退避常量与
+  接线，丢弃 upstream 的 `host` 字段（本地 sink 无 host 概念）。
+- **不回灌** `358e4a89a`（订阅到期被 POID workspace entitlement 覆盖）：依赖本地缺失的前置链
+  `eba204632` / `d0b8760eb`，且与本地 `selectChatGPTAccountInfo` 重构冲突。
+- upstream 已 revert 的风控 fail-closed（`e01c917a9` → `af6928a26`）两侧都不吸收。
+- **回退**：三条互相独立，可单独 `git revert`。
 
-- 共享 OAuth 账号原先会把各客户端不同的 `installation_id`、`session_id`、`thread_id` 暴露给上游；默认 `session` 模式改为账号级单设备、单会话，同时仍让不同客户端 session 对应不同 thread。
-- 这是有意的产品行为变化：未显式配置的 OpenAI OAuth 账号也默认启用 `session` 收敛；需要完整保留旧行为时可在新建、编辑或批量编辑中选择 `off`。
-- 配置只写账号 `extra.codex_fingerprint_mode`，不需要数据库迁移；API Key、compact 请求和其他平台不受影响。
+## 2026-08-09 · v1.4.5 — OpenAI 流终止恢复
 
-### 验证
-
-- 后端 `golangci-lint run ./...`、完整 unit 与 integration 测试全绿，`make build` 成功。
-- 前端 typecheck、lint、108 个测试文件共 641 条用例以及生产构建全绿。
-- Docker 运行时资源检查通过；新增 HTTP、WSv2 与四档指纹策略测试均已执行。
-
-### 回退方式
-
-- 回退指纹 helper、网关接线、三个账号弹窗与中英文翻译即可；已有账号未新增数据库字段，回退不需要数据迁移。
-- 若只需临时停止收敛，可将相关 OAuth 账号批量设置为 `off`，无需回退代码。
-
-## 2026-08-10 `v1.4.6` API Key 入参校验、apicompat 与日志退避定向回灌
-
-### 本次取舍
-
-- 定向回灌 upstream 三条边界明确、彼此独立的修复：
-  - `f5c108c83`：API Key 的 quota / rate limit 拒绝 NaN、Inf 与负数，`expires_in_days` 必须大于零。纯新增校验，本地 `CreateAPIKeyRequest`/`UpdateAPIKeyRequest` 字段与 upstream 完全一致。
-  - `64090de66`：Responses→Anthropic 转换显式跳过 `reasoning` item，未知 role/type 改走 `convertResponsesUserToAnthropicContent` 白名单，并丢弃转换后为空内容或纯空白 text 的消息（Fixes upstream #5329）。
-  - `e687ca3e9`：系统日志落库连续失败后按 2s→60s 指数退避暂停写入，避免日志这类尽力而为的观测数据长期占用数据库连接池。
-- 合并冲突只做减法，不引入无关能力：
-  - `api_key_service.go` 仅补 `math` import，不引入本地未使用的 `sort`。
-  - `ops_system_log_sink.go` 只吸收退避常量、`flushBackoffFor` 与 run 循环接线，丢弃 upstream 同文件的 `host` 字段与 `normalizeSystemLogHost`（本地 sink 无 host 概念）。
-- 本轮**不**回灌 `358e4a89a`（个人订阅到期时间被 POID workspace entitlement 覆盖）。该修复依赖本地缺失的前置链：`eba204632`（个人订阅端点 `fetchChatGPTSubscriptionExpiresAt` + wire DI 改为 `ProvideOpenAIOAuthService`）与 `d0b8760eb`（`shouldApplyChatGPTAccountInfoPlanType` 保护 plan_type），且与本地已有的 `selectChatGPTAccountInfo` 重构存在冲突，需手工调和。留待 v1.4.7 单独移植与验证。
-- 继续保留本地 image 生图链路与单体 OpenAI 网关结构；upstream 的 Grok 产品线、channel-monitor-v2、response-model 计费系列本轮均不吸收。
-
-### 原因与影响
-
-- 三项均为低耦合修复，不改变模型路由、定价配置、调度策略与 image 产品行为。
-- `64090de66` 价值最高：带 content 数组的 reasoning item 会被原样透传给 Anthropic 换回 400，且该 item 常驻会话历史，导致此后每一轮持续失败。
-- `e687ca3e9` 改变了日志落库的失败行为——连续失败时会主动暂停写入而非立即重试，健康路径不受影响（已有 `TestOpsSystemLogSinkHealthyPathNeverSuppressed` 覆盖）。
-- upstream 已 revert 的风控 fail-closed（`e01c917a9` → `af6928a26`）两侧都不吸收；nanoid 本地 `3.3.18` 已高于 upstream 的 `3.3.17`，无需跟随。
-
-### 验证
-
-- `gofmt -l`（本次改动文件全部干净）、`golangci-lint run ./...` 0 issues。
-- `make -C backend test-unit`、`make -C backend test-integration` 全绿。
-- `make test-frontend`（vue-tsc typecheck + vitest 78 tests）全绿。
-- `/bin/sh deploy/tests/docker-runtime-resources-test.sh` 通过。
-- 新增用例：API Key 校验 4 条、apicompat invalid blocks 9 条、日志退避 6 条，均已确认实际执行（注意本仓库单测带 `//go:build unit`，须用 `-tags=unit` 运行）。
-
-### 回退方式
-
-- 三条修复互相独立，可按需单独 `git revert` 对应提交，不改写已发布的 tag。
-- 若日志退避在极端场景下不合适，单独回退 `ops_system_log_sink.go` 与其测试即可，不影响另外两项。
-
-## 2026-08-09 `v1.4.5` OpenAI 流终止恢复定向回灌
-
-### 本次取舍
-
-- 按依赖顺序定向回灌 upstream `47ad29db3`、`da49ce3f2`、`30d2589ef`：
+- 按依赖顺序回灌 upstream `47ad29db3`、`da49ce3f2`、`30d2589ef`：
   - HTTP SSE 流异常断开后隔离对应代理，减少连续选择同一故障路径。
-  - 代理隔离执行 burst collapse 与无容量时 fail-open，避免单次 HTTP/2 连接事故被重复计数或把全部容量隔离成 502。
-  - WS ingress lease 丢失时，downstream terminal event 写入使用独立的客户端生命周期 context，避免 lease cancellation 抢先截断终止事件。
-- `30d2589ef` 依赖本地原先不存在的 ingress lease 生命周期；同步移植 `c8cfc9363` 所需的最小 Redis lease、刷新、释放与每 API Key 连接上限，不引入其余无关重构。
-- 保留本地 image 生图链路和既有 Codex manifest 实现；遇到冲突仅吸收上述流恢复语义，不引入无关身份、路由或 UI 改造。
+  - 代理隔离执行 burst collapse 与无容量时 **fail-open**，避免单次 HTTP/2 事故被重复计数，或把全部
+    容量隔离成 502。
+  - WS ingress lease 丢失时，downstream terminal event 改用独立的客户端生命周期 context，避免 lease
+    cancellation 抢先截断终止事件。
+- `30d2589ef` 依赖本地原先不存在的 ingress lease 生命周期；同步移植 `c8cfc9363` 所需的**最小** Redis
+  lease、刷新、释放与每 API Key 连接上限，不引入其余重构。
+- **回退**：按反向顺序 `git revert` 三个回灌提交。
 
-### 原因与影响
+## 2026-08-09 · v1.4.4 — Codex 模型清单兼容热修
 
-- `v1.4.4` 只修复了 Codex 0.147.0 模型清单缺少 `display_name` 的确定性错误，不包含这三条流恢复提交。
-- HTTP SSE 代理隔离会改变故障代理的短期调度行为；fail-open 保证没有健康候选时仍尝试被隔离代理，而不是直接拒绝请求。
-- lease loss 修复只作用于 WebSocket ingress；当前 HTTP SSE 客户端不直接走此路径，但合入可补齐上游已验证的 terminal event 保护。
+- 标准 `/v1/models` 转换后的 Codex 条目同时写入 `slug` 与必需的 `display_name`。
+  v1.4.3 的转换结果只有 `slug`，Codex 0.147.0 会拒绝该清单并持续重连。
+- 不顺带合并 WS、代理熔断等大范围改造。
+- **回退**：`git revert` 本次热修；回退后 Codex 0.147.0 会恢复清单解码失败。
 
-### 回退方式
+## 2026-08-09 · v1.4.3 — Codex 模型清单与高价值修复
 
-- 按反向顺序正常 `git revert` lease-loss、fail-open、proxy-quarantine 三个回灌提交；不改写已经发布的 tag。
-
-## 2026-08-09 `v1.4.4` Codex 模型清单兼容热修
-
-### 本次取舍
-
-- 标准 `/v1/models` 转换后的 Codex 条目同时写入 `slug` 与必需的 `display_name`，避免 Codex 0.147.0 因模型清单解码失败持续重连。
-- 不顺带合并 WS、代理熔断或其他大范围 upstream 改造；当前客户端使用 HTTP SSE，且线上 `/v1/responses` 连续验证均正常收到 `response.completed`。
-
-### 原因与影响
-
-- `v1.4.3` 已解决 API Key 账号被错误要求 OAuth 的问题，但转换结果只有 `slug`；Codex 0.147.0 会拒绝该清单并报告缺少 `display_name`。
-- 本次仅补齐客户端必需字段，不改变模型 ID、模型路由、Responses 流式协议或 image 产品行为。
-
-### 回退方式
-
-- 如需回退，正常 `git revert` 本次热修提交即可；回退后 API Key 模型清单仍可请求，但 Codex 0.147.0 会恢复清单解码失败。
-
-## 2026-08-09 `v1.4.3` Codex 模型清单与高价值修复定向回灌
-
-### 本次取舍
-
-- 不整包合并 `upstream/main`，仅按本地结构移植 Codex API Key 模型清单修复：
-  - OpenAI OAuth 账号继续透传 ChatGPT Codex manifest。
-  - 自定义 API Key 账号改为请求账号自身的 `/v1/models`，不再错误要求 OAuth。
-  - 普通 OpenAI `data[].id` 模型列表转换为 Codex `models[].slug` envelope。
-  - API Key 清单增加短缓存、ETag、并发刷新合并、过期清单后台刷新和失败换号。
-  - `gpt-5.6-sol/terra/luna` 在自定义 API Key 清单中关闭 `use_responses_lite`，保留完整 Responses 工具能力。
-- 同步 OAuth pending exchange 账号接管修复，仅允许已完成身份所有权证明的终态登录或当前登录用户主动绑定执行 adoption。
-- 同步计费金额 `NUMERIC(20,8)` 统一量化，避免余额扣减与 API Key 累计用量在 half 边界产生 1e-8 对账偏差。
-- 同步上游 TCP/TLS 和 SOCKS5 建连超时，避免不可达上游或代理把串行故障转移拖到内核重传超时。
-- 同步 `nanoid` 安全升级至 `3.3.18`，关闭 `GHSA-2v37-7h3g-55p8` 高危审计项，不新增长期豁免。
-- 继续保留本地 image 生图链路，本次不吸收 upstream 的 Agent Identity、Codex 身份体系、URL 路径护栏和大范围 WS/路由重构。
-
-### 原因与影响
-
-- 直接触发原因是 Codex 自动请求 `/v1/models?client_version=...` 时，本地实现把自定义 API Key 上游误判成 OAuth-only manifest，导致请求在本地返回 502。
-- 本次让模型发现服从已配置的自定义上游，不要求修改第三方 `input` 上游；只要其支持标准 `GET /v1/models` 即可。
-- 安全、计费和建连修复均为边界明确的高价值变更，不改变既有模型路由、定价配置和 image 产品行为。
-
-### 回退方式
-
-- 若 API Key 模型清单出现兼容问题，优先回退 `openai_codex_models_service.go`、对应测试以及 `OpenAIGatewayService` 中的 manifest cache 字段，OAuth 原路径可独立恢复。
-- 若建连超时对极慢网络不合适，可单独回退 `proxyutil` 和 `http_upstream` 的 dial/TLS timeout，不影响业务层逻辑。
-- 若整版需要撤回，使用正常 `git revert` 回退 `v1.4.3` 对应提交，不改写已经发布的 tag 历史。
-
-### 工作方式
-
-- 优先真实落地：UI 要看真实页面与保存链路，不把“后端有字段”当完成。
-- 任务完成后，若验证通过，默认继续做到收尾动作（例如 commit/push/发布相关步骤），不做冗余停顿。
-- 遇到 cleanup 或回归修复，优先定向补洞，不把你明确不要的旧逻辑加回来。
-
-### 质量与验证
-
-- 修改前先定位影响范围与依赖。
-- 修改后不得留下无效代码、半删除状态、占位实现。
-- 默认补齐或更新测试，并提供可复现验证命令与结果摘要。
-- 收尾默认给修改清单、报错对应修复点、验证结果和当前状态。
-- 必须全盘跑lint和ci！
-
-### 仓库与发布偏好
-
-- 仓库维护类任务默认先同步主线并检查状态（`git pull --ff-only`、`git log`、`git status`）。
-- 网络或推送异常时，默认主动排查并完成发布链路，不把基础操作回抛。
-- Git 提交邮箱默认使用 `31232741+atoz03@users.noreply.github.com`。
-
-## upstream 合并策略（fork 专用）
-
-### 总原则
-
-- 其他模块照常合并，尽量吸收 upstream 的非冲突更新。
-- 对你明确指定“本地优先”的模块执行白名单保留策略。
-
-### 当前固定保留项（高优先级）
-
-- image 生图链路保留本地实现为主。
-- 对应冲突文件优先保留本地版本：
-- `backend/internal/service/openai_images.go`
-- `backend/internal/service/openai_images_test.go`
-- `backend/internal/service/openai_codex_transform.go`
-- `frontend/src/components/account/AccountTestModal.vue`
-- `frontend/src/components/admin/account/AccountTestModal.vue`
-- `frontend/src/components/admin/account/__tests__/AccountTestModal.spec.ts`
-- `frontend/src/views/admin/GroupsView.vue`
-
-### 冲突与冗余处理
-
-- 若 upstream 引入与本地 image 主线重复的新拆分文件（例如将逻辑拆到新增文件），优先避免双实现并存。
-- 处理顺序：
-- 先判断是否与本地主链路重复或引入行为漂移。
-- 能局部吸收的安全修复（边界保护、测试补洞）再定向移植。
-- 会改变既有行为的改动先记录、再由你决定是否接入。
-
-## 2026-04-25 `upstream/main -> main` 合并决议
-
-### 本次取舍
-
-- `backend/internal/service/openai_gateway_service.go`：保留本地 strict-priority 与 `normalizeCodexModel` 逻辑，同时吸收 upstream 的 compact 排序与 SSE->JSON 透传转换能力。
-- `backend/internal/service/openai_account_scheduler.go`：保留本地 strict-priority 筛选，再吸收 upstream 的 compact 候选分层与统计字段（`candidateCount/loadSkew`）。
-- `backend/internal/handler/openai_gateway_handler.go`：保留本地 fallback `prompt_cache_key/session hash` 兼容逻辑，同时吸收 upstream 的 `requireCompact` 路径变量。
-- `frontend/src/views/admin/SettingsView.vue`：保留本地页面结构，避免 upstream 冲突块把 defaults 区域错误插入 turnstile 区。
-- `frontend/src/components/account/AccountTestModal.vue`：吸收 upstream 版本，保留 openai test mode 与 `supportsImageTest` 行为。
-- `backend/internal/service/openai_codex_transform.go`：补齐 `gpt-5.5` 归一化映射，避免显式模型被误判成 group default 回落。
-
-### 原因与影响
-
-- 目标是保持本地既有产品行为不漂移（尤其是设置页布局、Codex 模型路由与兼容逻辑），同时吸收 upstream 的新能力（compact 选择和 Responses 透传补全）。
-- 风险点集中在 OpenAI 网关路径；已通过后端回归覆盖 `service/handler/server` 关键包，当前未发现回归失败。
-
-### 回退方式
-
-- 若线上观察到网关行为异常，优先回退 merge commit（`git revert -m 1 <merge_commit_sha>`），保持主线历史可追踪。
-- 如仅个别冲突决议有问题，可在该 revert 基础上定向 cherry-pick 本地确认稳定的修复提交，避免整仓回退。
-
-## 2026-04-30 `upstream/main -> main` 合并决议
-
-### 本次取舍
-
-- 合并方式固定为 `git merge --no-ff upstream/main`，保留合并历史，不做 rebase。
-- `backend/cmd/server/VERSION` 保持本地 `1.2.4` 体系，不跟随 upstream 的 `0.1.120` 版本线。
-- 设置链路与页面展示口径保持本地为主：
-  - `frontend/src/views/admin/SettingsView.vue`
-  - `frontend/src/api/admin/settings.ts`
-  - `backend/internal/handler/admin/setting_handler.go`
-  - `backend/internal/handler/dto/settings.go`
-  - `backend/internal/service/setting_service.go`
-- OpenAI 关键链路按“本地优先 + 定向吸收安全修复”处理：
-  - `backend/internal/service/openai_gateway_service.go`：保留本地主流程，不直接整包切到 upstream 结构。
-  - `backend/internal/service/openai_gateway_messages.go`：吸收 `normalizeOpenAIModelForUpstream` 与 fast policy 相关低侵入修复。
-  - `backend/internal/service/openai_ws_forwarder.go`：吸收显式 tool replay 与 item_reference/previous response 相关修复。
-  - `backend/internal/service/openai_codex_transform.go`：保留本地 `gpt-5.5-*` 细分映射，同时保留 upstream 的 Responses 兼容字段修复（如 tool_choice 与 reasoning 过滤）。
-
-### 原因与影响
-
-- 目标是维持现网行为稳定（版本体系、设置页显示与保存口径、OpenAI 本地既有策略）并吸收 upstream 的通用修复能力。
-- 风险仍集中在 OpenAI 网关与 WS 续链路径；因此以最小行为漂移为优先，不做大规模结构重排。
-
-### 回退方式
-
-- 优先整体回退本次 merge：`git revert -m 1 <merge_commit_sha>`。
-- 若仅单点回归，可在回退后按文件级别 cherry-pick 已验证修复，避免再次引入整包行为变化。
-
-## 2026-05-01 CI 残留问题修复（回滚后）
-
-- 根因：回滚到 `de83d5e8` 后，`gateway_handler.go` 带入 antigravity 依赖但对应实现未纳入，且同时存在 openai images/session hash、public settings 字段、wire 生成文件与构造签名漂移。
-- 修复：`gateway_handler.go` 回到 `10d7deca` 的无-antigravity 版本；补齐 `GenerateExplicitSessionHash` 与 `AffiliateEnabled`（dto + SSR 注入）；更新 `api_contract_test.go` 的 `NewAccountHandler` 参数；重生成 `backend/cmd/server/wire_gen.go`；移除未使用函数 `writeOpenAIFastPolicyBlockedResponse`。
-- 验证：`cd backend && go list ./... && go test ./... && golangci-lint run ./...` 通过。
-
-## 2026-05-01 API contract 修复
-
-- 根因：`TestAPIContracts` 仍按旧 settings/usage 快照断言；同时 admin settings 响应遗漏现有 affiliate 与 channel monitor 设置字段，导致真实 API 与 contract 不一致。
-- 修复：补齐 affiliate 开关、返利冻结/有效期/单人上限以及 channel monitor/available channels 的 settings 读写与响应映射；usage contract 移除已不存在的 `media_type`；settings contract 补上当前本地设置字段，移除未暴露到 admin settings API 的 `fallback_model_antigravity` 与 `openai_fast_policy_settings` 断言；WeChat OAuth config fallback 保持多通道字段独立，不把 open 配置复制到 legacy/mp/mobile。
-- 约束：本次不恢复已删除的 antigravity gateway package/service 逻辑，只修 API contract 与现有 settings 链路。
-- 验证：`cd backend && go test -tags=unit ./internal/server -run TestAPIContracts -count=1`、`cd backend && go test -tags=unit ./...`、`cd backend && go list ./... && golangci-lint run ./...` 通过。
-
-## 2026-05-02 Anthropic passthrough 流超时错误分类
-
-- 根因：client disconnect 后继续读取 upstream usage 时，CI 慢环境可能先收到上游 EOF，再处理 idle ticker，导致超时场景被归类成 `missing terminal event`。
-- 修复：无 terminal event 且客户端已断开时，若距离最后上游数据已超过 `stream_data_interval_timeout`，统一返回 `stream usage incomplete after timeout`。
-- 验证：目标单测连续 20 次通过，`make -C backend test-unit` 通过。
-
-## 2026-05-02 scheduler cache integration 修复
-
-- 根因：合并后保留了 `LastUsedAt` side-key 测试，但实现回退成重写账号 JSON，且测试仍引用旧 `full/slim` key 名。
-- 修复：恢复 `sched:acc:last_used:*` 热字段缓存，读取账号与快照时覆盖 `LastUsedAt`；测试改为当前 `account/meta` key 命名，不恢复旧 `full` key。
-- 验证：`go test ./...`、`make test-unit`、`make test-integration`、`golangci-lint run ./...` 通过。
+- 不整包合并 upstream，仅按本地结构移植 Codex API Key 模型清单修复：
+  - OAuth 账号继续透传 ChatGPT Codex manifest；自定义 API Key 账号改为请求账号自身的 `/v1/models`，
+    不再错误要求 OAuth（直接触发原因：本地把自定义上游误判成 OAuth-only manifest，请求返回 502）。
+  - 普通 `data[].id` 列表转换为 Codex `models[].slug` envelope；加短缓存、ETag、并发刷新合并、
+    过期清单后台刷新与失败换号。
+  - `gpt-5.6-sol/terra/luna` 在自定义 API Key 清单中关闭 `use_responses_lite`，保留完整工具能力。
+- 同步 OAuth pending exchange **账号接管修复**：仅允许已完成身份所有权证明的终态登录、或当前登录用户
+  主动绑定，才能执行 adoption。
+- 同步计费金额 `NUMERIC(20,8)` 统一量化，避免 half 边界产生 1e-8 对账偏差。
+- 同步上游 TCP/TLS 与 SOCKS5 建连超时（避免不可达上游把串行故障转移拖到内核重传超时）。
+- 同步 `nanoid` → `3.3.18`，关闭 `GHSA-2v37-7h3g-55p8`，不新增长期豁免。
+- 不吸收 upstream 的 Agent Identity、Codex 身份体系、URL 路径护栏与大范围 WS/路由重构。
+- **回退**：模型清单问题优先回退 `openai_codex_models_service.go` + 测试 + manifest cache 字段，
+  OAuth 原路径可独立恢复；建连超时若对极慢网络不合适，可单独回退 `proxyutil` 与 `http_upstream`。
 
 ## 2026-05-17 `upstream/main -> main` 合并决议
 
-### 本次取舍
+- 合并方式 `git merge --no-ff upstream/main`，本轮先用 `-X ours --no-commit` 缩小冲突面，再逐项补齐。
+- `backend/internal/pkg/antigravity/*` 继续物理删除；Antigravity User-Agent 只保留在 settings 链路。
+- image 生图链路保留本地 responses-only 实现，同时吸收 upstream 对 moderation body / upload data URL
+  的低侵入补充。
+- settings 吸收 upstream 的登录协议、GitHub/Google 邮箱 OAuth、auth source 默认赠送、内容审核/风控开关
+  与 payment/Airwallex 字段；合并后补齐 service、DTO、SSR 注入 payload、admin contract、SettingsView
+  类型与保存 payload。
+- WebSocket 内容审核按 upstream 新能力接入，但**首帧阻断必须在并发槽位与账号选择前完成**，
+  避免应返回 policy violation 的请求被误判为 try-again-later。
+- **回退**：优先 `git revert -m 1 <merge_commit_sha>`；若仅 settings 或风控链路有问题，按字段链路定向
+  回退，避免恢复已删除的 antigravity package。
 
-- 合并方式保持 `git merge --no-ff upstream/main`，本轮先用 `-X ours --no-commit` 缩小冲突面，再逐项补齐 upstream 新增功能与本地保留链路。
-- `backend/internal/pkg/antigravity/*` 继续按本地决议物理删除，不恢复 upstream 引入的 package 依赖；Antigravity User-Agent 只保留在 settings 链路中。
-- image 生图链路继续保留本地 responses-only 实现，同时吸收 upstream 对 moderation body / upload data URL 的低侵入补充。
-- 设置链路吸收 upstream 的登录协议、GitHub/Google 邮箱 OAuth、auth source 默认赠送、内容审核/风控开关与 payment/Airwallex 相关字段；合并后补齐 service、DTO、SSR 注入 payload、admin contract、SettingsView 类型与保存 payload。
-- WebSocket 内容审核按 upstream 新能力接入，但首帧阻断必须在并发槽位与账号选择前完成，避免应返回 policy violation 的请求被误判为 try-again-later。
+## 2026-05-02 scheduler cache integration 修复
 
-### 原因与影响
+- 根因：合并后保留了 `LastUsedAt` side-key 测试，但实现回退成重写账号 JSON，且测试仍引用旧
+  `full/slim` key 名。
+- 修复：恢复 `sched:acc:last_used:*` 热字段缓存，读取账号与快照时覆盖 `LastUsedAt`；测试改为当前
+  `account/meta` key 命名，不恢复旧 `full` key。
 
-- 目标是吸收 upstream 的安全与设置能力，同时不改变本地已确认的 Antigravity package 删除、OpenAI image 路由和网关行为边界。
-- 风险点集中在 settings contract、OpenAI WS 首帧审核、前端设置页保存 payload；已用后端单元/集成、前端 lint/typecheck/关键 vitest 覆盖。
+## 2026-05-02 Anthropic passthrough 流超时错误分类
 
-### 回退方式
+- 根因：client disconnect 后继续读取 upstream usage 时，CI 慢环境可能先收到上游 EOF 再处理 idle
+  ticker，导致超时场景被归类成 `missing terminal event`。
+- 修复：无 terminal event 且客户端已断开时，若距最后上游数据已超过 `stream_data_interval_timeout`，
+  统一返回 `stream usage incomplete after timeout`。
 
-- 若整体合并引发回归，优先回退本次 merge commit：`git revert -m 1 <merge_commit_sha>`。
-- 若仅 settings 或风控链路有问题，优先按字段链路定向回退或修补，避免恢复已删除的 antigravity package。
+## 2026-05-01 API contract 修复
+
+- 根因：`TestAPIContracts` 仍按旧 settings/usage 快照断言，且 admin settings 响应遗漏 affiliate 与
+  channel monitor 字段。
+- 修复：补齐 affiliate 开关、返利冻结/有效期/单人上限、channel monitor/available channels 的读写与
+  响应映射；usage contract 移除已不存在的 `media_type`；settings contract 移除未暴露到 admin API 的
+  `fallback_model_antigravity` 与 `openai_fast_policy_settings`；WeChat OAuth config fallback 保持
+  多通道字段独立。
+- 约束：不恢复已删除的 antigravity gateway package/service，只修 contract 与现有 settings 链路。
+
+## 2026-05-01 CI 残留问题修复（回滚后）
+
+- 根因：回滚到 `de83d5e8` 后，`gateway_handler.go` 带入 antigravity 依赖但实现未纳入，且存在
+  openai images/session hash、public settings 字段、wire 生成文件与构造签名漂移。
+- 修复：`gateway_handler.go` 回到 `10d7deca` 的无-antigravity 版本；补齐 `GenerateExplicitSessionHash`
+  与 `AffiliateEnabled`；更新 `api_contract_test.go` 的 `NewAccountHandler` 参数；重生成 `wire_gen.go`；
+  移除未使用的 `writeOpenAIFastPolicyBlockedResponse`。
+
+## 2026-04-30 `upstream/main -> main` 合并决议
+
+- 合并方式固定 `git merge --no-ff upstream/main`，保留合并历史，不做 rebase。
+- `backend/cmd/server/VERSION` 保持本地 `1.2.x` 体系，不跟随 upstream 的 `0.1.x` 版本线。
+- settings 链路（`SettingsView.vue`、`api/admin/settings.ts`、`setting_handler.go`、`dto/settings.go`、
+  `setting_service.go`）保持本地为主。
+- OpenAI 关键链路「本地优先 + 定向吸收安全修复」：`openai_gateway_service.go` 保留本地主流程；
+  `openai_gateway_messages.go` 吸收 `normalizeOpenAIModelForUpstream` 与 fast policy 低侵入修复；
+  `openai_ws_forwarder.go` 吸收显式 tool replay 与 item_reference/previous response 修复；
+  `openai_codex_transform.go` 保留本地 `gpt-5.5-*` 细分映射，同时保留 upstream 的 Responses 兼容字段修复。
+- **回退**：优先 `git revert -m 1 <merge_commit_sha>`；单点回归则按文件级 cherry-pick 已验证修复。
+
+## 2026-04-25 `upstream/main -> main` 合并决议
+
+- `openai_gateway_service.go`：保留本地 strict-priority 与 `normalizeCodexModel`，吸收 upstream 的
+  compact 排序与 SSE→JSON 透传转换。
+- `openai_account_scheduler.go`：保留本地 strict-priority 筛选，吸收 compact 候选分层与统计字段
+  （`candidateCount` / `loadSkew`）。
+- `openai_gateway_handler.go`：保留本地 fallback `prompt_cache_key` / session hash 兼容逻辑，吸收
+  upstream 的 `requireCompact` 路径变量。
+- `SettingsView.vue`：保留本地页面结构，避免 upstream 冲突块把 defaults 区域错误插入 turnstile 区。
+- `AccountTestModal.vue`：吸收 upstream 版本，保留 openai test mode 与 `supportsImageTest` 行为。
+- `openai_codex_transform.go`：补齐 `gpt-5.5` 归一化映射，避免显式模型被误判成 group default 回落。
+- **回退**：优先 `git revert -m 1 <merge_commit_sha>`；仅个别决议有问题则在 revert 基础上定向
+  cherry-pick 已确认稳定的修复。
