@@ -3,6 +3,7 @@ import {
   buildModelMappingObject,
   getDefaultWhitelistModelsByPlatform,
   getModelsByPlatform,
+  getPresetMappingsByPlatform,
   splitModelMappingObject
 } from '../useModelWhitelist'
 
@@ -19,6 +20,22 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.4-mini')
     expect(models).toContain('gpt-5.4-nano')
     expect(models).toContain('gpt-5.4-2026-03-05')
+  })
+
+  it('openai 模型列表包含 GPT-6 Astra 与其公开别名', () => {
+    const models = getModelsByPlatform('openai')
+
+    expect(models).toContain('gpt-6-astra')
+    expect(models).toContain('gpt-6')
+  })
+
+  it('openai 预设映射包含 GPT-6 别名与 Astra', () => {
+    expect(getPresetMappingsByPlatform('openai')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({label: 'GPT-6', from: 'gpt-6', to: 'gpt-6'}),
+        expect.objectContaining({label: 'GPT-6 Astra', from: 'gpt-6-astra', to: 'gpt-6-astra'})
+      ])
+    )
   })
 
   it('openai 默认白名单只预填 5 个指定模型', () => {

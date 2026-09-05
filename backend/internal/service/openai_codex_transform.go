@@ -7,6 +7,8 @@ import (
 )
 
 var codexModelMap = map[string]string{
+	"gpt-6-astra":                "gpt-6-astra",
+	"gpt-6":                      "gpt-6-astra",
 	"gpt-5.6-sol":                "gpt-5.6-sol",
 	"gpt-5.6-terra":              "gpt-5.6-terra",
 	"gpt-5.6-luna":               "gpt-5.6-luna",
@@ -58,6 +60,7 @@ var codexVersionModelPrefixes = []struct {
 	prefix string
 	target string
 }{
+	{prefix: "gpt-6-astra", target: "gpt-6-astra"},
 	{prefix: "gpt-5.6-sol", target: "gpt-5.6-sol"},
 	{prefix: "gpt-5.6-terra", target: "gpt-5.6-terra"},
 	{prefix: "gpt-5.6-luna", target: "gpt-5.6-luna"},
@@ -554,7 +557,9 @@ func codexModelLookupKey(modelID string) string {
 
 func isKnownCodexModelSuffix(suffix string) bool {
 	switch suffix {
-	case "none", "minimal", "low", "medium", "high", "xhigh":
+	// "max" 是 GPT-5.6 / GPT-6 Astra 独有的档位，OpenCode 之类的客户端会把档位
+	// 拼进模型名（gpt-6-astra-max）下发，这里与其余档位同样剥离。
+	case "none", "minimal", "low", "medium", "high", "xhigh", "max":
 		return true
 	}
 	return isCodexDateSuffix(suffix)

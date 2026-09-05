@@ -399,6 +399,111 @@ func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteOnlyForTargetedMode
 	require.JSONEq(t, `{"models":[{"slug":"gpt-5.6-sol","use_responses_lite":false},{"slug":"gpt-5.6-terra","use_responses_lite":false},{"slug":"gpt-5.6-codex","use_responses_lite":true}]}`, string(adjusted))
 }
 
+func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteForGPT6Astra(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"gpt-6-astra","use_responses_lite":true},{"slug":"gpt-6","use_responses_lite":true}]}`)
+
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	require.NoError(t, err)
+
+	models := decodeCodexManifestModelsForTest(t, adjusted)
+	require.Len(t, models, 2)
+	for _, model := range models {
+		require.Equal(t, false, model["use_responses_lite"], model["slug"])
+	}
+}
+
+// API Key 账号的 /v1/models 转换清单不带档位信息，Codex 会退化成
+// reasoning.effort=none，而 gpt-6-astra 对 none 直接 400。
+func TestAdjustAPIKeyCodexModelsManifestFillsGPT6AstraReasoningLevels(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"gpt-6-astra","display_name":"gpt-6-astra"},{"slug":"gpt-5.4","display_name":"gpt-5.4"}]}`)
+
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	require.NoError(t, err)
+
+	models := decodeCodexManifestModelsForTest(t, adjusted)
+	require.Len(t, models, 2)
+	require.Equal(t, "medium", models[0]["default_reasoning_level"])
+	require.Equal(t,
+		[]string{"low", "medium", "high", "xhigh", "max"},
+		effortsFromCodexManifestModel(t, models[0]),
+	)
+	// 其他型号沿用上游清单，不被网关补写
+	require.NotContains(t, models[1], "supported_reasoning_levels")
+	require.NotContains(t, models[1], "default_reasoning_level")
+}
+
+// 复现 upstream #6622：上游清单把 Astra 声明成仅支持 none。
+func TestAdjustAPIKeyCodexModelsManifestReplacesUnsupportedGPT6AstraLevels(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"gpt-6-astra","default_reasoning_level":"none","supported_reasoning_levels":[{"effort":"none","description":"Use the model's default behavior"}]}]}`)
+
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	require.NoError(t, err)
+
+	models := decodeCodexManifestModelsForTest(t, adjusted)
+	require.Len(t, models, 1)
+	require.Equal(t, "medium", models[0]["default_reasoning_level"])
+	require.Equal(t,
+		[]string{"low", "medium", "high", "xhigh", "max"},
+		effortsFromCodexManifestModel(t, models[0]),
+	)
+}
+
+// 默认档不在自己声明的档位表里时，整条声明一起改写为网关口径——
+// 只补默认档会写出 default_reasoning_level ∉ supported_reasoning_levels。
+func TestAdjustAPIKeyCodexModelsManifestRewritesWhenDefaultOutsideDeclaredLevels(t *testing.T) {
+	cases := map[string]string{
+		"默认档越界":     `{"models":[{"slug":"gpt-6-astra","default_reasoning_level":"none","supported_reasoning_levels":[{"effort":"high","description":"deep"},{"effort":"max","description":"deepest"}]}]}`,
+		"默认档合法但未声明": `{"models":[{"slug":"gpt-6-astra","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"high","description":"deep"},{"effort":"max","description":"deepest"}]}]}`,
+		"缺默认档":      `{"models":[{"slug":"gpt-6-astra","supported_reasoning_levels":[{"effort":"high","description":"deep"}]}]}`,
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			adjusted, err := adjustAPIKeyCodexModelsManifest([]byte(body))
+			require.NoError(t, err)
+
+			models := decodeCodexManifestModelsForTest(t, adjusted)
+			require.Len(t, models, 1)
+			efforts := effortsFromCodexManifestModel(t, models[0])
+			require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, efforts)
+			require.Contains(t, efforts, models[0]["default_reasoning_level"])
+			require.Equal(t, "medium", models[0]["default_reasoning_level"])
+		})
+	}
+}
+
+func TestAdjustAPIKeyCodexModelsManifestLeavesCompliantGPT6AstraUntouched(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"gpt-6-astra","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high","description":"deep"}]}]}`)
+
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	require.NoError(t, err)
+	require.JSONEq(t, string(body), string(adjusted))
+}
+
+func decodeCodexManifestModelsForTest(t *testing.T, body []byte) []map[string]any {
+	t.Helper()
+	var envelope struct {
+		Models []map[string]any `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(body, &envelope))
+	return envelope.Models
+}
+
+func effortsFromCodexManifestModel(t *testing.T, model map[string]any) []string {
+	t.Helper()
+	raw, ok := model["supported_reasoning_levels"].([]any)
+	require.True(t, ok, "supported_reasoning_levels missing: %v", model)
+	efforts := make([]string, 0, len(raw))
+	for _, item := range raw {
+		level, ok := item.(map[string]any)
+		require.True(t, ok)
+		effort, ok := level["effort"].(string)
+		require.True(t, ok)
+		efforts = append(efforts, effort)
+	}
+	return efforts
+}
+
 func TestFetchCodexModelsManifestAPIKeyInvalidEnvelopeIsRetryable(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,

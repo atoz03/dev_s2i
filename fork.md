@@ -71,6 +71,98 @@
 
 # 二、决议记录（新 → 旧）
 
+## 2026-09-04 · GPT-6 Astra 适配
+
+upstream 截至 `b1748c4ea`（09-03）**尚未合入** Astra 支持，相关改动全部停留在开放 PR：
+`#6572`（模型注册/能力/计价）、`#6620`（Messages 缓存身份，修 `#6615`）、`#6611`（保留 max 档位，已关闭）。
+本轮按本 fork 结构**手工移植**这三条的结论，不 cherry-pick（PR head 在贡献者 fork，且文件布局差异大）。
+
+### 本 fork 特有的缺陷（与 upstream 表现不同，需单独修）
+
+1. **Astra 按 gpt-5.4 计价（静默少收约 60~75%）**。`normalizeKnownOpenAICodexModel("gpt-6-astra")`
+   命中不了任何 `gpt-5` 分支返回 `""`，于是 `getFallbackPricing` 返回 nil、`matchOpenAIModel`
+   穿过所有分支落到 `DefaultTestModel`(gpt-5.4) 兜底：按 2.5e-6/15e-6 计，而官方是 1e-5/5e-5。
+   已补 `openAIGPT6AstraFallbackPricing` 与 `fallbackPrices["gpt-6-astra"]`，
+   并把 Astra 分支**放在图片模型判定与默认兜底之前**。
+2. **长上下文换档只能靠策略补齐**。本 fork 不解析目录的 `*_above_272k_tokens`（upstream 的
+   `530fb20f2` 未回灌），而远端价目仓库**已删除**显式 `long_context_*` 字段——即 5.6 家族现在
+   也一样靠 `applyModelSpecificPricingPolicy` 补。因此把 Astra 纳入 `isOpenAIGPT54Model` 这道门
+   （该函数名是历史叫法，语义实为「适用 272K 换档政策的 OpenAI 模型」，已加注释）。
+   缓存写入 1.25 倍拆出 `openAIModelUsesCacheWritePremium`，不再借 `isOpenAIGPT56Model` 的名字表达。
+3. **`reasoning.effort=max` 在用量记录里丢失**。upstream `#6611` 的症状是 `Max → XHigh`，本 fork
+   没有 upstream 的 `max → xhigh` 出站归一化（`normalizeOpenAIReasoningEffort` 只用于观测），
+   所以症状是 **max 落到 `default:` 分支被丢成空**，记录里干脆没有档位。改为保留 `"max"`。
+   ⚠️ 配套护栏：`deriveOpenAIReasoningEffortFromModel` 取模型名最后一段做档位推断，
+   `gpt-5.1-codex-max` 的 `-max` 是**型号名的一部分**，会凭空写出 max。已加判定：
+   末段为 max 且整名命中已知型号表时不推断。
+4. **Codex 清单没有档位，Astra 被 `none` 打死**（= upstream `#6622` 在本 fork 的等价缺陷，
+   也是社区帖 lostsheep 第 3 条报障的根因）。API Key 账号的 `/v1/models` 经
+   `convertOpenAIModelListToCodexManifest` 只转出 `slug` + `display_name`，Codex 拿不到档位便按
+   `reasoning.effort=none` 发起请求，而 Astra 对 none 直接 400
+   （`Unsupported value: 'none' ... Supported values are: 'low','medium','high','xhigh','max'`）。
+   在 `adjustAPIKeyCodexModelsManifest` 增加 `applyCodexManifestReasoningLevels`：
+   声明的档位是网关口径的子集**且**默认档在该声明之内时保持原样，否则**成对**改写为
+   `low/medium/high/xhigh/max` + 默认 `medium`。判定必须成对——只补默认档会写出
+   `default_reasoning_level ∉ supported_reasoning_levels` 的条目，而 Codex 的 ModelInfo
+   要求默认档必须在支持列表里。不含 `none`/`minimal`，也不含 Sub2API 扩展的 `ultra`
+   （Astra 无该档）。OAuth 透传的 ChatGPT 原生清单不受影响。
+
+### 取舍与原因
+
+- **谓词统一**：upstream 三个 PR 口径互相打架（`#6572` 精确等值、`#6611` 前缀、`#6620` 明确拒绝日期后缀）。
+  本 fork 统一为单一 `isOpenAIGPT6AstraModel`：`gpt-6-astra` 允许任意后缀，裸别名 `gpt-6`
+  只放行**已知后缀**（`isKnownCodexModelSuffix`：档位与日期）。裸别名必须收档位后缀——
+  前端下发的 OpenCode 配置给 `gpt-6` 带了 low…max 变体，客户端会以 `gpt-6-max` 形式请求；
+  若只做精确匹配，`gpt-6-max` 会归一化失败并回落到 gpt-5.4 计价兜底。
+  其他 GPT-6 家族（`gpt-6-terra`、`gpt-6.1`）仍判为未知，不并入 Astra 的能力与计费口径。
+- **`isKnownCodexModelSuffix` 新增 `max`**：`max` 是 5.6 / Astra 独有档位，OpenCode 会把档位拼进模型名
+  （`gpt-6-astra-max`）下发。`gpt-5.1-codex-max` 先命中型号表，不受影响（已加回归用例）。
+- **价目表不改 `resources/model-pricing/*.json`**：远端仓库已含 `gpt-6-astra`，静态兜底已覆盖离线场景。
+
+### 明确的行为变化（均为有意）
+
+1. **新增 `gpt-6` 公开别名**（→ `gpt-6-astra`），出现在 `/v1/models`、账号可用模型、白名单与预设映射。
+   本 fork 此前**没有**对应的裸 `gpt-5.6` 别名，这是新引入的模式。
+2. 用量记录新增 `max` 档位取值（此前 OpenAI 侧只有 low/medium/high/xhigh）。
+3. API Key 账号的 Codex 清单会被网关**补写/纠正** Astra 的档位字段（此前原样透传）。
+
+### 不吸收
+
+- upstream 的 `configuredCodexModelDescriptor` 体系（分组模型清单描述符全量生成，含 service tier、
+  truncation policy、verbosity 等几十个字段）：本 fork 的清单是 `slug`+`display_name` 的轻量转换，
+  整体移植等于引入一个新子系统。本轮只补「会导致请求失败」的档位字段。
+- **GPT-5.6 Sol 降价**（`#6565` 的另一半）：远端价目仓库与 upstream 静态兜底当前均仍是
+  5e-6 / 3e-5，无可信来源，不动。
+- upstream `530fb20f2` 的数据驱动长上下文解析（改动面覆盖整条计费链，需单独决策）。
+- 5.6 家族的清单档位补写：5.6 的 `supports_none_reasoning_effort` 为 true，不存在 Astra 那条报错，
+  不顺手改动既有行为。
+
+### 已知遗留（本轮有意不动，下次专项处理）
+
+- **`openai_compat_model.go` 的模型名档位拆分不认 `max`**：`gpt-6-astra-max` 走
+  `/v1/chat/completions` 时模型名能折叠回 `gpt-6-astra`，但档位提不出来（`max` 落到 `default:`
+  返回「不是档位后缀」）。**不能直接加 `case "max"`**：本 fork 没有 upstream 的
+  `supportsOpenAIReasoningEffortMax` 门，加了会把 `gpt-5.4-max` 这类请求从「静默忽略」
+  变成「上游 400」。要修得连同按型号的 max 支持判定一起加。
+- **`apicompat/anthropic_to_responses.go` 把 Anthropic `max` 映射为 `xhigh`**：Astra 有原生 `max`，
+  经 `/v1/messages` 进来的最高档会被降一级。属保真度问题，非功能故障。
+
+### 回退
+
+| 项 | 方式 |
+| --- | --- |
+| 全量 | `git revert` 本次提交；Astra 会回到「按 gpt-5.4 计价 + Codex 报 none 不支持」 |
+| 仅计价 | 删除 `openAIGPT6AstraFallbackPricing`、`fallbackPrices["gpt-6-astra"]` 与两处 Astra 分支 |
+| 仅清单档位 | 删除 `applyCodexManifestReasoningLevels` 及其调用（`adjustAPIKeyCodexModelsManifest` 内） |
+| 仅 max 记录 | `normalizeOpenAIReasoningEffort` 删除 `case "max"`，并同时删除 derive 侧护栏 |
+| 仅 gpt-6 别名 | 移除 `codexModelMap["gpt-6"]`、`isOpenAIGPT6AstraModel` 的 `== "gpt-6"` 分支与前端两处条目 |
+
+### 验证
+
+`go test ./...`、`go test -tags=unit ./...`、`go test -tags=integration ./...` 全绿；
+`golangci-lint run`（**已先移走** `backend/internal/web/dist` 构建产物）0 issues；
+前端 `pnpm lint` / `pnpm typecheck` / `pnpm exec vitest run`（108 文件 646 用例）全绿；`pnpm build` 通过。
+
 ## 2026-08-25 · v1.4.9 — OAuth 透传流式修复 + Codex 身份默认值对齐
 
 ### 本地缺陷（非回灌，upstream 无对应提交）

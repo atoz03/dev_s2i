@@ -6093,7 +6093,13 @@ func deriveOpenAIReasoningEffortFromModel(model string) string {
 		return ""
 	}
 
-	return normalizeOpenAIReasoningEffort(parts[len(parts)-1])
+	effort := normalizeOpenAIReasoningEffort(parts[len(parts)-1])
+	// "-max" 既可能是档位后缀（gpt-6-astra-max），也可能是型号本身的一部分
+	// （gpt-5.1-codex-max）。模型名整体命中已知型号表时按型号处理，不当作档位。
+	if effort == "max" && getNormalizedCodexModel(modelID) != "" {
+		return ""
+	}
+	return effort
 }
 
 func extractOpenAIRequestMetaFromBody(body []byte) (model string, stream bool, promptCacheKey string) {
@@ -6463,6 +6469,10 @@ func normalizeOpenAIReasoningEffort(raw string) string {
 		return value
 	case "xhigh", "extrahigh":
 		return "xhigh"
+	case "max":
+		// GPT-5.6 / GPT-6 Astra 的独立最高档。网关不改写出站 reasoning.effort，
+		// 因此用量记录也按原样保留 max，避免显示成 xhigh。
+		return "max"
 	default:
 		// Only store known effort levels for now to keep UI consistent.
 		return ""

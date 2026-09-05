@@ -134,6 +134,41 @@ func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) 
 	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
 }
 
+func TestGetModelPricing_Gpt6AstraUsesStaticFallbackWhenRemoteMissing(t *testing.T) {
+	svc := &PricingService{
+		pricingData: map[string]*LiteLLMModelPricing{
+			"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+		},
+	}
+
+	// 回归：未登记时会走 DefaultTestModel 兜底，按 gpt-5.4 的 2.5e-6 计价。
+	for _, model := range []string{"gpt-6-astra", "gpt-6", "openai/gpt-6-astra", "gpt-6-astra-2026-09-01"} {
+		t.Run(model, func(t *testing.T) {
+			got := svc.GetModelPricing(model)
+			require.NotNil(t, got)
+			require.InDelta(t, 1e-05, got.InputCostPerToken, 1e-12)
+			require.InDelta(t, 5e-05, got.OutputCostPerToken, 1e-12)
+			require.InDelta(t, 1.25e-05, got.CacheCreationInputTokenCost, 1e-12)
+			require.InDelta(t, 1e-06, got.CacheReadInputTokenCost, 1e-12)
+			require.InDelta(t, 2e-05, got.InputCostPerTokenPriority, 1e-12)
+			require.InDelta(t, 1e-04, got.OutputCostPerTokenPriority, 1e-12)
+			require.Equal(t, 272000, got.LongContextInputTokenThreshold)
+			require.InDelta(t, 2.0, got.LongContextInputCostMultiplier, 1e-12)
+			require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
+		})
+	}
+}
+
+// gpt-6 是公开别名，目录里只有具体型号 gpt-6-astra。
+func TestGetModelPricing_BareGpt6AliasResolvesToAstraCatalogEntry(t *testing.T) {
+	astra := &LiteLLMModelPricing{InputCostPerToken: 123e-6, OutputCostPerToken: 456e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"gpt-6-astra": astra}}
+
+	for _, model := range []string{"gpt-6", "openai/gpt-6", "gpt-6-astra"} {
+		require.Same(t, astra, svc.GetModelPricing(model), model)
+	}
+}
+
 func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{

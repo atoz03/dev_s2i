@@ -417,9 +417,99 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 }
 
 var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
+	"gpt-6-astra":   {},
+	"gpt-6":         {},
 	"gpt-5.6-sol":   {},
 	"gpt-5.6-terra": {},
 	"gpt-5.6-luna":  {},
+}
+
+type codexManifestReasoningLevel struct {
+	Effort      string `json:"effort"`
+	Description string `json:"description"`
+}
+
+// gpt-6-astra 不接受 reasoning.effort=none / minimal，也没有 Sub2API 扩展的 ultra 档。
+// 官方档位见 https://developers.openai.com/api/docs/models/gpt-6-astra
+var codexManifestGPT6AstraReasoningLevels = []codexManifestReasoningLevel{
+	{Effort: "low", Description: "Fast responses with lighter reasoning"},
+	{Effort: "medium", Description: "Balanced reasoning for most coding tasks"},
+	{Effort: "high", Description: "Greater reasoning depth for coding and agent tasks"},
+	{Effort: "xhigh", Description: "Extra-high reasoning depth for difficult tasks"},
+	{Effort: "max", Description: "Maximum reasoning depth for complex tasks"},
+}
+
+const codexManifestGPT6AstraDefaultReasoningLevel = "medium"
+
+// codexManifestReasoningLevelsForSlug 返回网关自己掌握、且必须纠正的推理档位。
+// 只登记「上游清单会给出无法使用的档位」的型号：API Key 账号的 /v1/models 清单
+// 转换后不带任何档位信息，Codex 会退化成 reasoning.effort=none 发起请求，而
+// gpt-6-astra 对 none 直接返回 400。其余型号沿用上游清单，不做干预。
+func codexManifestReasoningLevelsForSlug(slug string) ([]codexManifestReasoningLevel, string, bool) {
+	if isOpenAIGPT6AstraModel(slug) {
+		return codexManifestGPT6AstraReasoningLevels, codexManifestGPT6AstraDefaultReasoningLevel, true
+	}
+	return nil, "", false
+}
+
+// applyCodexManifestReasoningLevels 校验清单条目的档位声明，不合格则整体改写为
+// 网关口径。判定必须**成对**：声明的档位是网关口径的子集，且默认档在该声明之内。
+// 只改其中一半会写出 default_reasoning_level ∉ supported_reasoning_levels 的条目，
+// 而 Codex 的 ModelInfo 要求默认档必须在支持列表里。
+func applyCodexManifestReasoningLevels(slug string, model map[string]json.RawMessage) (bool, error) {
+	levels, defaultLevel, ok := codexManifestReasoningLevelsForSlug(slug)
+	if !ok {
+		return false, nil
+	}
+
+	supported := make(map[string]struct{}, len(levels))
+	for _, level := range levels {
+		supported[level.Effort] = struct{}{}
+	}
+
+	if codexManifestReasoningDeclarationIsUsable(model, supported) {
+		return false, nil
+	}
+
+	encodedLevels, err := json.Marshal(levels)
+	if err != nil {
+		return false, fmt.Errorf("encode supported reasoning levels: %w", err)
+	}
+	encodedDefault, err := json.Marshal(defaultLevel)
+	if err != nil {
+		return false, fmt.Errorf("encode default reasoning level: %w", err)
+	}
+	model["supported_reasoning_levels"] = encodedLevels
+	model["default_reasoning_level"] = encodedDefault
+	return true, nil
+}
+
+func codexManifestReasoningDeclarationIsUsable(model map[string]json.RawMessage, supported map[string]struct{}) bool {
+	raw, exists := model["supported_reasoning_levels"]
+	if !exists || len(raw) == 0 {
+		return false
+	}
+	var declared []codexManifestReasoningLevel
+	if err := json.Unmarshal(raw, &declared); err != nil || len(declared) == 0 {
+		return false
+	}
+
+	declaredEfforts := make(map[string]struct{}, len(declared))
+	for _, level := range declared {
+		if _, allowed := supported[level.Effort]; !allowed {
+			return false
+		}
+		declaredEfforts[level.Effort] = struct{}{}
+	}
+
+	currentDefault := ""
+	if rawDefault, hasDefault := model["default_reasoning_level"]; hasDefault && len(rawDefault) > 0 {
+		if err := json.Unmarshal(rawDefault, &currentDefault); err != nil {
+			return false
+		}
+	}
+	_, defaultDeclared := declaredEfforts[currentDefault]
+	return defaultDeclared
 }
 
 func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
@@ -442,14 +532,24 @@ func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
 		if err := json.Unmarshal(model["slug"], &slug); err != nil {
 			continue
 		}
-		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]; !targeted {
+		modelChanged := false
+		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]; targeted {
+			var useResponsesLite bool
+			if err := json.Unmarshal(model["use_responses_lite"], &useResponsesLite); err == nil && useResponsesLite {
+				model["use_responses_lite"] = json.RawMessage("false")
+				modelChanged = true
+			}
+		}
+		applied, err := applyCodexManifestReasoningLevels(slug, model)
+		if err != nil {
+			return nil, fmt.Errorf("adjust reasoning levels for model %q: %w", slug, err)
+		}
+		if applied {
+			modelChanged = true
+		}
+		if !modelChanged {
 			continue
 		}
-		var useResponsesLite bool
-		if err := json.Unmarshal(model["use_responses_lite"], &useResponsesLite); err != nil || !useResponsesLite {
-			continue
-		}
-		model["use_responses_lite"] = json.RawMessage("false")
 		adjusted, err := json.Marshal(model)
 		if err != nil {
 			return nil, fmt.Errorf("encode model %q: %w", slug, err)

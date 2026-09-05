@@ -834,6 +834,34 @@ func TestApplyCodexOAuthTransform_EmptyInput(t *testing.T) {
 	require.Len(t, input, 0)
 }
 
+func TestNormalizeCodexModel_Gpt6Astra(t *testing.T) {
+	cases := map[string]string{
+		"gpt-6-astra":            "gpt-6-astra",
+		"openai/gpt-6-astra":     "gpt-6-astra",
+		"gpt-6":                  "gpt-6-astra",
+		"openai/gpt-6":           "gpt-6-astra",
+		"GPT-6_ASTRA":            "gpt-6-astra",
+		"gpt-6-astra-max":        "gpt-6-astra",
+		"gpt-6-astra-xhigh":      "gpt-6-astra",
+		"gpt-6-astra-2026-09-01": "gpt-6-astra",
+		// 公开别名带档位后缀（OpenCode 变体）同样折叠到具体型号
+		"gpt-6-max":  "gpt-6-astra",
+		"gpt-6-high": "gpt-6-astra",
+		// 未知 GPT-6 型号原样透传，不落到 Astra 或 gpt-5.4 兜底
+		"gpt-6-terra": "gpt-6-terra",
+		"gpt-6.1":     "gpt-6.1",
+	}
+
+	for input, expected := range cases {
+		require.Equal(t, expected, normalizeCodexModel(input), input)
+	}
+}
+
+// "-max" 在 gpt-5.1-codex-max 中是型号的一部分，不是推理档位后缀。
+func TestNormalizeCodexModel_CodexMaxSuffixStaysModelName(t *testing.T) {
+	require.Equal(t, "gpt-5.3-codex", normalizeCodexModel("gpt-5.1-codex-max"))
+}
+
 func TestNormalizeCodexModel_Gpt53(t *testing.T) {
 	cases := map[string]string{
 		"gpt-5.4":                   "gpt-5.4",
