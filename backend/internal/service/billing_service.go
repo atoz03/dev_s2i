@@ -242,16 +242,17 @@ func (s *BillingService) initFallbackPricing() {
 	s.fallbackPrices["gpt-5.5"] = s.fallbackPrices["gpt-5.4"]
 
 	// OpenAI GPT-6 Astra 官方价格（USD/token）。缓存写入为输入价的 1.25 倍，
-	// Priority（Fast）为标准价的 2 倍。
+	// Priority（Fast）为标准价的 2 倍。官方价再乘额度权重加价倍率，与目录解析后的
+	// 口径一致，见 openAIGPT6AstraQuotaWeightMultiplier。
 	s.fallbackPrices["gpt-6-astra"] = &ModelPricing{
-		InputPricePerToken:                 10e-6,
-		InputPricePerTokenPriority:         20e-6,
-		OutputPricePerToken:                50e-6,
-		OutputPricePerTokenPriority:        100e-6,
-		CacheCreationPricePerToken:         12.5e-6,
-		CacheCreationPricePerTokenPriority: 25e-6,
-		CacheReadPricePerToken:             1e-6,
-		CacheReadPricePerTokenPriority:     2e-6,
+		InputPricePerToken:                 10e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		InputPricePerTokenPriority:         20e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		OutputPricePerToken:                50e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		OutputPricePerTokenPriority:        100e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheCreationPricePerToken:         12.5e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheCreationPricePerTokenPriority: 25e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheReadPricePerToken:             1e-6 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheReadPricePerTokenPriority:     2e-6 * openAIGPT6AstraQuotaWeightMultiplier,
 		LongContextInputThreshold:          openAIGPT54LongContextInputThreshold,
 		LongContextInputMultiplier:         openAIGPT54LongContextInputMultiplier,
 		LongContextOutputMultiplier:        openAIGPT54LongContextOutputMultiplier,

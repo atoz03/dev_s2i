@@ -172,7 +172,9 @@ func TestGetModelPricing_GPT56FallbackUsesOfficialRates(t *testing.T) {
 	}
 }
 
-func TestGetModelPricing_GPT6AstraFallbackUsesOfficialRates(t *testing.T) {
+// 静态兜底按「官方价 × 额度权重加价」给出，即 2026-09-05 公布的
+// 18 / 22.5 / 1.8 / 90（USD per MTok），-fast 档为其 2 倍。
+func TestGetModelPricing_GPT6AstraFallbackAppliesQuotaWeightMarkup(t *testing.T) {
 	svc := newTestBillingService()
 
 	// gpt-6 是 Astra 的公开别名，两者必须落到同一份价格。
@@ -180,19 +182,32 @@ func TestGetModelPricing_GPT6AstraFallbackUsesOfficialRates(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			pricing, err := svc.GetModelPricing(model)
 			require.NoError(t, err)
-			require.InDelta(t, 10e-6, pricing.InputPricePerToken, 1e-12)
-			require.InDelta(t, 20e-6, pricing.InputPricePerTokenPriority, 1e-12)
-			require.InDelta(t, 50e-6, pricing.OutputPricePerToken, 1e-12)
-			require.InDelta(t, 100e-6, pricing.OutputPricePerTokenPriority, 1e-12)
-			require.InDelta(t, 12.5e-6, pricing.CacheCreationPricePerToken, 1e-12)
-			require.InDelta(t, 25e-6, pricing.CacheCreationPricePerTokenPriority, 1e-12)
-			require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12)
-			require.InDelta(t, 2e-6, pricing.CacheReadPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 18e-6, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, 36e-6, pricing.InputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 90e-6, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, 180e-6, pricing.OutputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 22.5e-6, pricing.CacheCreationPricePerToken, 1e-12)
+			require.InDelta(t, 45e-6, pricing.CacheCreationPricePerTokenPriority, 1e-12)
+			require.InDelta(t, 1.8e-6, pricing.CacheReadPricePerToken, 1e-12)
+			require.InDelta(t, 3.6e-6, pricing.CacheReadPricePerTokenPriority, 1e-12)
+			// 长上下文是倍率与门限，不随加价改变。
 			require.Equal(t, 272000, pricing.LongContextInputThreshold)
 			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
 			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
 		})
 	}
+}
+
+// 加价只针对 Astra，同族其他型号按官方价不动。
+func TestGetModelPricing_GPT56SolUnaffectedByAstraMarkup(t *testing.T) {
+	svc := newTestBillingService()
+
+	pricing, err := svc.GetModelPricing("gpt-5.6-sol")
+	require.NoError(t, err)
+	require.InDelta(t, 5e-6, pricing.InputPricePerToken, 1e-12)
+	require.InDelta(t, 30e-6, pricing.OutputPricePerToken, 1e-12)
+	require.InDelta(t, 6.25e-6, pricing.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, 0.5e-6, pricing.CacheReadPricePerToken, 1e-12)
 }
 
 // 回归：Astra 未登记时会掉进 DefaultTestModel 兜底，按 gpt-5.4 的 2.5e-6 计价（约 4 折）。
@@ -202,8 +217,8 @@ func TestCalculateCost_GPT6AstraDoesNotFallBackToGPT54Rates(t *testing.T) {
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 1000}
 	cost, err := svc.CalculateCost("gpt-6-astra", tokens, 1.0)
 	require.NoError(t, err)
-	require.InDelta(t, 1000*10e-6, cost.InputCost, 1e-12)
-	require.InDelta(t, 1000*50e-6, cost.OutputCost, 1e-12)
+	require.InDelta(t, 1000*18e-6, cost.InputCost, 1e-12)
+	require.InDelta(t, 1000*90e-6, cost.OutputCost, 1e-12)
 }
 
 func TestCalculateCost_GPT6AstraLongContextAppliesWholeSessionMultipliers(t *testing.T) {
@@ -213,8 +228,8 @@ func TestCalculateCost_GPT6AstraLongContextAppliesWholeSessionMultipliers(t *tes
 	cost, err := svc.CalculateCost("gpt-6-astra", tokens, 1.0)
 	require.NoError(t, err)
 
-	expectedInput := float64(tokens.InputTokens) * 10e-6 * 2.0
-	expectedOutput := float64(tokens.OutputTokens) * 50e-6 * 1.5
+	expectedInput := float64(tokens.InputTokens) * 18e-6 * 2.0
+	expectedOutput := float64(tokens.OutputTokens) * 90e-6 * 1.5
 	require.InDelta(t, expectedInput, cost.InputCost, 1e-10)
 	require.InDelta(t, expectedOutput, cost.OutputCost, 1e-10)
 }
@@ -228,8 +243,8 @@ func TestCalculateCostWithServiceTier_GPT6AstraUsesPriorityRates(t *testing.T) {
 	priority, err := svc.CalculateCostWithServiceTier("gpt-6-astra", tokens, 1.0, "priority")
 	require.NoError(t, err)
 
-	require.InDelta(t, 1000*12.5e-6, standard.CacheCreationCost, 1e-12)
-	require.InDelta(t, 1000*25e-6, priority.CacheCreationCost, 1e-12)
+	require.InDelta(t, 1000*22.5e-6, standard.CacheCreationCost, 1e-12)
+	require.InDelta(t, 1000*45e-6, priority.CacheCreationCost, 1e-12)
 }
 
 // 目录数据只给基础价时，缓存写入按输入价 1.25 倍补齐（与 GPT-5.6 同口径）。
@@ -250,6 +265,45 @@ func TestApplyModelSpecificPricingPolicy_GPT6AstraFillsCacheWriteAndLongContext(
 	require.InDelta(t, 1.5, adjusted.LongContextOutputMultiplier, 1e-12)
 	// 未修改入参
 	require.InDelta(t, 0, catalog.CacheCreationPricePerToken, 1e-12)
+}
+
+// 目录命中与静态兜底两条路径必须落到同一份加价后价格：加价挂在目录解析处，
+// 静态兜底则把倍率写进常量，这条用例是两者不漂移的锚点。
+func TestGetModelPricing_GPT6AstraCatalogAndFallbackPathsAgree(t *testing.T) {
+	// 官方价目录条目，解析时会被加价。
+	catalogSvc := &PricingService{}
+	data, err := catalogSvc.parsePricingData([]byte(`{
+		"gpt-6-astra": {
+			"input_cost_per_token": 0.00001,
+			"input_cost_per_token_priority": 0.00002,
+			"output_cost_per_token": 0.00005,
+			"output_cost_per_token_priority": 0.0001,
+			"cache_creation_input_token_cost": 0.0000125,
+			"cache_creation_input_token_cost_priority": 0.000025,
+			"cache_read_input_token_cost": 0.000001,
+			"cache_read_input_token_cost_priority": 0.000002,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`))
+	require.NoError(t, err)
+	catalogSvc.pricingData = data
+
+	fromCatalog, err := NewBillingService(&config.Config{}, catalogSvc).GetModelPricing("gpt-6-astra")
+	require.NoError(t, err)
+	fromFallback, err := newTestBillingService().GetModelPricing("gpt-6-astra")
+	require.NoError(t, err)
+
+	require.InDelta(t, fromFallback.InputPricePerToken, fromCatalog.InputPricePerToken, 1e-12)
+	require.InDelta(t, fromFallback.InputPricePerTokenPriority, fromCatalog.InputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, fromFallback.OutputPricePerToken, fromCatalog.OutputPricePerToken, 1e-12)
+	require.InDelta(t, fromFallback.OutputPricePerTokenPriority, fromCatalog.OutputPricePerTokenPriority, 1e-12)
+	require.InDelta(t, fromFallback.CacheCreationPricePerToken, fromCatalog.CacheCreationPricePerToken, 1e-12)
+	require.InDelta(t, fromFallback.CacheCreationPricePerTokenPriority, fromCatalog.CacheCreationPricePerTokenPriority, 1e-12)
+	require.InDelta(t, fromFallback.CacheReadPricePerToken, fromCatalog.CacheReadPricePerToken, 1e-12)
+	require.InDelta(t, fromFallback.CacheReadPricePerTokenPriority, fromCatalog.CacheReadPricePerTokenPriority, 1e-12)
+	require.InDelta(t, 18e-6, fromCatalog.InputPricePerToken, 1e-12)
+	require.InDelta(t, 90e-6, fromCatalog.OutputPricePerToken, 1e-12)
 }
 
 func TestCalculateCostWithServiceTier_GPT56UsesPriorityCacheCreationRate(t *testing.T) {

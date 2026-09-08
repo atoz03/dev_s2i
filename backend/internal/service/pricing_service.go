@@ -21,6 +21,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// openAIGPT6AstraQuotaWeightMultiplier 是 GPT-6 Astra 在 OpenAI 官方价目之上的加价倍率。
+//
+// 实测 Astra 消耗 Pro 账号周额度的速度约为 gpt-5.6-sol 的 3.6 倍，而官方价目只有 Sol 的
+// 1.9 倍——按官方价计费等于每 $1 的 Astra 请求实际吃掉价值 $1.9 的 Sol 额度。2026-09-05
+// 19:00（北京时间）起按 1.8 倍拉平：输入 10→18、缓存写入 12.5→22.5、缓存读取 1→1.8、
+// 输出 50→90（USD/MTok）；priority（对外叫 -fast）档同为标准价 2 倍，故 36/45/3.6/180。
+//
+// 这是本 fork 的业务定价决定，不是 OpenAI 官方调价；生效前已完成的请求不追溯。
+const openAIGPT6AstraQuotaWeightMultiplier = 1.8
+
 var (
 	openAIModelDatePattern     = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern     = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
@@ -35,15 +45,18 @@ var (
 		Mode:                            "chat",
 		SupportsPromptCaching:           true,
 	}
+	// 官方价写成「官方价 × 加价倍率」，官方数字保持可见，加价只有
+	// openAIGPT6AstraQuotaWeightMultiplier 一个旋钮；目录解析处按同一倍率加价，
+	// 两条路径（目录命中 / 静态兜底）落在同一口径上。
 	openAIGPT6AstraFallbackPricing = &LiteLLMModelPricing{
-		InputCostPerToken:                   1e-05,
-		InputCostPerTokenPriority:           2e-05,
-		OutputCostPerToken:                  5e-05,
-		OutputCostPerTokenPriority:          1e-04,
-		CacheCreationInputTokenCost:         1.25e-05,
-		CacheCreationInputTokenCostPriority: 2.5e-05,
-		CacheReadInputTokenCost:             1e-06,
-		CacheReadInputTokenCostPriority:     2e-06,
+		InputCostPerToken:                   1e-05 * openAIGPT6AstraQuotaWeightMultiplier,
+		InputCostPerTokenPriority:           2e-05 * openAIGPT6AstraQuotaWeightMultiplier,
+		OutputCostPerToken:                  5e-05 * openAIGPT6AstraQuotaWeightMultiplier,
+		OutputCostPerTokenPriority:          1e-04 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheCreationInputTokenCost:         1.25e-05 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheCreationInputTokenCostPriority: 2.5e-05 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheReadInputTokenCost:             1e-06 * openAIGPT6AstraQuotaWeightMultiplier,
+		CacheReadInputTokenCostPriority:     2e-06 * openAIGPT6AstraQuotaWeightMultiplier,
 		LongContextInputTokenThreshold:      272000,
 		LongContextInputCostMultiplier:      2.0,
 		LongContextOutputCostMultiplier:     1.5,
@@ -505,6 +518,12 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			pricing.OutputCostPerImageToken = *entry.OutputCostPerImageToken
 		}
 
+		// 加价挂在目录解析这一处，pricingData 的所有读取方（计费、可用渠道展示、
+		// 状态导出）因此看到同一口径，不会出现「展示官方价、按加价扣费」的错位。
+		if isOpenAIGPT6AstraModel(modelName) {
+			applyGPT6AstraQuotaWeightMarkup(pricing)
+		}
+
 		result[modelName] = pricing
 	}
 
@@ -517,6 +536,27 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 	}
 
 	return result, nil
+}
+
+// applyGPT6AstraQuotaWeightMarkup 就地把一条 GPT-6 Astra 目录条目按
+// openAIGPT6AstraQuotaWeightMultiplier 加价。只乘每 token / 每张图的单价；
+// 长上下文阈值与倍率是门限和比例，等比放大后不变，保持原样。
+func applyGPT6AstraQuotaWeightMarkup(pricing *LiteLLMModelPricing) {
+	if pricing == nil {
+		return
+	}
+	const markup = openAIGPT6AstraQuotaWeightMultiplier
+	pricing.InputCostPerToken *= markup
+	pricing.InputCostPerTokenPriority *= markup
+	pricing.OutputCostPerToken *= markup
+	pricing.OutputCostPerTokenPriority *= markup
+	pricing.CacheCreationInputTokenCost *= markup
+	pricing.CacheCreationInputTokenCostPriority *= markup
+	pricing.CacheCreationInputTokenCostAbove1hr *= markup
+	pricing.CacheReadInputTokenCost *= markup
+	pricing.CacheReadInputTokenCostPriority *= markup
+	pricing.OutputCostPerImage *= markup
+	pricing.OutputCostPerImageToken *= markup
 }
 
 // loadPricingData 从本地文件加载价格数据

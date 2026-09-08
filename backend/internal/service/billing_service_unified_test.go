@@ -229,6 +229,32 @@ func TestCalculateCostUnified_UsesPreResolvedPricing(t *testing.T) {
 	require.Equal(t, string(BillingModePerRequest), cost.BillingMode)
 }
 
+// Resolver 路径会把 applyModelSpecificPricingPolicy 走两遍（GetModelPricing 里一次，
+// calculateTokenCost 里再一次），所以那道门必须保持幂等。Astra 的额度权重加价因此挂在
+// 目录解析处而不是这道门上——一旦有人把倍率挪进来，这条用例会以 1.8 倍的差额报错。
+func TestCalculateCostUnified_GPT6AstraMarkupAppliedExactlyOnce(t *testing.T) {
+	bs := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, bs)
+
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheCreationTokens: 200, CacheReadTokens: 300}
+	viaResolver, err := bs.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          "gpt-6-astra",
+		Tokens:         tokens,
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+	})
+	require.NoError(t, err)
+
+	viaLegacy, err := bs.CalculateCost("gpt-6-astra", tokens, 1.0)
+	require.NoError(t, err)
+
+	require.InDelta(t, viaLegacy.TotalCost, viaResolver.TotalCost, 1e-12)
+	// 加价一次的绝对口径：18 / 90 / 22.5 / 1.8（USD per MTok）。
+	expected := 1000*18e-6 + 500*90e-6 + 200*22.5e-6 + 300*1.8e-6
+	require.InDelta(t, expected, viaResolver.TotalCost, 1e-12)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------

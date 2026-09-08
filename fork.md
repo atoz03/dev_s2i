@@ -71,6 +71,67 @@
 
 # 二、决议记录（新 → 旧）
 
+## 2026-09-05 · GPT-6 Astra 按额度权重加价 1.8 倍
+
+同步 09-05 18:56 的调价公告（生效 09-05 19:00 北京时间，生效前完成的请求不追溯）：
+
+| | 输入 | 缓存写入 | 缓存读取 | 输出 |
+| --- | --- | --- | --- | --- |
+| `gpt-6-astra` | 10 → **18** | 12.5 → **22.5** | 1 → **1.8** | 50 → **90** |
+| `gpt-6-astra-fast` | 20 → **36** | 25 → **45** | 2 → **3.6** | 100 → **180** |
+
+（USD per MTok。）依据：实测 Astra 消耗 Pro 账号周额度的速度约为 `gpt-5.6-sol` 的 **3.6 倍**，
+而官方价目只有 Sol 的 **1.9 倍**——按官方价计费等于每 $1 的 Astra 请求实际吃掉价值 $1.9 的 Sol 额度。
+1.8 倍是把这个缺口拉平。**这是本 fork 的业务定价决定，不是 OpenAI 官方调价**：官方价目
+（`Wei-Shaw/model-price-repo`）当前仍是 1e-5 / 5e-5。
+
+### 取舍与原因
+
+- **只有一个旋钮 `openAIGPT6AstraQuotaWeightMultiplier = 1.8`**（`pricing_service.go`）。
+  两处静态价目写成「官方价 × 该常量」而非直接写 18e-6，官方数字保持可见，改倍率只动一个地方。
+- **加价挂在 `parsePricingData`（目录解析处），不挂在 `applyModelSpecificPricingPolicy`**。
+  两条理由，缺一不可：
+  1. **那道门会被走两遍**。Resolver 路径下 `ModelPricingResolver.Resolve → GetModelPricing`
+     调一次，`calculateTokenCost` 回来又调一次。当前它只做「缺什么补什么」的幂等填充所以无害，
+     但**乘法不幂等**——放进去会变成 3.24 倍。已加回归用例
+     `TestCalculateCostUnified_GPT6AstraMarkupAppliedExactlyOnce` 钉死这条。
+  2. **展示与计费必须同口径**。远端价目仓库**已收录** `gpt-6-astra`，目录命中优先于静态兜底，
+     所以只改兜底在联网部署里等于没改。而 `pricingData` 的读取方不止计费一条：
+     `channel_available.go` 的 `fillGlobalPricingFallback` 会把它合成给
+     `/available-channels` 展示给用户。挂在解析处，所有读取方（计费、可用渠道展示、状态导出）
+     自动看到同一个数，不会出现「页面显示官方价、扣费按加价」。
+- **长上下文阈值与倍率不动**：272K 门限与 2.0 / 1.5 是门限和比例，等比放大后不变。
+- **`-fast` 走 `service_tier=priority`，不新增型号**：本 fork 用 `*Priority` 字段表达 Fast 档，
+  官方与公告的 Fast 价都恰好是标准价 2 倍，加价 1.8 倍后自动得到 36/45/3.6/180，无需单独登记。
+
+### 明确的行为变化（均为有意）
+
+1. **`PricingService` 返回的不再是官方价目的纯镜像，而是「生效价」**。这是本轮最值得记住的语义变化：
+   此后读 `pricingData` 拿到的是加价后的数，想看官方原价要去远端价目仓库或本地缓存的 JSON 文件
+   （落盘的 `model_prices_and_context_window.json` 仍是原始下载内容，未被改写）。
+2. Astra 的用户可见价格与账单同步涨到 1.8 倍；`gpt-6`、`gpt-6-astra-max`、日期后缀等所有
+   归一化到 Astra 的写法一并生效（判定复用 `isOpenAIGPT6AstraModel`，含 `azure/`、`openai/` 前缀）。
+
+### 已知遗留（本轮有意不动）
+
+- **`gpt-6-astra-fast` 作为模型名后缀不会命中 priority 档**：`-fast` 会被
+  `isOpenAIGPT6AstraModel` 收进来归一化成 `gpt-6-astra`，按标准档 18/90 计，而不是 36/180。
+  这是 v1.4.10 就存在的行为（当时是 10/50 而非 20/100），本轮只做等比放大，未改变。
+  若上游/客户端确实以**模型名**形式下发 Fast（而不是 `service_tier=priority`），需要单独做
+  「模型名 → service tier」的映射，属另一次改动。
+
+### 回退
+
+| 项 | 方式 |
+| --- | --- |
+| 全量恢复官方价 | 删除 `openAIGPT6AstraQuotaWeightMultiplier` 常量与 `applyGPT6AstraQuotaWeightMarkup`、`parsePricingData` 里的调用，两处静态价目去掉 `* openAIGPT6AstraQuotaWeightMultiplier` |
+| 改倍率 | 只改常量值；两处静态价目与目录解析自动跟随 |
+
+### 验证
+
+`go test ./...`、`go test -tags=unit ./...`、`go test -tags=integration ./...` 全绿；
+`golangci-lint run`（**已先移走** `backend/internal/web/dist` 构建产物）0 issues。
+
 ## 2026-09-04 · v1.4.10 — GPT-6 Astra 适配
 
 upstream 截至 `b1748c4ea`（09-03）**尚未合入** Astra 支持，相关改动全部停留在开放 PR：

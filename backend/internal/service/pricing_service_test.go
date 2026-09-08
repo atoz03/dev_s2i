@@ -134,6 +134,55 @@ func TestGetModelPricing_Gpt54UsesStaticFallbackWhenRemoteMissing(t *testing.T) 
 	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
 }
 
+// 目录里的 Astra 条目在解析时就按额度权重加价，pricingData 的所有读取方
+// （计费、可用渠道展示、状态导出）因此看到同一口径。
+func TestParsePricingData_AppliesGPT6AstraQuotaWeightMarkup(t *testing.T) {
+	svc := &PricingService{}
+	body := []byte(`{
+		"gpt-6-astra": {
+			"input_cost_per_token": 0.00001,
+			"input_cost_per_token_priority": 0.00002,
+			"output_cost_per_token": 0.00005,
+			"output_cost_per_token_priority": 0.0001,
+			"cache_creation_input_token_cost": 0.0000125,
+			"cache_creation_input_token_cost_priority": 0.000025,
+			"cache_read_input_token_cost": 0.000001,
+			"cache_read_input_token_cost_priority": 0.000002,
+			"supports_service_tier": true,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		},
+		"gpt-5.6-sol": {
+			"input_cost_per_token": 0.000005,
+			"output_cost_per_token": 0.00003,
+			"litellm_provider": "openai",
+			"mode": "chat"
+		}
+	}`)
+
+	data, err := svc.parsePricingData(body)
+	require.NoError(t, err)
+
+	// 2026-09-05 公布的加价后价目（USD per MTok）：18 / 22.5 / 1.8 / 90，
+	// -fast（priority）为其 2 倍。
+	astra := data["gpt-6-astra"]
+	require.NotNil(t, astra)
+	require.InDelta(t, 1.8e-5, astra.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3.6e-5, astra.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 9e-5, astra.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 1.8e-4, astra.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 2.25e-5, astra.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 4.5e-5, astra.CacheCreationInputTokenCostPriority, 1e-12)
+	require.InDelta(t, 1.8e-6, astra.CacheReadInputTokenCost, 1e-12)
+	require.InDelta(t, 3.6e-6, astra.CacheReadInputTokenCostPriority, 1e-12)
+
+	// 加价只针对 Astra。
+	sol := data["gpt-5.6-sol"]
+	require.NotNil(t, sol)
+	require.InDelta(t, 5e-6, sol.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3e-5, sol.OutputCostPerToken, 1e-12)
+}
+
 func TestGetModelPricing_Gpt6AstraUsesStaticFallbackWhenRemoteMissing(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
@@ -146,12 +195,13 @@ func TestGetModelPricing_Gpt6AstraUsesStaticFallbackWhenRemoteMissing(t *testing
 		t.Run(model, func(t *testing.T) {
 			got := svc.GetModelPricing(model)
 			require.NotNil(t, got)
-			require.InDelta(t, 1e-05, got.InputCostPerToken, 1e-12)
-			require.InDelta(t, 5e-05, got.OutputCostPerToken, 1e-12)
-			require.InDelta(t, 1.25e-05, got.CacheCreationInputTokenCost, 1e-12)
-			require.InDelta(t, 1e-06, got.CacheReadInputTokenCost, 1e-12)
-			require.InDelta(t, 2e-05, got.InputCostPerTokenPriority, 1e-12)
-			require.InDelta(t, 1e-04, got.OutputCostPerTokenPriority, 1e-12)
+			// 官方价 10/50/12.5/1 × 1.8 额度权重加价。
+			require.InDelta(t, 1.8e-05, got.InputCostPerToken, 1e-12)
+			require.InDelta(t, 9e-05, got.OutputCostPerToken, 1e-12)
+			require.InDelta(t, 2.25e-05, got.CacheCreationInputTokenCost, 1e-12)
+			require.InDelta(t, 1.8e-06, got.CacheReadInputTokenCost, 1e-12)
+			require.InDelta(t, 3.6e-05, got.InputCostPerTokenPriority, 1e-12)
+			require.InDelta(t, 1.8e-04, got.OutputCostPerTokenPriority, 1e-12)
 			require.Equal(t, 272000, got.LongContextInputTokenThreshold)
 			require.InDelta(t, 2.0, got.LongContextInputCostMultiplier, 1e-12)
 			require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
