@@ -41,6 +41,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, fmt.Errorf("parse anthropic request: %w", err)
 	}
 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
+	// Anthropic 请求体没有 service_tier 字段，所以 `-fast` 后缀不能像另外两个入口
+	// 那样直接折叠进 body；这里先拆出后缀，转成 Responses 之后再落到 3b 的
+	// responsesReq.ServiceTier。拆在 originalModel 之前，使记录的模型名与
+	// /v1/chat/completions、/v1/responses 两个入口一致（型号 + 独立的档位字段）。
+	fastTierFromModel := false
+	if base, isFast := splitOpenAIFastTierModel(anthropicReq.Model); isFast {
+		anthropicReq.Model = base
+		fastTierFromModel = true
+	}
 	originalModel := anthropicReq.Model
 	applyOpenAICompatModelNormalization(&anthropicReq)
 	normalizedModel := anthropicReq.Model
@@ -98,8 +107,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	responsesReq.Stream = true
 	isStream := true
 
-	// 3b. Handle BetaFastMode → service_tier: "priority"
-	if containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
+	// 3b. Handle BetaFastMode / `-fast` 模型名后缀 → service_tier: "priority"
+	if fastTierFromModel || containsBetaToken(c.GetHeader("anthropic-beta"), claude.BetaFastMode) {
 		responsesReq.ServiceTier = "priority"
 	}
 

@@ -61,6 +61,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	// 入口处把 `gpt-6-astra-fast` 折叠成 model=gpt-6-astra + service_tier=priority，
+	// 下面两条分支（CC 直转 / CC→Responses）随后都按原生 service_tier 语义处理。
+	body = applyOpenAIFastTierModelSuffix(body)
+
 	// 入口分流：APIKey 账号 + 强制或已探测确认上游不支持 Responses，走 CC 直转。
 	// 自动模式下标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
 	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {

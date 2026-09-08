@@ -71,7 +71,7 @@
 
 # 二、决议记录（新 → 旧）
 
-## 2026-09-05 · GPT-6 Astra 按额度权重加价 1.8 倍
+## 2026-09-05 · v1.4.11 — GPT-6 Astra 按额度权重加价 1.8 倍 + `-fast` 走 Fast 档
 
 同步 09-05 18:56 的调价公告（生效 09-05 19:00 北京时间，生效前完成的请求不追溯）：
 
@@ -103,6 +103,27 @@
 - **长上下文阈值与倍率不动**：272K 门限与 2.0 / 1.5 是门限和比例，等比放大后不变。
 - **`-fast` 走 `service_tier=priority`，不新增型号**：本 fork 用 `*Priority` 字段表达 Fast 档，
   官方与公告的 Fast 价都恰好是标准价 2 倍，加价 1.8 倍后自动得到 36/45/3.6/180，无需单独登记。
+- **`gpt-6-astra-fast` 与「`model=gpt-6-astra` + `service_tier=fast`」是同一件事**，网关在入口
+  处把前者折叠成后者（`applyOpenAIFastTierModelSuffix`）。折叠一次之后，fast policy、上游请求、
+  用量记录与计费全部沿用既有的 service_tier 路径，不需要在每处再认一遍后缀。
+  - **判定 `splitOpenAIFastTierModel`**：剥掉末段 `-fast` 后必须仍是**已知** OpenAI 型号
+    （复用 `normalizeKnownOpenAICodexModel`），`some-other-fast`、`gemini-3.6-flash-fast`
+    这类不受影响；`openai/` 前缀与大小写原样保留给上游。裸别名 `gpt-6-fast` 同样成立。
+  - **不把 `"fast"` 加进 `isKnownCodexModelSuffix`**：那个谓词的语义是「推理档位或日期」，
+    用于模型名归一化；Fast 是服务档位，混在一处会让 `gpt-6-astra-fast` 被当成档位后缀
+    直接吞掉，反而丢掉 Fast 语义。
+  - **客户端显式 `service_tier` 优先**：`model=gpt-6-astra-fast` + `service_tier=flex` 仍按
+    flex 处理，折叠只在字段缺失时补。
+
+### 三个入口的落点
+
+| 入口 | 落点 |
+| --- | --- |
+| `/v1/chat/completions` | `ForwardAsChatCompletions` 开头改写 body，CC 直转与 CC→Responses 两条分支共用 |
+| `/v1/responses` | `Forward` 开头改写 body，**放在 `originalBody` 之前**，透传分支同样受益（否则带后缀的模型名会原样打到上游） |
+| `/v1/messages` | Anthropic 请求体没有 `service_tier` 字段，只能拆后缀 + 在 3b 处与 `BetaFastMode` 一起置 `responsesReq.ServiceTier` |
+
+WS 入口不覆盖：Codex CLI 走 WS 时 `service_tier` 在 `response.create` 帧里，本身就是原生写法。
 
 ### 明确的行为变化（均为有意）
 
@@ -111,14 +132,27 @@
    （落盘的 `model_prices_and_context_window.json` 仍是原始下载内容，未被改写）。
 2. Astra 的用户可见价格与账单同步涨到 1.8 倍；`gpt-6`、`gpt-6-astra-max`、日期后缀等所有
    归一化到 Astra 的写法一并生效（判定复用 `isOpenAIGPT6AstraModel`，含 `azure/`、`openai/` 前缀）。
+3. **`-fast` 请求此前按标准档计费，现在按 Fast 档**：v1.4.10 起 `gpt-6-astra-fast` 会被
+   `isOpenAIGPT6AstraModel` 收进来归一化成 `gpt-6-astra`，按标准档计（当时 10/50，加价后 18/90），
+   而不是公告里的 36/180。现在折叠成 `service_tier=priority`，计费与上游一并走 Fast 档。
+4. **记录的模型名是折叠后的型号**：用量记录里是 `gpt-6-astra`，档位另记在 `service_tier` 字段，
+   三个入口口径一致。想按 SKU 聚合要看「型号 + 档位」两列，不能只看模型名。
 
 ### 已知遗留（本轮有意不动）
 
-- **`gpt-6-astra-fast` 作为模型名后缀不会命中 priority 档**：`-fast` 会被
-  `isOpenAIGPT6AstraModel` 收进来归一化成 `gpt-6-astra`，按标准档 18/90 计，而不是 36/180。
-  这是 v1.4.10 就存在的行为（当时是 10/50 而非 20/100），本轮只做等比放大，未改变。
-  若上游/客户端确实以**模型名**形式下发 Fast（而不是 `service_tier=priority`），需要单独做
-  「模型名 → service tier」的映射，属另一次改动。
+- **`/v1/responses` 不对 body 跑 fast policy**：`applyOpenAIFastPolicyToBody` 只挂在
+  `/v1/chat/completions`、CC 直转、`/v1/messages` 与 WS 四处。因此经 `/v1/responses` 进来的
+  `-fast` 不受管理员的 fast policy 约束——但客户端**直接**传 `service_tier: priority` 今天也一样
+  不受约束，两种写法待遇相同，折叠没有引入新的绕过口子。要修得单独给该入口挂上策略。
+- **折叠发生在账号调度之后**：`SelectAccountWithScheduler` 拿到的仍是客户端原样的
+  `gpt-6-astra-fast`，`checkChannelPricingRestriction` 也按这个名字判。因此配了**渠道限定模型**
+  的分组，模型清单里要带上 `gpt-6-astra-fast`，否则该 SKU 会在调度阶段就被拒；反过来，配在
+  `gpt-6-astra-fast` 上的**渠道定价**不会被用到——计费此时看到的已是折叠后的 `gpt-6-astra`。
+  两条都是 v1.4.10 起就存在的行为，本轮未加重。要彻底消掉需把折叠提到 handler 层的调度之前。
+- **CC 直转路径下 policy `filter` 会让计费与上游不一致**：`serviceTier` 在
+  `openai_gateway_chat_completions_raw.go` 第 79 行提取，而 policy 在第 92 行才可能把
+  `service_tier` 从 body 里删掉——计费按 priority，上游实际拿到标准档。这是 body 携带
+  `service_tier` 时就存在的行为，`-fast` 只是原样继承，未加重。
 
 ### 回退
 
@@ -126,6 +160,7 @@
 | --- | --- |
 | 全量恢复官方价 | 删除 `openAIGPT6AstraQuotaWeightMultiplier` 常量与 `applyGPT6AstraQuotaWeightMarkup`、`parsePricingData` 里的调用，两处静态价目去掉 `* openAIGPT6AstraQuotaWeightMultiplier` |
 | 改倍率 | 只改常量值；两处静态价目与目录解析自动跟随 |
+| 仅 `-fast` 折叠 | 删除 `openai_fast_tier_model.go` 与三处调用（`ForwardAsChatCompletions` / `Forward` 开头各一行，`ForwardAsAnthropic` 的 `fastTierFromModel`）；`-fast` 会退回「归一化成 Astra、按标准档计费」 |
 
 ### 验证
 

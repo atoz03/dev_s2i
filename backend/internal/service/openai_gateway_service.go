@@ -2272,6 +2272,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
+	// 入口处把 `gpt-6-astra-fast` 折叠成 model=gpt-6-astra + service_tier=priority。
+	// 放在 originalBody 之前，透传分支（原样转发 originalBody）同样受益：否则
+	// 带后缀的模型名会原样打到上游。
+	body = applyOpenAIFastTierModelSuffix(body)
+
 	originalBody := body
 	reqModel, reqStream, _ := extractOpenAIRequestMetaFromBody(body)
 	promptCacheKey := s.ExtractSessionID(c, body)
