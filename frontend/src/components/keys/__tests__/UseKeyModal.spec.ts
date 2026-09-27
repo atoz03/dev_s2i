@@ -51,7 +51,7 @@ describe('UseKeyModal', () => {
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
 
-  it('renders GPT-6 Astra entries with the max variant in OpenCode config', async () => {
+  it('renders GPT-6 entries with their supported variants in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -93,6 +93,18 @@ describe('UseKeyModal', () => {
       limit: {context: 1050000, output: 128000},
       options: {store: false},
       variants: {low: {}, medium: {}, high: {}, xhigh: {}, max: {}}
+    })
+    expect(models['gpt-6-sol']).toEqual({
+      name: 'GPT-6 Sol',
+      limit: {context: 1050000, output: 128000},
+      options: {store: false},
+      variants: {none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {}}
+    })
+    expect(models['gpt-6-luna']).toEqual({
+      name: 'GPT-6 Luna',
+      limit: {context: 1050000, output: 128000},
+      options: {store: false},
+      variants: {none: {}, low: {}, medium: {}, high: {}, xhigh: {}, max: {}}
     })
   })
 })

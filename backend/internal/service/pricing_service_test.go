@@ -219,6 +219,19 @@ func TestGetModelPricing_BareGpt6AliasResolvesToAstraCatalogEntry(t *testing.T) 
 	}
 }
 
+func TestGetModelPricing_Gpt6SolLunaUseCatalogOrOfficialFallback(t *testing.T) {
+	catalogSol := &LiteLLMModelPricing{InputCostPerToken: 123e-6}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{"gpt-6-sol": catalogSol}}
+
+	require.Same(t, catalogSol, svc.GetModelPricing("openai/gpt-6-sol-max"))
+	luna := svc.GetModelPricing("gpt-6-luna-2026-09-26")
+	require.NotNil(t, luna)
+	require.InDelta(t, 0.1e-6, luna.InputCostPerToken, 1e-12)
+	require.InDelta(t, 0.5e-6, luna.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 0.125e-6, luna.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 0.01e-6, luna.CacheReadInputTokenCost, 1e-12)
+}
+
 func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
 	svc := &PricingService{
 		pricingData: map[string]*LiteLLMModelPricing{
@@ -291,6 +304,39 @@ func TestDefaultPricingIncludesGPT56LunaReducedRates(t *testing.T) {
 	require.Equal(t, 272000, got.LongContextInputTokenThreshold)
 	require.InDelta(t, 2.0, got.LongContextInputCostMultiplier, 1e-12)
 	require.InDelta(t, 1.5, got.LongContextOutputCostMultiplier, 1e-12)
+}
+
+func TestDefaultPricingIncludesGPT6SolLunaOfficialRates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	svc := &PricingService{}
+	pricingData, err := svc.parsePricingData(data)
+	require.NoError(t, err)
+
+	tests := []struct {
+		model       string
+		input       float64
+		output      float64
+		cacheCreate float64
+		cacheRead   float64
+	}{
+		{"gpt-6-sol", 2e-6, 10e-6, 2.5e-6, 0.2e-6},
+		{"gpt-6-luna", 0.1e-6, 0.5e-6, 0.125e-6, 0.01e-6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			got := pricingData[tt.model]
+			require.NotNil(t, got)
+			require.InDelta(t, tt.input, got.InputCostPerToken, 1e-12)
+			require.InDelta(t, tt.input*2, got.InputCostPerTokenPriority, 1e-12)
+			require.InDelta(t, tt.output, got.OutputCostPerToken, 1e-12)
+			require.InDelta(t, tt.output*2, got.OutputCostPerTokenPriority, 1e-12)
+			require.InDelta(t, tt.cacheCreate, got.CacheCreationInputTokenCost, 1e-12)
+			require.InDelta(t, tt.cacheRead, got.CacheReadInputTokenCost, 1e-12)
+			require.Equal(t, 272000, got.LongContextInputTokenThreshold)
+		})
+	}
 }
 
 func TestDefaultPricingIncludesClaudeOpus5OfficialRates(t *testing.T) {

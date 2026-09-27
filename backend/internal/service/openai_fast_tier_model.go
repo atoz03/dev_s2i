@@ -9,7 +9,8 @@ import (
 
 // openAIFastTierModelSuffix 是 Fast 档在模型名里的写法。
 //
-// `gpt-6-astra-fast` 与「model=gpt-6-astra + service_tier=fast」是同一件事：
+// `gpt-6-astra-fast` 与「model=gpt-6-astra + service_tier=fast」是同一件事；
+// Sol/Luna 也沿用相同规则：
 // 前者是本 fork 对外售卖 Fast 档的 SKU 写法，后者是 OpenAI 原生写法
 // （`normalizeOpenAIServiceTier` 已把 "fast" 归一化为 "priority"）。
 // 网关在入口处把前者折叠成后者，fast policy、上游请求与计费便都沿用既有那条

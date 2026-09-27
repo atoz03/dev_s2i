@@ -65,3 +65,20 @@ func TestNormalizeKnownOpenAICodexModelGPT6Astra(t *testing.T) {
 		require.Equal(t, "", normalizeKnownOpenAICodexModel(model), model)
 	}
 }
+
+func TestNormalizeKnownOpenAICodexModelGPT6SolLuna(t *testing.T) {
+	cases := map[string]string{
+		"gpt-6-sol":                          "gpt-6-sol",
+		"openai/GPT-6_SOL":                   "gpt-6-sol",
+		"gpt-6-sol-max":                      "gpt-6-sol",
+		"gpt-6-sol-2026-09-23":               "gpt-6-sol",
+		"gpt-6-luna":                         "gpt-6-luna",
+		"provider/gpt-6-luna-openai-compact": "gpt-6-luna",
+	}
+	for input, expected := range cases {
+		require.Equal(t, expected, normalizeKnownOpenAICodexModel(input), input)
+	}
+	for _, model := range []string{"gpt-6-solar", "gpt-6-luna-preview"} {
+		require.Empty(t, normalizeKnownOpenAICodexModel(model), model)
+	}
+}

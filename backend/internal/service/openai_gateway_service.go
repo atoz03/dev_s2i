@@ -79,6 +79,7 @@ var openaiAllowedHeaders = map[string]bool{
 	"accept-language":       true,
 	"content-type":          true,
 	"conversation_id":       true,
+	"openai-beta":           true,
 	"user-agent":            true,
 	"originator":            true,
 	"session_id":            true,
@@ -2533,6 +2534,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
+	if sanitizeGPT6ResponsesSampling(reqBody, upstreamModel) {
+		bodyModified = true
+		disablePatch()
+	}
+
 	if account.Type == AccountTypeOAuth {
 		codexResult := codexTransformResult{}
 		if compatMessagesBridge {
@@ -2663,6 +2669,17 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			if marshalErr != nil {
 				return nil, fmt.Errorf("serialize request body: %w", marshalErr)
 			}
+		}
+	}
+
+	cleanedBody, promptCacheHintsChanged, err := sanitizeGPTPromptCacheHints(body, upstreamModel)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize GPT prompt cache hints: %w", err)
+	}
+	if promptCacheHintsChanged {
+		body = cleanedBody
+		if err := json.Unmarshal(body, &reqBody); err != nil {
+			return nil, fmt.Errorf("parse sanitized GPT request body: %w", err)
 		}
 	}
 
@@ -3087,6 +3104,25 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 
+	modelForSampling := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if modelForSampling == "" {
+		modelForSampling = reqModel
+	}
+	cleanedBody, promptCacheHintsChanged, err := sanitizeGPTPromptCacheHints(body, modelForSampling)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize GPT prompt cache hints: %w", err)
+	}
+	if promptCacheHintsChanged {
+		body = cleanedBody
+	}
+	normalizedBody, samplingChanged, err := sanitizeGPT6ResponsesSamplingBytes(body, modelForSampling)
+	if err != nil {
+		return nil, err
+	}
+	if samplingChanged {
+		body = normalizedBody
+	}
+
 	logger.LegacyPrintf("service.openai_gateway",
 		"[OpenAI 自动透传] 命中自动透传分支: account=%d name=%s type=%s model=%s stream=%v",
 		account.ID,
@@ -3314,9 +3350,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			req.Header.Del("OpenAI-Beta")
 			req.Header.Del("originator")
 		} else {
-			if req.Header.Get("OpenAI-Beta") == "" {
-				req.Header.Set("OpenAI-Beta", "responses=experimental")
-			}
+			stripOpenAILegacyResponsesBeta(req.Header)
 			if req.Header.Get("originator") == "" {
 				req.Header.Set("originator", openai.CodexDefaultOriginator)
 			}
@@ -3813,6 +3847,38 @@ func writeOpenAIPassthroughResponseHeaders(dst http.Header, src http.Header, fil
 	}
 }
 
+// stripOpenAILegacyResponsesBeta 删除已废弃的 responses=experimental，
+// 同时保留 multi-agent 等客户端声明的新 Beta 能力。
+func stripOpenAILegacyResponsesBeta(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	preserved := make([]string, 0)
+	for key, values := range headers {
+		if !strings.EqualFold(strings.TrimSpace(key), "OpenAI-Beta") {
+			continue
+		}
+		delete(headers, key)
+		for _, value := range values {
+			parts := strings.Split(value, ",")
+			kept := parts[:0]
+			for _, part := range parts {
+				part = strings.TrimSpace(part)
+				if part == "" || strings.EqualFold(part, "responses=experimental") {
+					continue
+				}
+				kept = append(kept, part)
+			}
+			if len(kept) > 0 {
+				preserved = append(preserved, strings.Join(kept, ", "))
+			}
+		}
+	}
+	for _, value := range preserved {
+		headers.Add("OpenAI-Beta", value)
+	}
+}
+
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
 	isMessagesCompatPath := c != nil && c.Request != nil && c.Request.URL != nil && strings.HasSuffix(strings.TrimSpace(c.Request.URL.Path), "/messages")
 	upstreamSessionKey := strings.TrimSpace(promptCacheKey)
@@ -3888,7 +3954,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			req.Header.Del("OpenAI-Beta")
 			req.Header.Del("originator")
 		} else {
-			req.Header.Set("OpenAI-Beta", "responses=experimental")
+			stripOpenAILegacyResponsesBeta(req.Header)
 			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
 		}
 		if compactPath {

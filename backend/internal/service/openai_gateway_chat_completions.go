@@ -144,6 +144,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	} else {
 		// Normal path: convert Chat Completions → Responses.
 		// ChatCompletionsToResponses always sets Stream=true (upstream always streams).
+		// 先写入最终映射型号，转换器才能按 Sol/Luna 等真实能力清理采样参数。
+		chatReq.Model = upstreamModel
 		responsesReq, err = apicompat.ChatCompletionsToResponses(&chatReq)
 		if err != nil {
 			return nil, fmt.Errorf("convert chat completions to responses: %w", err)
@@ -190,6 +192,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
 		}
+	}
+	responsesBody, _, err = sanitizeGPTPromptCacheHints(responsesBody, upstreamModel)
+	if err != nil {
+		return nil, fmt.Errorf("sanitize GPT prompt cache hints: %w", err)
 	}
 
 	// 4b. Apply OpenAI fast policy (may filter service_tier or block the request).

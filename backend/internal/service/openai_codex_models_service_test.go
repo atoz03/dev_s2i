@@ -86,6 +86,21 @@ func newCodexModelsTestAccount() *Account {
 	}
 }
 
+func TestBuildCodexModelsManifestCacheKeyIncludesModelMapping(t *testing.T) {
+	base := codexModelsManifestRequest{
+		url:       "https://upstream.example/v1/models",
+		headers:   http.Header{"Authorization": []string{"Bearer test"}},
+		accountID: 2,
+	}
+	withSol := base
+	withSol.modelMapping = map[string]string{"public-model": "gpt-6-sol"}
+	withLuna := base
+	withLuna.modelMapping = map[string]string{"public-model": "gpt-6-luna"}
+
+	require.NotEqual(t, buildCodexModelsManifestCacheKey(base), buildCodexModelsManifestCacheKey(withSol))
+	require.NotEqual(t, buildCodexModelsManifestCacheKey(withSol), buildCodexModelsManifestCacheKey(withLuna))
+}
+
 func TestFetchCodexModelsManifestPassthrough(t *testing.T) {
 	manifestBody := `{"models":[{"slug":"gpt-5.5","display_name":"GPT-5.5"}]}`
 
@@ -394,22 +409,34 @@ func TestFetchCodexModelsManifestAPIKeyConcurrentRequestsShareRefresh(t *testing
 func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteOnlyForTargetedModels(t *testing.T) {
 	body := []byte(`{"models":[{"slug":"gpt-5.6-sol","use_responses_lite":true},{"slug":"gpt-5.6-terra","use_responses_lite":false},{"slug":"gpt-5.6-codex","use_responses_lite":true}]}`)
 
-	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, nil)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"models":[{"slug":"gpt-5.6-sol","use_responses_lite":false},{"slug":"gpt-5.6-terra","use_responses_lite":false},{"slug":"gpt-5.6-codex","use_responses_lite":true}]}`, string(adjusted))
 }
 
-func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteForGPT6Astra(t *testing.T) {
-	body := []byte(`{"models":[{"slug":"gpt-6-astra","use_responses_lite":true},{"slug":"gpt-6","use_responses_lite":true}]}`)
+func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteForGPT6(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"gpt-6-astra","use_responses_lite":true},{"slug":"gpt-6","use_responses_lite":true},{"slug":"gpt-6-sol","use_responses_lite":true},{"slug":"gpt-6-luna","use_responses_lite":true}]}`)
 
-	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, nil)
 	require.NoError(t, err)
 
 	models := decodeCodexManifestModelsForTest(t, adjusted)
-	require.Len(t, models, 2)
+	require.Len(t, models, 4)
 	for _, model := range models {
 		require.Equal(t, false, model["use_responses_lite"], model["slug"])
 	}
+}
+
+func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteForMappedGPT6(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"public-sol","use_responses_lite":true},{"slug":"public-luna","use_responses_lite":true},{"slug":"gpt-6-solar","use_responses_lite":true}]}`)
+	mapping := map[string]string{
+		"public-*":    "openai/gpt-6-sol-2026-09-23",
+		"public-luna": "OPENAI/GPT-6_LUNA",
+	}
+
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, mapping)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"models":[{"slug":"public-sol","use_responses_lite":false},{"slug":"public-luna","use_responses_lite":false},{"slug":"gpt-6-solar","use_responses_lite":true}]}`, string(adjusted))
 }
 
 // API Key 账号的 /v1/models 转换清单不带档位信息，Codex 会退化成
@@ -417,7 +444,7 @@ func TestAdjustAPIKeyCodexModelsManifestDisablesResponsesLiteForGPT6Astra(t *tes
 func TestAdjustAPIKeyCodexModelsManifestFillsGPT6AstraReasoningLevels(t *testing.T) {
 	body := []byte(`{"models":[{"slug":"gpt-6-astra","display_name":"gpt-6-astra"},{"slug":"gpt-5.4","display_name":"gpt-5.4"}]}`)
 
-	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, nil)
 	require.NoError(t, err)
 
 	models := decodeCodexManifestModelsForTest(t, adjusted)
@@ -436,7 +463,7 @@ func TestAdjustAPIKeyCodexModelsManifestFillsGPT6AstraReasoningLevels(t *testing
 func TestAdjustAPIKeyCodexModelsManifestReplacesUnsupportedGPT6AstraLevels(t *testing.T) {
 	body := []byte(`{"models":[{"slug":"gpt-6-astra","default_reasoning_level":"none","supported_reasoning_levels":[{"effort":"none","description":"Use the model's default behavior"}]}]}`)
 
-	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, nil)
 	require.NoError(t, err)
 
 	models := decodeCodexManifestModelsForTest(t, adjusted)
@@ -459,7 +486,7 @@ func TestAdjustAPIKeyCodexModelsManifestRewritesWhenDefaultOutsideDeclaredLevels
 
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
-			adjusted, err := adjustAPIKeyCodexModelsManifest([]byte(body))
+			adjusted, err := adjustAPIKeyCodexModelsManifest([]byte(body), nil)
 			require.NoError(t, err)
 
 			models := decodeCodexManifestModelsForTest(t, adjusted)
@@ -475,7 +502,7 @@ func TestAdjustAPIKeyCodexModelsManifestRewritesWhenDefaultOutsideDeclaredLevels
 func TestAdjustAPIKeyCodexModelsManifestLeavesCompliantGPT6AstraUntouched(t *testing.T) {
 	body := []byte(`{"models":[{"slug":"gpt-6-astra","default_reasoning_level":"high","supported_reasoning_levels":[{"effort":"high","description":"deep"}]}]}`)
 
-	adjusted, err := adjustAPIKeyCodexModelsManifest(body)
+	adjusted, err := adjustAPIKeyCodexModelsManifest(body, nil)
 	require.NoError(t, err)
 	require.JSONEq(t, string(body), string(adjusted))
 }

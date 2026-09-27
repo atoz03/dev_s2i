@@ -257,6 +257,33 @@ func (s *BillingService) initFallbackPricing() {
 		LongContextInputMultiplier:         openAIGPT54LongContextInputMultiplier,
 		LongContextOutputMultiplier:        openAIGPT54LongContextOutputMultiplier,
 	}
+	// OpenAI GPT-6 Sol/Luna 官方价格（USD/token），Priority（Fast）为标准价 2 倍。
+	s.fallbackPrices["gpt-6-sol"] = &ModelPricing{
+		InputPricePerToken:                 2e-6,
+		InputPricePerTokenPriority:         4e-6,
+		OutputPricePerToken:                10e-6,
+		OutputPricePerTokenPriority:        20e-6,
+		CacheCreationPricePerToken:         2.5e-6,
+		CacheCreationPricePerTokenPriority: 5e-6,
+		CacheReadPricePerToken:             0.2e-6,
+		CacheReadPricePerTokenPriority:     0.4e-6,
+		LongContextInputThreshold:          openAIGPT54LongContextInputThreshold,
+		LongContextInputMultiplier:         openAIGPT54LongContextInputMultiplier,
+		LongContextOutputMultiplier:        openAIGPT54LongContextOutputMultiplier,
+	}
+	s.fallbackPrices["gpt-6-luna"] = &ModelPricing{
+		InputPricePerToken:                 0.1e-6,
+		InputPricePerTokenPriority:         0.2e-6,
+		OutputPricePerToken:                0.5e-6,
+		OutputPricePerTokenPriority:        1e-6,
+		CacheCreationPricePerToken:         0.125e-6,
+		CacheCreationPricePerTokenPriority: 0.25e-6,
+		CacheReadPricePerToken:             0.01e-6,
+		CacheReadPricePerTokenPriority:     0.02e-6,
+		LongContextInputThreshold:          openAIGPT54LongContextInputThreshold,
+		LongContextInputMultiplier:         openAIGPT54LongContextInputMultiplier,
+		LongContextOutputMultiplier:        openAIGPT54LongContextOutputMultiplier,
+	}
 
 	// OpenAI GPT-5.6 官方价格（USD/token）。缓存写入为输入价的 1.25 倍。
 	s.fallbackPrices["gpt-5.6-sol"] = &ModelPricing{
@@ -385,6 +412,8 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// OpenAI 仅匹配已知 GPT-5/Codex 族，避免未知 OpenAI 型号误计价。
 	if normalized := normalizeKnownOpenAICodexModel(modelLower); normalized != "" {
 		switch normalized {
+		case "gpt-6-sol", "gpt-6-luna":
+			return s.fallbackPrices[normalized]
 		case "gpt-6-astra":
 			return s.fallbackPrices["gpt-6-astra"]
 		case "gpt-5.6-sol":
@@ -765,7 +794,7 @@ func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens
 }
 
 // isOpenAIGPT54Model 判定模型是否适用 GPT-5.4 之后那套「272K 长上下文换档」的
-// 定价政策，因此 GPT-5.5 / GPT-5.6 / GPT-6 Astra 同样返回 true——名字保留历史叫法，
+// 定价政策，因此 GPT-5.5 / GPT-5.6 / GPT-6 同样返回 true——名字保留历史叫法，
 // 实际语义是「适用该政策的 OpenAI 模型」。
 // 仅当模型字符串实际属于已知 GPT-5/Codex 族时才做归一判定，避免
 // normalizeCodexModel 的默认兜底把非 OpenAI 模型（claude-*、gemini-*、gpt-4o）
@@ -774,7 +803,7 @@ func isOpenAIGPT54Model(model string) bool {
 	normalized := normalizeKnownOpenAICodexModel(model)
 	return normalized == "gpt-5.4" || normalized == "gpt-5.5" ||
 		normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" || normalized == "gpt-5.6-luna" ||
-		normalized == "gpt-6-astra"
+		normalized == "gpt-6-astra" || normalized == "gpt-6-sol" || normalized == "gpt-6-luna"
 }
 
 func isOpenAIGPT56Model(normalized string) bool {
@@ -782,9 +811,10 @@ func isOpenAIGPT56Model(normalized string) bool {
 }
 
 // openAIModelUsesCacheWritePremium 标记缓存写入价为输入价 1.25 倍的模型族。
-// GPT-5.6 与 GPT-6 Astra 官方价目均如此；目录数据缺失缓存写入价时按此补齐。
+// GPT-5.6 与 GPT-6 官方价目均如此；目录数据缺失缓存写入价时按此补齐。
 func openAIModelUsesCacheWritePremium(normalized string) bool {
-	return isOpenAIGPT56Model(normalized) || normalized == "gpt-6-astra"
+	return isOpenAIGPT56Model(normalized) || normalized == "gpt-6-astra" ||
+		normalized == "gpt-6-sol" || normalized == "gpt-6-luna"
 }
 
 // CalculateCostWithConfig 使用配置中的默认倍率计算费用

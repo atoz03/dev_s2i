@@ -64,6 +64,7 @@ type codexModelsManifestRequest struct {
 	accountID          int64
 	accountConcurrency int
 	useAPIKeyUpstream  bool
+	modelMapping       map[string]string
 }
 
 type codexModelsManifestCacheEntry struct {
@@ -222,6 +223,7 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		useAPIKeyUpstream:  useAPIKeyUpstream,
 	}
 	if useAPIKeyUpstream {
+		request.modelMapping = account.GetModelMapping()
 		return s.fetchCachedAPIKeyCodexModelsManifest(ctx, request, ifNoneMatch)
 	}
 	return s.fetchCodexModelsManifestUpstream(ctx, request, ifNoneMatch, account)
@@ -358,7 +360,7 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstream(ctx context.Cont
 		}
 	}
 	if request.useAPIKeyUpstream {
-		body, err = adjustAPIKeyCodexModelsManifest(body)
+		body, err = adjustAPIKeyCodexModelsManifest(body, request.modelMapping)
 		if err != nil {
 			return nil, &codexModelsManifestUpstreamError{
 				err:       infraerrors.Newf(http.StatusBadGateway, "OPENAI_CODEX_MODELS_UPSTREAM_INVALID_MANIFEST", "codex models manifest upstream could not be adjusted: %v", err),
@@ -419,6 +421,8 @@ func convertOpenAIModelListToCodexManifest(body []byte) []byte {
 var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
 	"gpt-6-astra":   {},
 	"gpt-6":         {},
+	"gpt-6-sol":     {},
+	"gpt-6-luna":    {},
 	"gpt-5.6-sol":   {},
 	"gpt-5.6-terra": {},
 	"gpt-5.6-luna":  {},
@@ -512,7 +516,7 @@ func codexManifestReasoningDeclarationIsUsable(model map[string]json.RawMessage,
 	return defaultDeclared
 }
 
-func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
+func adjustAPIKeyCodexModelsManifest(body []byte, modelMapping map[string]string) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("decode JSON object: %w", err)
@@ -532,8 +536,15 @@ func adjustAPIKeyCodexModelsManifest(body []byte) ([]byte, error) {
 		if err := json.Unmarshal(model["slug"], &slug); err != nil {
 			continue
 		}
+		target := slug
+		if mapped, matched := resolveRequestedModelInMapping(modelMapping, slug); matched && strings.TrimSpace(mapped) != "" {
+			target = mapped
+		}
+		if normalized := normalizeKnownOpenAICodexModel(target); normalized != "" {
+			target = normalized
+		}
 		modelChanged := false
-		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[slug]; targeted {
+		if _, targeted := apiKeyCodexModelsWithoutResponsesLite[target]; targeted {
 			var useResponsesLite bool
 			if err := json.Unmarshal(model["use_responses_lite"], &useResponsesLite); err == nil && useResponsesLite {
 				model["use_responses_lite"] = json.RawMessage("false")
@@ -614,6 +625,14 @@ func buildCodexModelsManifestCacheKey(request codexModelsManifestRequest) string
 		for _, value := range request.headers[name] {
 			_, _ = fmt.Fprintf(hasher, "%s\n", value)
 		}
+	}
+	mappingKeys := make([]string, 0, len(request.modelMapping))
+	for name := range request.modelMapping {
+		mappingKeys = append(mappingKeys, name)
+	}
+	sort.Strings(mappingKeys)
+	for _, name := range mappingKeys {
+		_, _ = fmt.Fprintf(hasher, "model_mapping:%s=%s\n", name, request.modelMapping[name])
 	}
 	return fmt.Sprintf("%x", hasher.Sum(nil))
 }

@@ -18,6 +18,8 @@ func TestSplitOpenAIFastTierModel(t *testing.T) {
 		"  gpt-6-astra-fast  ":    "gpt-6-astra",
 		// Fast 是服务档位，不是 Astra 专属：同族其他型号一并生效
 		"gpt-5.6-sol-fast": "gpt-5.6-sol",
+		"gpt-6-sol-fast":   "gpt-6-sol",
+		"gpt-6-luna-fast":  "gpt-6-luna",
 	}
 	for input, expected := range fast {
 		base, isFast := splitOpenAIFastTierModel(input)

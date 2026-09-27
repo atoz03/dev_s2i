@@ -22,11 +22,13 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gpt-5.4-2026-03-05')
   })
 
-  it('openai 模型列表包含 GPT-6 Astra 与其公开别名', () => {
+  it('openai 模型列表包含 GPT-6 系列', () => {
     const models = getModelsByPlatform('openai')
 
     expect(models).toContain('gpt-6-astra')
     expect(models).toContain('gpt-6')
+    expect(models).toContain('gpt-6-sol')
+    expect(models).toContain('gpt-6-luna')
   })
 
   it('openai 预设映射包含 GPT-6 别名与 Astra', () => {

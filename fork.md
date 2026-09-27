@@ -71,6 +71,55 @@
 
 # 二、决议记录（新 → 旧）
 
+## 2026-09-26 · 选择性同步 upstream — GPT-6 Sol/Luna 与 Responses 兼容修复
+
+本轮以 `upstream/main@a3eb7ef30` 为审查基线。自上次同步锚点以来上游已累积 700 余个提交，且包含
+恢复 Antigravity、拆分 OpenAI 网关、拆分前端 i18n 等与本 fork 固定结构冲突的改动，因此不做整分支
+merge，改为按功能结论适配到本地单体网关。
+
+### 纳入范围
+
+- 从 `c4c2e6607` 及其修复提交中只吸收 GPT-6 Sol/Luna：模型注册与别名、日期/推理档后缀、
+  `none` 至 `max` 推理档、Responses 完整模式、Fast/Priority、105 万上下文与 12.8 万输出、
+  官方标准/缓存/Priority/长上下文价格、白名单与 OpenCode 配置。该提交夹带的 Claude Opus 5.5
+  与广泛协议重构不纳入。
+- 适配开放 PR `#7528`（`ccb3bcb6a`）的 Sol/Luna API Key 完整 Responses 能力；本 fork 没有
+  upstream 的分型号 Codex prompt 子系统，因此不引入整套 prompt 资源与选择器，继续沿用本地统一
+  instructions 行为。
+- 适配 `#7568`（`82b092ffc`）：所有 GPT 主版本 5 及以上按 reasoning 模型处理，避免错误透传
+  `temperature` / `top_p` 等采样参数；Sol/Luna 仅在 `reasoning.effort=none` 时保留采样。
+- 适配 `#7547`（`2a84bd59e`）：只删除协议层显式 prompt-cache hints，保留工具参数、metadata 与
+  用户 JSON 中的同名业务字段。
+- 适配 `#7617`（`8b95dc94f`）：保留调用方的 `OpenAI-Beta`，仅移除旧的
+  `responses=experimental`，避免破坏 Responses multi-agent beta。
+- 适配 `#7615`（`7626110d0`）：Codex WebSocket 的 `window_id` 变化时移除旧
+  `previous_response_id`，新窗口从新的 Responses 根开始；同窗口的工具续链保持不变。
+
+### 暂不纳入
+
+- 不整合 upstream 的网关文件拆分、Antigravity、i18n 分片、image 链路与 settings 改造，继续执行
+  本文件“本地优先”约定。
+- `a5d8db244`（超长 Responses item ID）与 `1d640c40e`（tool schema 的 `required:null`）依赖
+  upstream 新增的 Responses item/schema 清洗子系统，本 fork 当前没有对应入口；本轮不为了两个
+  边界修复引入整套解析层。
+- `cf10d6d01`（流式错误协议）与 `3fdd54ca1`（响应体生命周期）落在已拆分的 upstream 请求尝试层，
+  需单独按本地单体重试/流式实现审查，不与模型支持混合回移。
+
+### 行为变化与回退
+
+- `gpt-6-sol` / `gpt-6-luna` 及 `openai/`、日期、推理档、`-fast` 写法会归一到对应型号；
+  `-fast` 继续复用本 fork 的 `service_tier=priority` 计费与转发路径。
+- Sol/Luna 使用官方价格，不继承 Astra 的 1.8 倍业务加价。
+- 回退时优先 revert 本轮提交；若拆分回退，先移除模型清单/别名与价格，再移除 GPT-6 采样、
+  prompt-cache、Beta header 和 WebSocket 边界适配，避免留下可选但不能正确转发或计费的型号。
+
+### 验证
+
+`go test ./...`、`go test -tags=unit ./...`、`go test -tags=integration ./...` 全绿；
+`golangci-lint run ./...`（按约定临时移走 `backend/internal/web/dist`）0 issues；前端
+`lint:check`、`typecheck`、108 个测试文件共 646 个用例、生产构建全绿；`git diff --check`
+与价格 JSON 语法检查通过。
+
 ## 2026-09-05 · v1.4.11 — GPT-6 Astra 按额度权重加价 1.8 倍 + `-fast` 走 Fast 档
 
 同步 09-05 18:56 的调价公告（生效 09-05 19:00 北京时间，生效前完成的请求不追溯）：

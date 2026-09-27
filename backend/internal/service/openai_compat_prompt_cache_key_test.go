@@ -27,7 +27,7 @@ func TestShouldAutoInjectPromptCacheKeyForCompat(t *testing.T) {
 
 // /v1/messages → Responses 的缓存身份原先按 "gpt-5" 前置筛选，
 // gpt-6-astra 名字里没有 gpt-5，会被挡在缓存链路之外（upstream #6615）。
-func TestShouldAutoInjectPromptCacheKeyForCompat_GPT6Astra(t *testing.T) {
+func TestShouldAutoInjectPromptCacheKeyForCompat_GPT6(t *testing.T) {
 	for _, model := range []string{
 		"gpt-6",
 		"gpt-6-astra",
@@ -35,11 +35,15 @@ func TestShouldAutoInjectPromptCacheKeyForCompat_GPT6Astra(t *testing.T) {
 		"openai/gpt-6-astra",
 		"OPENAI/GPT-6_ASTRA",
 		"gpt-6-astra-2026-09-01",
+		"gpt-6-sol",
+		"gpt-6-luna",
+		"openai/gpt-6-sol-max",
+		"gpt-6-luna-2026-09-23",
 	} {
 		require.True(t, shouldAutoInjectPromptCacheKeyForCompat(model), model)
 	}
 
-	for _, model := range []string{"gpt-6-terra", "gpt-6.1", "claude-sonnet-4-5"} {
+	for _, model := range []string{"gpt-6-terra", "gpt-6.1", "gpt-6-solar", "claude-sonnet-4-5"} {
 		require.False(t, shouldAutoInjectPromptCacheKeyForCompat(model), model)
 	}
 }

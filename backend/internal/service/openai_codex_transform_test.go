@@ -857,6 +857,19 @@ func TestNormalizeCodexModel_Gpt6Astra(t *testing.T) {
 	}
 }
 
+func TestNormalizeCodexModel_Gpt6SolLuna(t *testing.T) {
+	cases := map[string]string{
+		"gpt-6-sol":                 "gpt-6-sol",
+		"openai/gpt-6-sol-max":      "gpt-6-sol",
+		"gpt-6-sol-2026-09-23":      "gpt-6-sol",
+		"GPT-6_LUNA":                "gpt-6-luna",
+		"gpt-6-luna-openai-compact": "gpt-6-luna",
+	}
+	for input, expected := range cases {
+		require.Equal(t, expected, normalizeCodexModel(input), input)
+	}
+}
+
 // "-max" 在 gpt-5.1-codex-max 中是型号的一部分，不是推理档位后缀。
 func TestNormalizeCodexModel_CodexMaxSuffixStaysModelName(t *testing.T) {
 	require.Equal(t, "gpt-5.3-codex", normalizeCodexModel("gpt-5.1-codex-max"))

@@ -7,15 +7,16 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 const compatPromptCacheKeyPrefix = "compat_cc_"
 
 func shouldAutoInjectPromptCacheKeyForCompat(model string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(model))
-	// GPT-6 Astra 走同一条 Messages→Responses 缓存链路，但模型名里没有 "gpt-5"，
+	// GPT-6 走同一条 Messages→Responses 缓存链路，但模型名里没有 "gpt-5"，
 	// 会被下面的族前置筛选挡掉，因此先单独放行。
-	if isOpenAIGPT6AstraModel(trimmed) {
+	if isOpenAIGPT6AstraModel(trimmed) || openai.IsGPT6SolOrLunaModelSpelling(trimmed) {
 		return true
 	}
 	// 仅对 Codex OAuth 路径支持的 GPT-5 族开启自动注入，避免 normalizeCodexModel

@@ -142,6 +142,49 @@ func TestDropPreviousResponseIDFromRawPayload(t *testing.T) {
 	})
 }
 
+func TestNormalizeOpenAIWSContextWindowBoundary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("同一窗口保留续链", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","previous_response_id":"resp_old","client_metadata":{"x-codex-window-id":"window-a"}}`)
+		updated, boundary, err := normalizeOpenAIWSContextWindowBoundary(payload, "window-a")
+		require.NoError(t, err)
+		require.False(t, boundary.Changed)
+		require.False(t, boundary.PreviousResponseIDRemoved)
+		require.Equal(t, "window-a", boundary.WindowID)
+		require.Equal(t, "resp_old", gjson.GetBytes(updated, "previous_response_id").String())
+	})
+
+	t.Run("新窗口移除旧续链", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","previous_response_id":"resp_old","client_metadata":{"x-codex-window-id":"window-b"}}`)
+		updated, boundary, err := normalizeOpenAIWSContextWindowBoundary(payload, "window-a")
+		require.NoError(t, err)
+		require.True(t, boundary.Changed)
+		require.True(t, boundary.PreviousResponseIDRemoved)
+		require.Equal(t, "window-b", boundary.WindowID)
+		require.False(t, gjson.GetBytes(updated, "previous_response_id").Exists())
+	})
+
+	t.Run("新窗口无续链字段仍标记边界", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","client_metadata":{"x-codex-window-id":"window-b"}}`)
+		updated, boundary, err := normalizeOpenAIWSContextWindowBoundary(payload, "window-a")
+		require.NoError(t, err)
+		require.True(t, boundary.Changed)
+		require.False(t, boundary.PreviousResponseIDRemoved)
+		require.Equal(t, string(payload), string(updated))
+	})
+
+	t.Run("回退读取嵌入的 turn metadata", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","previous_response_id":"resp_old","client_metadata":{"x-codex-turn-metadata":"{\"window_id\":\"window-b\"}"}}`)
+		updated, boundary, err := normalizeOpenAIWSContextWindowBoundary(payload, "window-a")
+		require.NoError(t, err)
+		require.True(t, boundary.Changed)
+		require.True(t, boundary.PreviousResponseIDRemoved)
+		require.Equal(t, "window-b", boundary.WindowID)
+		require.False(t, gjson.GetBytes(updated, "previous_response_id").Exists())
+	})
+}
+
 func TestAlignStoreDisabledPreviousResponseID(t *testing.T) {
 	t.Parallel()
 

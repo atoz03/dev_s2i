@@ -121,6 +121,43 @@ func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDown
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
 }
 
+func TestForwardAsRawChatCompletionsRejectsGPT6ReasoningToolsWithoutResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig()}
+	account := rawChatCompletionsTestAccount()
+
+	for _, tc := range []struct {
+		name      string
+		body      string
+		wantError bool
+	}{
+		{"sol reasoning tools", `{"model":"gpt-6-sol","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f"}}]}`, true},
+		{"luna none tools", `{"model":"gpt-6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none","tools":[{"type":"function","function":{"name":"f"}}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			body := []byte(tc.body)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			if tc.wantError {
+				result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+				require.ErrorContains(t, err, "requires Responses")
+				require.Nil(t, result)
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+				return
+			}
+			// none 档允许直转；这里只验证不会被兼容护栏拒绝。
+			svc.httpUpstream = &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl","model":"gpt-6-luna","choices":[{"message":{"content":"ok"}}],"usage":{}}`)),
+			}}
+			_, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestForwardAsRawChatCompletions_PreservesDeepSeekReasoningContentNonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

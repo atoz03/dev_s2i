@@ -172,6 +172,43 @@ func TestGetModelPricing_GPT56FallbackUsesOfficialRates(t *testing.T) {
 	}
 }
 
+func TestGetModelPricing_GPT6SolLunaFallbackUsesOfficialRates(t *testing.T) {
+	svc := newTestBillingService()
+
+	tests := []struct {
+		model               string
+		input               float64
+		inputPriority       float64
+		output              float64
+		outputPriority      float64
+		cacheCreate         float64
+		cacheCreatePriority float64
+		cacheRead           float64
+		cacheReadPriority   float64
+	}{
+		{"gpt-6-sol", 2e-6, 4e-6, 10e-6, 20e-6, 2.5e-6, 5e-6, 0.2e-6, 0.4e-6},
+		{"openai/gpt-6-luna-max", 0.1e-6, 0.2e-6, 0.5e-6, 1e-6, 0.125e-6, 0.25e-6, 0.01e-6, 0.02e-6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(tt.model)
+			require.NoError(t, err)
+			require.InDelta(t, tt.input, pricing.InputPricePerToken, 1e-12)
+			require.InDelta(t, tt.inputPriority, pricing.InputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, tt.output, pricing.OutputPricePerToken, 1e-12)
+			require.InDelta(t, tt.outputPriority, pricing.OutputPricePerTokenPriority, 1e-12)
+			require.InDelta(t, tt.cacheCreate, pricing.CacheCreationPricePerToken, 1e-12)
+			require.InDelta(t, tt.cacheCreatePriority, pricing.CacheCreationPricePerTokenPriority, 1e-12)
+			require.InDelta(t, tt.cacheRead, pricing.CacheReadPricePerToken, 1e-12)
+			require.InDelta(t, tt.cacheReadPriority, pricing.CacheReadPricePerTokenPriority, 1e-12)
+			require.Equal(t, 272000, pricing.LongContextInputThreshold)
+			require.InDelta(t, 2.0, pricing.LongContextInputMultiplier, 1e-12)
+			require.InDelta(t, 1.5, pricing.LongContextOutputMultiplier, 1e-12)
+		})
+	}
+}
+
 // 静态兜底按「官方价 × 额度权重加价」给出，即 2026-09-05 公布的
 // 18 / 22.5 / 1.8 / 90（USD per MTok），-fast 档为其 2 倍。
 func TestGetModelPricing_GPT6AstraFallbackAppliesQuotaWeightMarkup(t *testing.T) {
