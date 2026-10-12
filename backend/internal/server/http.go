@@ -127,6 +127,8 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 	// 根据配置决定是否启用 H2C
 	if cfg.Server.H2C.Enabled {
 		h2cConfig := cfg.Server.H2C
+		// 保留 H2C 独立的 IdleTimeout；标准库 HTTP2Config 暂无对应字段。
+		//nolint:staticcheck // SA1019：此兼容 API 已随 x/net 升级修复漏洞，避免改变现有超时配置语义。
 		if err := http2.ConfigureServer(server, &http2.Server{
 			MaxConcurrentStreams:         h2cConfig.MaxConcurrentStreams,
 			IdleTimeout:                  time.Duration(h2cConfig.IdleTimeout) * time.Second,

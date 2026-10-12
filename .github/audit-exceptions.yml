@@ -1,37 +1,10 @@
 version: 1
 exceptions:
-  - package: lodash
-    advisory: "GHSA-r5fr-rjxr-66jc"
+  # 上游尚未发布修复版；仅存在于本地 lint/CSS 构建工具，生产依赖不包含此包。
+  - package: braces
+    advisory: "GHSA-vfj7-8cjw-p6xm"
     severity: high
-    reason: "lodash _.template not used with untrusted input; only internal admin UI templates"
-    mitigation: "No user-controlled template strings; plan to migrate to lodash-es tree-shaken imports"
-    expires_on: "2026-07-02"
-    owner: "security@your-domain"
-  - package: lodash-es
-    advisory: "GHSA-r5fr-rjxr-66jc"
-    severity: high
-    reason: "lodash-es _.template not used with untrusted input; only internal admin UI templates"
-    mitigation: "No user-controlled template strings; plan to migrate to native JS alternatives"
-    expires_on: "2026-07-02"
-    owner: "security@your-domain"
-  - package: axios
-    advisory: "GHSA-3p68-rc4w-qgx5"
-    severity: critical
-    reason: "NO_PROXY bypass not exploitable; all API calls go to known endpoints via server-side proxy"
-    mitigation: "Proxy configuration not user-controlled; upgrade when axios releases fix"
-    expires_on: "2026-07-10"
-    owner: "security@your-domain"
-  - package: xlsx
-    advisory: "GHSA-4r6h-8v6p-xvw6"
-    severity: high
-    reason: "Frontend only uses trusted workbook parsing for internal admin exports; no untrusted file upload flow"
-    mitigation: "Will upgrade xlsx after a compatible release is available"
-    expires_on: "2026-10-06"
-    owner: "security@your-domain"
-  - package: xlsx
-    advisory: "GHSA-5pgg-2g8v-p4x9"
-    severity: high
-    reason: "Frontend only uses trusted workbook parsing for internal admin exports; no untrusted file upload flow"
-    mitigation: "Will upgrade xlsx after a compatible release is available"
-    expires_on: "2026-10-06"
-    owner: "security@your-domain"
+    reason: "仅由 ESLint 和 Tailwind 的开发依赖引入，处理仓库内固定 glob，不接收请求或上传文件。"
+    mitigation: "生产构建不包含 braces；禁止将不可信模式传入构建工具，跟踪上游修复并在发布后升级。"
+    expires_on: "2026-11-12"
+    owner: "atoz03"

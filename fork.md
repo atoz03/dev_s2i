@@ -71,6 +71,38 @@
 
 # 二、决议记录（新 → 旧）
 
+## 2026-10-12 · v1.4.13 — 安全依赖与扫描修复
+
+### 取舍与原因
+
+- Go 安全基线升级到 **1.26.9**，同步三个 Dockerfile、CI/安全/发布版本断言与 README；
+  `x/net` 升到 `v0.60.0`、`x/image` 升到 `v0.45.0`，修复 HTTP/2、TLS、请求解析与图像解码漏洞。
+- 测试容器依赖升到 `v0.44.0`，移除旧 `github.com/docker/docker`，使用 Moby 拆分模块；
+  测试端口读取同步为 `Num()`。升级 OpenTelemetry，tidy 移除不再需要的 gRPC 依赖。
+- 前端 Axios、Vue、DOMPurify 与传递依赖升级到修复版本；Vite 升到 6.4.4，Vitest 与 coverage
+  同步升到 4.1.11。CI、Docker 与 packageManager 固定 pnpm 10.30.3，只允许 esbuild/vue-demi 构建脚本。
+- 安全扫描覆盖全部前端依赖和 Go 集成测试代码；审计接口失败、缺少漏洞统计或详情时直接失败，
+  防止错误响应被当作扫描通过。删除旧审计快照与无效豁免。
+- `braces@3.0.3` 的 `GHSA-vfj7-8cjw-p6xm` 尚无上游修复，仅用于 ESLint/Tailwind 开发工具的
+  仓库固定 glob，生产依赖审计为零漏洞。记录限期豁免至 **2026-11-12**，跟踪上游修复。
+- Go 模块扫描保留一条未调用的 `x/crypto/openpgp` 废弃包通告（无修复版本）；本项目不导入该包，
+  普通与集成测试代码扫描均无可达漏洞。
+- 保留 `http2.ConfigureServer`：它支持现有 H2C 独立 `IdleTimeout`，标准库 `HTTP2Config`
+  暂无对应字段；仅对该调用标注 SA1019 原因，保留超时语义与其他 lint 检查。
+- 本轮不合并 upstream，保留 image、网关、settings、计费与模型策略。
+
+### 回退
+
+优先 revert 本轮提交；依赖清单与锁文件、Go/Docker/CI 版本须成组回退，测试端口 API 随
+Testcontainers 同步回退。回退会恢复旧漏洞，需重新评估后才能发布。
+
+### 验证
+
+Go 普通、unit 与 integration 标签检查通过（本机无 Docker，容器用例由 GitHub CI 实跑）；
+Go 普通与 integration 测试代码扫描无可达漏洞。后端 lint 0 issues；前端 lint、类型检查、
+108 个测试文件的 646 个用例与生产构建通过。全前端审计从 83 条降至 1 条开发工具限期豁免，
+生产依赖为 0 漏洞；审计校验 6 个回归用例、运行时资源检查与 diff 检查通过。
+
 ## 2026-09-26 · 选择性同步 upstream — GPT-6 Sol/Luna 与 Responses 兼容修复
 
 本轮以 `upstream/main@a3eb7ef30` 为审查基线。自上次同步锚点以来上游已累积 700 余个提交，且包含

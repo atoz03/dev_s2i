@@ -116,6 +116,26 @@ def normalize_severity(severity: str) -> str:
     return (severity or "").strip().lower()
 
 
+def validate_audit(audit: dict) -> list[str]:
+    # 接口失败或输出不完整时必须失败，不能当作没有漏洞。
+    if not isinstance(audit, dict):
+        return ["Audit response must be an object"]
+    if audit.get("error"):
+        return [f"Audit request failed: {audit['error']}"]
+    metadata = audit.get("metadata")
+    counts = metadata.get("vulnerabilities") if isinstance(metadata, dict) else None
+    if not isinstance(counts, dict) or not counts:
+        return ["Audit response is missing vulnerability counts"]
+    if any(type(count) is not int or count < 0 for count in counts.values()):
+        return ["Audit response has invalid vulnerability counts"]
+    findings = audit.get("advisories", audit.get("vulnerabilities"))
+    if not isinstance(findings, dict):
+        return ["Audit response is missing vulnerability details"]
+    if sum(counts.values()) > 0 and not findings:
+        return ["Audit response reports vulnerabilities without details"]
+    return []
+
+
 def normalize_package(name: str) -> str:
     # 包名只去掉首尾空白，保留原始大小写，同时兼容非字符串输入。
     if name is None:
@@ -147,6 +167,11 @@ def main() -> int:
 
     with open(args.audit, "r", encoding="utf-8") as handle:
         audit = json.load(handle)
+
+    errors = validate_audit(audit)
+    if errors:
+        sys.stderr.write("\n".join(errors) + "\n")
+        return 1
 
     # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
     exceptions = parse_exceptions(args.exceptions)
