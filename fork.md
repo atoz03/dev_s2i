@@ -89,6 +89,7 @@
   普通与集成测试代码扫描均无可达漏洞。
 - 保留 `http2.ConfigureServer`：它支持现有 H2C 独立 `IdleTimeout`，标准库 `HTTP2Config`
   暂无对应字段；仅对该调用标注 SA1019 原因，保留超时语义与其他 lint 检查。
+- 嵌入前端测试中将已移除 Sora 路由的过期断言替换为本 fork 的 `/images/generations` 路由验证。
 - 本轮不合并 upstream，保留 image、网关、settings、计费与模型策略。
 
 ### 回退
