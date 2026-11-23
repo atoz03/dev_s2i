@@ -447,7 +447,7 @@ func (s *PricingService) downloadPricingData() error {
 
 	// 保存到本地文件
 	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, body, 0644); err != nil {
+	if err := os.WriteFile(pricingFile, body, 0644); err != nil { // #nosec G703 -- 文件名固定，目录由部署配置指定。
 		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save file: %v", err)
 	}
 
@@ -643,7 +643,7 @@ func (s *PricingService) useFallbackPricing() error {
 	}
 
 	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, data, 0644); err != nil {
+	if err := os.WriteFile(pricingFile, data, 0644); err != nil { // #nosec G703 -- 文件名固定，目录由部署配置指定。
 		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to copy fallback: %v", err)
 	}
 

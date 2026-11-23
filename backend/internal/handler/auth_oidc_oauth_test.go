@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -99,6 +101,27 @@ func TestOIDCParseAndValidateIDToken(t *testing.T) {
 
 	_, err = oidcParseAndValidateIDToken(context.Background(), cfg, signed, "bad-nonce")
 	require.Error(t, err)
+}
+
+func TestOIDCJWKParsesECDSAPublicKey(t *testing.T) {
+	for _, curve := range []elliptic.Curve{elliptic.P256(), elliptic.P384(), elliptic.P521()} {
+		t.Run(curve.Params().Name, func(t *testing.T) {
+			privateKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+			require.NoError(t, err)
+			point, err := privateKey.PublicKey.Bytes()
+			require.NoError(t, err)
+			coordinateSize := (len(point) - 1) / 2
+			jwk := oidcJWK{
+				Kty: "EC",
+				Crv: curve.Params().Name,
+				X:   base64.RawURLEncoding.EncodeToString(point[1 : 1+coordinateSize]),
+				Y:   base64.RawURLEncoding.EncodeToString(point[1+coordinateSize:]),
+			}
+			publicKey, err := jwk.publicKey()
+			require.NoError(t, err)
+			require.True(t, privateKey.PublicKey.Equal(publicKey))
+		})
+	}
 }
 
 func TestOIDCParseUserInfoIncludesSuggestedProfile(t *testing.T) {

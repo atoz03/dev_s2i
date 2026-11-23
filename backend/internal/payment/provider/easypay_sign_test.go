@@ -1,8 +1,37 @@
 package provider
 
 import (
+	"context"
+	"net/url"
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/payment"
 )
+
+func TestEasyPayVerifyNotificationAcceptsPaidOrder(t *testing.T) {
+	t.Parallel()
+
+	const key = "test-key"
+	provider := &EasyPay{config: map[string]string{"pid": "1001", "pkey": key}}
+	fields := map[string]string{
+		"pid": "1001", "trade_no": "gateway-order", "out_trade_no": "merchant-order",
+		"type": "alipay", "name": "Test Product", "money": "10.00", "trade_status": tradeStatusSuccess,
+	}
+	form := url.Values{}
+	for field, value := range fields {
+		form.Set(field, value)
+	}
+	form.Set("sign", easyPaySign(fields, key))
+	form.Set("sign_type", signTypeMD5)
+
+	notification, err := provider.VerifyNotification(context.Background(), form.Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notification.Status != payment.ProviderStatusSuccess || notification.OrderID != "merchant-order" || notification.Amount != 10 {
+		t.Fatalf("支付通知解析结果不符: %+v", notification)
+	}
+}
 
 func TestEasyPaySignConsistentOutput(t *testing.T) {
 	t.Parallel()

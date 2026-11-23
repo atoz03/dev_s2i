@@ -1,10 +1,2 @@
 version: 1
-exceptions:
-  # 上游尚未发布修复版；仅存在于本地 lint/CSS 构建工具，生产依赖不包含此包。
-  - package: braces
-    advisory: "GHSA-vfj7-8cjw-p6xm"
-    severity: high
-    reason: "仅由 ESLint 和 Tailwind 的开发依赖引入，处理仓库内固定 glob，不接收请求或上传文件。"
-    mitigation: "生产构建不包含 braces；禁止将不可信模式传入构建工具，跟踪上游修复并在发布后升级。"
-    expires_on: "2026-11-12"
-    owner: "atoz03"
+exceptions: []

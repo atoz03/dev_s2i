@@ -241,9 +241,15 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 		return nil, fmt.Errorf("parse notify: %w", err)
 	}
 	// url.ParseQuery already decodes values — no additional decode needed.
-	params := make(map[string]string)
-	for k := range values {
-		params[k] = values.Get(k)
+	params := make(map[string]string, len(values))
+	for k, entries := range values {
+		if !easyPayNotifyAllowedParams[k] {
+			return nil, fmt.Errorf("unexpected notify param: %s", k)
+		}
+		if len(entries) != 1 {
+			return nil, fmt.Errorf("duplicate notify param: %s", k)
+		}
+		params[k] = entries[0]
 	}
 	sign := params["sign"]
 	if sign == "" {
@@ -463,4 +469,18 @@ func easyPaySign(params map[string]string, pkey string) string {
 
 func easyPayVerifySign(params map[string]string, pkey string, sign string) bool {
 	return hmac.Equal([]byte(easyPaySign(params, pkey)), []byte(sign))
+}
+
+// easyPayNotifyAllowedParams 限定异步通知协议允许的字段。
+var easyPayNotifyAllowedParams = map[string]bool{
+	"pid":          true,
+	"trade_no":     true,
+	"out_trade_no": true,
+	"type":         true,
+	"name":         true,
+	"money":        true,
+	"trade_status": true,
+	"param":        true,
+	"sign":         true,
+	"sign_type":    true,
 }

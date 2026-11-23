@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+func TestPrepareAdminCredentials(t *testing.T) {
+	t.Parallel()
+
+	var generated AdminConfig
+	emailGenerated, passwordGenerated, err := prepareAdminCredentials(&generated)
+	if err != nil || !emailGenerated || !passwordGenerated {
+		t.Fatalf("prepareAdminCredentials() = (%t, %t, %v)", emailGenerated, passwordGenerated, err)
+	}
+	if !strings.HasPrefix(generated.Email, "admin-") || !validateEmail(generated.Email) {
+		t.Fatal("生成的管理员邮箱不符合登录规则")
+	}
+	if err := validatePassword(generated.Password); err != nil {
+		t.Fatalf("生成的管理员密码不符合要求: %v", err)
+	}
+
+	explicit := AdminConfig{Email: "operator@example.com", Password: strings.Repeat("a", maxPasswordBytes)}
+	original := explicit
+	emailGenerated, passwordGenerated, err = prepareAdminCredentials(&explicit)
+	if err != nil || emailGenerated || passwordGenerated || explicit != original {
+		t.Fatal("显式提供的有效管理员凭据应保留")
+	}
+
+	invalid := AdminConfig{Email: original.Email, Password: strings.Repeat("a", maxPasswordBytes+1)}
+	if _, _, err := prepareAdminCredentials(&invalid); err == nil {
+		t.Fatal("超过 bcrypt 输入上限的密码应被拒绝")
+	}
+}
+
 func TestDecideAdminBootstrap(t *testing.T) {
 	t.Parallel()
 

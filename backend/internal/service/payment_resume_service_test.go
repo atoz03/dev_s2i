@@ -69,8 +69,8 @@ func TestCanonicalizeReturnURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalizeReturnURL returned error: %v", err)
 	}
-	if got != "https://example.com/payment/result?b=2" {
-		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://example.com/payment/result?b=2")
+	if got != "https://example.com/payment/result" {
+		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://example.com/payment/result")
 	}
 }
 
@@ -101,8 +101,8 @@ func TestCanonicalizeReturnURLAllowsConfiguredFrontendHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalizeReturnURL returned error: %v", err)
 	}
-	if got != "https://app.example.com/payment/result?from=checkout" {
-		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://app.example.com/payment/result?from=checkout")
+	if got != "https://app.example.com/payment/result" {
+		t.Fatalf("CanonicalizeReturnURL = %q, want %q", got, "https://app.example.com/payment/result")
 	}
 }
 

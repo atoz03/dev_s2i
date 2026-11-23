@@ -261,7 +261,11 @@ func (s *OpenAIGatewayService) fetchCachedAPIKeyCodexModelsManifest(ctx context.
 
 func (s *OpenAIGatewayService) refreshCachedAPIKeyCodexModelsManifest(cacheKey string, request codexModelsManifestRequest) <-chan singleflight.Result {
 	return s.codexModelsManifestCache.refresh.DoChan(cacheKey, func() (any, error) {
-		cached, _ := s.codexModelsManifestCache.get(cacheKey, time.Now())
+		cached, state := s.codexModelsManifestCache.get(cacheKey, time.Now())
+		// 上一次刷新可能已在调用方读缓存后完成，直接复用仍然有效的清单。
+		if state == codexModelsManifestCacheFresh {
+			return cached, nil
+		}
 		upstreamETag := ""
 		if cached != nil {
 			upstreamETag = cached.upstreamETag

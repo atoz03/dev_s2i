@@ -162,8 +162,8 @@ main() {
     echo "  4. Access Web UI:"
     echo "     http://localhost:8080"
     echo ""
-    print_info "If admin password is not set in .env, it will be auto-generated."
-    print_info "Check logs for the generated admin password on first startup."
+    print_info "Leave ADMIN_EMAIL and ADMIN_PASSWORD empty to generate them on first startup."
+    print_info "Check the first startup logs for any generated admin credentials."
     echo ""
 }
 
